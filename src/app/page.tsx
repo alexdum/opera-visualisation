@@ -1,65 +1,604 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import React, { useState, useEffect, useMemo, Suspense } from "react";
+import { Sidebar } from "@/components/Sidebar";
+import { WeatherMap } from "@/components/Map";
+import { DashboardCharts } from "@/components/DashboardCharts";
+import { WeatherTable } from "@/components/Table";
+import { ColumnDef } from "@tanstack/react-table";
+import { Map, List, BarChart3, AlertCircle, Info, Calendar, Thermometer, Wind, Database, Download, Maximize, Minimize, MapPin, Mountain, Loader2 } from "lucide-react";
+import { downloadCSV, downloadExcel } from "@/utils/export";
+
+interface Station {
+  id: string;
+  name: string;
+  country: string;
+  longitude: number;
+  latitude: number;
+  elevation: number | null;
+  available_params: string;
+}
+
+interface HourlyRow {
+  datetime: string;
+  temperature?: number;
+  precipitation?: number;
+  pressure?: number;
+  windSpeed?: number;
+  windDirection?: number;
+  tempMin?: number;
+  tempMax?: number;
+  tempMin50cm?: number;
+  tempMinGround?: number;
+  pressureStation?: number;
+  windGust?: number;
+  windGustInst?: number;
+  windSpeed2m?: number;
+  humidity?: number;
+  dewPoint?: number;
+  cloudCover?: number;
+  visibility?: number;
+  solarRadiation?: number;
+  sunshineDuration?: number;
+  snowDepth?: number;
+  snowFresh?: number;
+  soilTemp10cm?: number;
+  soilTemp20cm?: number;
+  soilTemp50cm?: number;
+  etp?: number;
+}
+
+function EuroMeteoApp() {
+  // --- Sidebar & General Filters State ---
+  const [stations, setStations] = useState<Station[]>([]);
+  const [selectedCountry, setSelectedCountry] = useState<string>("");
+  const [selectedStation, setSelectedStation] = useState<string>("");
+  
+  // Default to Last 31 Days like MeteoGate
+  const [endDate, setEndDate] = useState<string>(
+    new Date(new Date().getTime() - 24 * 60 * 60 * 1000).toISOString().split("T")[0] // default to yesterday
+  );
+  const [startDate, setStartDate] = useState<string>(
+    new Date(new Date().getTime() - 32 * 24 * 60 * 60 * 1000).toISOString().split("T")[0] // default to yesterday - 31 days
+  );
+  const [parameter, setParameter] = useState<string>("air_temperature");
+
+  // --- UI Elements State ---
+  const [activeTab, setActiveTab] = useState<string>("map");
+  const [dashboardSubTab, setDashboardSubTab] = useState<string>("plots");
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
+  const [isLoadingStations, setIsLoadingStations] = useState<boolean>(true);
+  const [stationLogs, setStationLogs] = useState<HourlyRow[]>([]);
+  const [isLoadingLogs, setIsLoadingLogs] = useState<boolean>(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Lifted state from Map for current observation values
+  const [areaObservations, setAreaObservations] = useState<Record<string, number[]>>({});
+  
+  // Default to 3 hours ago (matching MeteoGate R app)
+  const [selectedHour, setSelectedHour] = useState<number>(() => {
+    const d = new Date();
+    d.setUTCHours(d.getUTCHours() - 3);
+    return d.getUTCHours();
+  });
+  
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+
+  // --- Initial Loading of Station Metadata ---
+  useEffect(() => {
+    const fetchStations = async () => {
+      try {
+        const res = await fetch("/api/stations");
+        const json = await res.json();
+        if (json.success) {
+          setStations(json.data);
+        } else {
+          setErrorMsg(json.message || "Failed to load station lists.");
+        }
+      } catch (err) {
+        console.error("Stations fetch error:", err);
+        setErrorMsg("Failed to connect to the weather observation backend.");
+      } finally {
+        setIsLoadingStations(false);
+      }
+    };
+    fetchStations();
+  }, []);
+
+  // --- URL Search Params Synchronization ---
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    // Read initial states from URL on mount
+    const params = new URLSearchParams(window.location.search);
+    const country = params.get("country");
+    const station = params.get("station");
+    const param = params.get("parameter");
+    const start = params.get("start");
+    const end = params.get("end");
+    const tab = params.get("tab");
+
+    if (country) setSelectedCountry(country);
+    if (station) setSelectedStation(station);
+    if (param) setParameter(param);
+    if (start) setStartDate(start);
+    if (end) setEndDate(end);
+    if (tab) setActiveTab(tab);
+  }, []);
+
+  // Sync state changes back to URL query parameters
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (selectedCountry) params.set("country", selectedCountry);
+    if (selectedStation) params.set("station", selectedStation);
+    if (parameter) params.set("parameter", parameter);
+    if (startDate) params.set("start", startDate);
+    if (endDate) params.set("end", endDate);
+    if (activeTab) params.set("tab", activeTab);
+
+    const newUrl = `${window.location.pathname}?${params.toString()}`;
+    window.history.pushState(null, "", newUrl);
+  }, [selectedCountry, selectedStation, parameter, startDate, endDate, activeTab]);
+
+  const [loadingMessage, setLoadingMessage] = useState<string>("Connecting to API...");
+
+  // --- Fetch detailed logs when a station is selected ---
+  useEffect(() => {
+    if (!selectedStation) {
+      setStationLogs([]);
+      return;
+    }
+
+    const abortController = new AbortController();
+
+    const fetchDetailedLogs = async () => {
+      setIsLoadingLogs(true);
+      setLoadingMessage("Connecting to API...");
+      
+      try {
+        const res = await fetch(
+          `/api/observations/station-details?stationId=${selectedStation}&start=${startDate}&end=${endDate}`,
+          { signal: abortController.signal }
+        );
+        
+        if (!res.ok) {
+           throw new Error(`HTTP error! status: ${res.status}`);
+        }
+        
+        const reader = res.body?.getReader();
+        if (!reader) throw new Error("No reader available");
+        
+        const decoder = new TextDecoder();
+        let buffer = "";
+        
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split('\n\n');
+          // Last part might be incomplete, keep it in buffer
+          buffer = parts.pop() || "";
+          
+          for (const chunk of parts) {
+            const lines = chunk.split('\n');
+            let event = "message";
+            let data = "";
+            
+            for (const line of lines) {
+              if (line.startsWith("event: ")) event = line.slice(7);
+              else if (line.startsWith("data: ")) data = line.slice(6);
+            }
+            
+            if (event === "progress" && data) {
+              try {
+                const parsed = JSON.parse(data);
+                setLoadingMessage(parsed.message);
+              } catch (e) {}
+            } else if (event === "complete" && data) {
+              try {
+                const parsed = JSON.parse(data);
+                setStationLogs(parsed.data || []);
+              } catch (e) {}
+            } else if (event === "error" && data) {
+              try {
+                const parsed = JSON.parse(data);
+                console.warn("SSE Error:", parsed.message);
+                setErrorMsg(parsed.message);
+              } catch (e) {}
+            }
+          }
+        }
+      } catch (err: any) {
+        if (err.name !== "AbortError") {
+          console.error("Detailed logs fetch error:", err);
+        }
+      } finally {
+        if (!abortController.signal.aborted) {
+          setIsLoadingLogs(false);
+        }
+      }
+    };
+
+    fetchDetailedLogs();
+
+    return () => {
+      abortController.abort();
+    };
+  }, [selectedStation, startDate, endDate]);
+
+  // Find active station object details
+  const activeStationDetails = useMemo(() => {
+    return stations.find((st) => st.id === selectedStation) || null;
+  }, [stations, selectedStation]);
+
+  // --- Table Column Definitions ---
+
+  // 1. Station info table columns
+  const stationColumns = useMemo<ColumnDef<Station>[]>(
+    () => {
+      const cols: ColumnDef<Station>[] = [
+        { accessorKey: "name", header: "Station Name" },
+        { accessorKey: "id", header: "WIGOS ID", meta: { className: "hidden sm:table-cell" } },
+        { accessorKey: "country", header: "Country" },
+        {
+          id: "currentValue",
+          header: "Current Value",
+          cell: (info) => {
+            const st = info.row.original;
+            const vals = areaObservations[st.id] || [];
+            const val = vals[selectedHour] ?? NaN;
+            return isNaN(val) ? "-" : `${Math.round(val * 10) / 10}`;
+          }
+        },
+        {
+          accessorKey: "elevation",
+          header: "Elevation",
+          cell: (info) => {
+            const val = info.getValue() as number | null;
+            return val !== null ? `${val} m` : "Unknown";
+          },
+        },
+        {
+          accessorKey: "longitude",
+          header: "Longitude",
+          meta: { className: "hidden md:table-cell" },
+          cell: (info) => (info.getValue() as number).toFixed(4),
+        },
+        {
+          accessorKey: "latitude",
+          header: "Latitude",
+          meta: { className: "hidden md:table-cell" },
+          cell: (info) => (info.getValue() as number).toFixed(4),
+        },
+        { accessorKey: "available_params", header: "Available Parameters", meta: { className: "hidden lg:table-cell" } },
+      ];
+      return cols;
+    },
+    [areaObservations, selectedHour]
+  );
+
+  // 2. Observations logs table columns
+  const logColumns = useMemo<ColumnDef<HourlyRow>[]>(
+    () => [
+      {
+        accessorKey: "datetime",
+        header: "Datetime (UTC)",
+        cell: (info) => {
+          try {
+            return new Date(info.getValue() as string).toLocaleString(undefined, {
+              month: "short",
+              day: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            });
+          } catch {
+            return info.getValue() as string;
+          }
+        },
+      },
+      {
+        accessorKey: "temperature",
+        header: "Temp (°C)",
+        cell: (info) => {
+          const val = info.getValue() as number | undefined;
+          return val !== undefined ? `${val.toFixed(1)} °C` : "-";
+        },
+      },
+      {
+        accessorKey: "precipitation",
+        header: "Precipitation (mm)",
+        cell: (info) => {
+          const val = info.getValue() as number | undefined;
+          return val !== undefined ? `${val.toFixed(1)} mm` : "-";
+        },
+      },
+      {
+        accessorKey: "windSpeed",
+        header: "Wind Speed (m/s)",
+        cell: (info) => {
+          const val = info.getValue() as number | undefined;
+          return val !== undefined ? `${val.toFixed(1)} m/s` : "-";
+        },
+      },
+      {
+        accessorKey: "windGust",
+        header: "Wind Gust (m/s)",
+        cell: (info) => {
+          const val = info.getValue() as number | undefined;
+          return val !== undefined ? `${val.toFixed(1)} m/s` : "-";
+        },
+      },
+      {
+        accessorKey: "windDirection",
+        header: "Wind Dir (°)",
+        cell: (info) => {
+          const val = info.getValue() as number | undefined;
+          return val !== undefined ? `${Math.round(val)}°` : "-";
+        },
+      },
+      {
+        accessorKey: "pressure",
+        header: "Pressure (hPa)",
+        cell: (info) => {
+          const val = info.getValue() as number | undefined;
+          return val !== undefined ? `${val.toFixed(1)} hPa` : "-";
+        },
+      },
+    ],
+    []
+  );
+
+  const handleStationDoubleClick = (station: Station) => {
+    setSelectedStation(station.id);
+    setActiveTab("dashboard");
+  };
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+    <div className="flex h-screen w-screen overflow-hidden bg-slate-50">
+      {/* Sidebar Filter controls panel */}
+      <Sidebar
+        stations={stations}
+        selectedCountry={selectedCountry}
+        setSelectedCountry={setSelectedCountry}
+        selectedStation={selectedStation}
+        setSelectedStation={setSelectedStation}
+        startDate={startDate}
+        setStartDate={setStartDate}
+        endDate={endDate}
+        setEndDate={setEndDate}
+        parameter={parameter}
+        setParameter={setParameter}
+        isOpen={sidebarOpen}
+        setIsOpen={setSidebarOpen}
+      />
+
+      {/* Main View Shell Container */}
+      <main className={`flex-1 h-full flex flex-col min-w-0 relative bg-slate-50 transition-all ${isFullscreen ? "fixed inset-0 z-50 pl-0" : "pl-0 lg:pl-[310px]"}`}>
+        {/* Top tab switcher header navigation */}
+        <header className="h-[70px] border-b border-slate-100/50 bg-white/70 backdrop-blur-md flex items-center justify-between pl-[72px] pr-4 lg:px-6 shrink-0 overflow-x-auto custom-scrollbar">
+          <div className="flex items-center gap-4 shrink-0">
+            <div className="flex items-center gap-1 shrink-0">
+              {[
+                { id: "map", label: "Map View", icon: Map },
+                { id: "stations", label: "Stations Info", icon: List },
+                { id: "dashboard", label: "Dashboard", icon: BarChart3 },
+              ].map((tab) => {
+                const Icon = tab.icon;
+                const isActive = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all btn-premium cursor-pointer ${
+                      isActive
+                        ? "bg-blue-500 text-white shadow-md shadow-blue-500/10"
+                        : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                    }`}
+                  >
+                    <Icon size={14} />
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setIsFullscreen(!isFullscreen)}
+              className="text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+              title="Toggle Fullscreen"
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+              {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
+            </button>
+          </div>
+        </header>
+
+        {/* View Switch Panels Container */}
+        <div className="flex-1 w-full p-6 overflow-hidden min-h-0 flex flex-col">
+          {isLoadingStations ? (
+            <div className="flex-grow flex flex-col items-center justify-center gap-3">
+              <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider animate-pulse">
+                Loading base maps...
+              </p>
+            </div>
+          ) : errorMsg ? (
+            <div className="flex-grow flex flex-col items-center justify-center gap-3 text-center max-w-md mx-auto">
+              <AlertCircle className="text-rose-500" size={40} />
+              <h3 className="text-base font-bold text-slate-700">Database Connection Failed</h3>
+              <p className="text-xs text-slate-400 leading-relaxed">{errorMsg}</p>
+            </div>
+          ) : (
+            <div className="flex-grow w-full h-full min-h-0 relative">
+              {/* Tab: Map View */}
+              {activeTab === "map" && (
+                <WeatherMap
+                  stations={stations}
+                  selectedCountry={selectedCountry}
+                  selectedStation={selectedStation}
+                  setSelectedStation={setSelectedStation}
+                  parameter={parameter}
+                  startDate={startDate}
+                  endDate={endDate}
+                  observations={areaObservations}
+                  setObservations={setAreaObservations}
+                  selectedHour={selectedHour}
+                  setSelectedHour={setSelectedHour}
+                  onStationClick={(stationId) => {
+                    setActiveTab("dashboard");
+                  }}
+                />
+              )}
+
+              {/* Tab: Stations Info table */}
+              {activeTab === "stations" && (
+                <div className="w-full h-full flex flex-col gap-4">
+                  <div className="bg-blue-50/50 border border-blue-100/50 rounded-2xl p-4 flex gap-3 items-center text-xs font-medium text-slate-600">
+                    <Info size={16} className="text-blue-500 shrink-0" />
+                    <p>
+                      Double-click or tap a row to select the station and view its detailed hourly weather log.
+                    </p>
+                  </div>
+                  <div className="flex-grow min-h-0">
+                    <WeatherTable
+                      data={stations}
+                      columns={stationColumns}
+                      onRowDoubleClick={handleStationDoubleClick}
+                      searchPlaceholder="Search stations by name or WIGOS ID..."
+                      searchKey="name"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Tab: Dashboard charts & raw logs */}
+              {activeTab === "dashboard" && (
+                <div className="w-full h-full overflow-y-auto custom-scrollbar flex flex-col gap-6 pr-1 pb-6">
+                  {!selectedStation ? (
+                    <div className="w-full h-[400px] flex flex-col items-center justify-center text-center gap-3">
+                      <BarChart3 className="text-slate-300" size={48} />
+                      <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">No Station Selected</h3>
+                      <p className="text-xs text-slate-400 max-w-sm leading-relaxed">
+                        Select a marker from the Map View or double-click a row in the Stations list to inspect metrics.
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Station details banner card */}
+                      {activeStationDetails && (
+                        <div className="glass-card rounded-2xl p-6 border border-slate-100/50 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                          <div className="flex flex-col gap-1">
+                            <h2 className="text-lg font-bold text-slate-800 tracking-tight">
+                              {activeStationDetails.name}
+                            </h2>
+                            <p className="text-xs text-slate-400 font-semibold tracking-wider uppercase">
+                              WIGOS ID: {activeStationDetails.id} &bull; Country: {activeStationDetails.country}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-6 text-xs font-bold text-slate-500 border-l border-slate-100 pl-0 sm:pl-6 pt-3 sm:pt-0">
+                            <div className="flex flex-col gap-2">
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => downloadCSV(stationLogs, `meteo_station_${activeStationDetails.id}_${startDate}_${endDate}`)}
+                                  disabled={stationLogs.length === 0}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                >
+                                  <Download size={14} /> CSV
+                                </button>
+                                <button
+                                  onClick={() => downloadExcel(stationLogs, `meteo_station_${activeStationDetails.id}_${startDate}_${endDate}`)}
+                                  disabled={stationLogs.length === 0}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 hover:text-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                >
+                                  <Download size={14} /> Excel
+                                </button>
+                              </div>
+                            </div>
+                            <div className="flex flex-col gap-0.5">
+                              <span className="text-slate-400 flex items-center gap-1.5"><Mountain size={13} /> Elev</span>
+                              <span className="text-slate-800 text-sm">
+                                {activeStationDetails.elevation !== null ? `${activeStationDetails.elevation} m` : "Unknown"}
+                              </span>
+                            </div>
+                            <div className="flex flex-col gap-0.5">
+                              <span className="text-slate-400 flex items-center gap-1.5"><MapPin size={13} /> Lon</span>
+                              <span className="text-slate-800 text-sm">{activeStationDetails.longitude.toFixed(3)}°</span>
+                            </div>
+                            <div className="flex flex-col gap-0.5">
+                              <span className="text-slate-400 flex items-center gap-1.5"><MapPin size={13} /> Lat</span>
+                              <span className="text-slate-800 text-sm">{activeStationDetails.latitude.toFixed(3)}°</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Loaders overlay */}
+                      {isLoadingLogs ? (
+                        <div className="w-full h-[200px] flex flex-col items-center justify-center gap-2">
+                          <div className="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                          <p className="text-[10px] font-bold text-slate-400 tracking-wider uppercase animate-pulse">
+                            {loadingMessage}
+                          </p>
+                        </div>
+                      ) : (
+                        <>
+                          {/* Dashboard Sub-tabs */}
+                          <div className="flex items-center gap-2 mb-2 border-b border-slate-200 pb-2">
+                            <button
+                              onClick={() => setDashboardSubTab("plots")}
+                              className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${dashboardSubTab === "plots" ? "bg-blue-100 text-blue-700" : "text-slate-500 hover:bg-slate-100"}`}
+                            >
+                              Plots
+                            </button>
+                            <button
+                              onClick={() => setDashboardSubTab("data")}
+                              className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${dashboardSubTab === "data" ? "bg-blue-100 text-blue-700" : "text-slate-500 hover:bg-slate-100"}`}
+                            >
+                              Data
+                            </button>
+                          </div>
+
+                          {dashboardSubTab === "plots" ? (
+                            <DashboardCharts data={stationLogs} />
+                          ) : (
+                            <div className="flex flex-col gap-3 min-h-[400px]">
+                              <div className="flex-1">
+                                <WeatherTable
+                                  data={stationLogs}
+                                  columns={logColumns}
+                                  searchPlaceholder="Filter logs by hour or value..."
+                                  searchKey="datetime"
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </main>
     </div>
+  );
+}
+
+export default function Page() {
+  return (
+    <Suspense fallback={
+      <div className="h-screen w-screen flex flex-col items-center justify-center gap-3 bg-slate-50">
+        <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+        <p className="text-xs font-bold text-slate-400 tracking-wider uppercase animate-pulse">
+          Initializing EuroMeteo...
+        </p>
+      </div>
+    }>
+      <EuroMeteoApp />
+    </Suspense>
   );
 }
