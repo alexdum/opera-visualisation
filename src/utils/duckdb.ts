@@ -5,7 +5,10 @@ import https from "https";
 
 const db = new duckdb.Database(":memory:");
 
-const PARQUET_CACHE_DIR = path.join(process.cwd(), "data", "parquet_cache");
+// Use /tmp for cache in production (Docker containers have read-only /app)
+const PARQUET_CACHE_DIR = process.env.NODE_ENV === "production"
+  ? path.join("/tmp", "parquet_cache")
+  : path.join(process.cwd(), "data", "parquet_cache");
 
 // Ensure cache directory exists
 fs.mkdirSync(PARQUET_CACHE_DIR, { recursive: true });
