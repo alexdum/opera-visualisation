@@ -425,7 +425,7 @@ export const WeatherMap: React.FC<MapProps> = ({
               // Ensure boundaries are visible over the satellite imagery
               m.setLayoutProperty(id, 'visibility', 'visible');
               // Lighten boundaries slightly so they are visible over dark satellite areas
-              if (m.getLayer(id).type === "line") {
+              if (m.getLayer(id)?.type === "line") {
                 m.setPaintProperty(id, 'line-color', 'rgba(255, 255, 255, 0.4)');
               }
             }
