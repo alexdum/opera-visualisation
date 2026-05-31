@@ -32,6 +32,8 @@ ENV HOSTNAME="0.0.0.0"
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=1000:1000 /app/.next/standalone ./
 COPY --from=builder --chown=1000:1000 /app/.next/static ./.next/static
+# Copy runtime data files (CSV fallbacks used by API routes via fs.readFileSync)
+COPY --from=builder --chown=1000:1000 /app/src/data ./src/data
 
 USER 1000
 

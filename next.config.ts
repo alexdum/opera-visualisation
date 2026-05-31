@@ -11,7 +11,7 @@ const nextConfig: NextConfig = {
         headers: [
           {
             key: "Content-Security-Policy",
-            value: "frame-ancestors 'self' https://*.quarto.pub https://*.climateexplorer.app https://climateexplorer.app https://*.climateexplorer.org https://climateexplorer.org"
+            value: "frame-ancestors 'self' https://*.huggingface.co https://huggingface.co https://*.quarto.pub https://*.climateexplorer.app https://climateexplorer.app https://*.climateexplorer.org https://climateexplorer.org"
           }
         ]
       }
