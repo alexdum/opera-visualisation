@@ -84,6 +84,27 @@ function EuroMeteoApp() {
   
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
 
+  // Monitor native fullscreen changes
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch((err) => {
+        console.warn(`Error attempting to enable fullscreen: ${err.message}`);
+      });
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+      }
+    }
+  };
+
   // --- Initial Loading of Station Metadata ---
   useEffect(() => {
     const fetchStations = async () => {
@@ -126,7 +147,7 @@ function EuroMeteoApp() {
     if (tab) setActiveTab(tab);
   }, []);
 
-  // Sync state changes back to URL query parameters
+  // Sync state changes back to URL query parameters and notify parent iframe
   useEffect(() => {
     const params = new URLSearchParams();
     if (selectedCountry) params.set("country", selectedCountry);
@@ -138,6 +159,22 @@ function EuroMeteoApp() {
 
     const newUrl = `${window.location.pathname}?${params.toString()}`;
     window.history.pushState(null, "", newUrl);
+
+    // Notify parent window of state changes if embedded in an iframe
+    if (window.parent !== window) {
+      window.parent.postMessage({
+        type: 'EUROMETEO_STATE_CHANGE',
+        payload: {
+          country: selectedCountry,
+          station: selectedStation,
+          parameter: parameter,
+          start: startDate,
+          end: endDate,
+          tab: activeTab
+        },
+        search: `?${params.toString()}`
+      }, '*');
+    }
   }, [selectedCountry, selectedStation, parameter, startDate, endDate, activeTab]);
 
   const [loadingMessage, setLoadingMessage] = useState<string>("Connecting to API...");
@@ -355,7 +392,7 @@ function EuroMeteoApp() {
   };
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-slate-50">
+    <div className="flex h-[100dvh] w-screen overflow-hidden bg-slate-50">
       {/* Sidebar Filter controls panel */}
       <Sidebar
         stations={stations}
@@ -390,7 +427,7 @@ function EuroMeteoApp() {
                   <button
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id)}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all btn-premium cursor-pointer ${
+                    className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all btn-premium cursor-pointer ${
                       isActive
                         ? "bg-blue-500 text-white shadow-md shadow-blue-500/10"
                         : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
@@ -406,8 +443,8 @@ function EuroMeteoApp() {
 
           <div className="flex items-center gap-4">
             <button
-              onClick={() => setIsFullscreen(!isFullscreen)}
-              className="text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
+              onClick={toggleFullscreen}
+              className="text-slate-400 hover:text-slate-700 transition-colors cursor-pointer min-w-[44px] min-h-[44px] flex items-center justify-center"
               title="Toggle Fullscreen"
             >
               {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
@@ -420,7 +457,7 @@ function EuroMeteoApp() {
           {isLoadingStations ? (
             <div className="flex-grow flex flex-col items-center justify-center gap-3">
               <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-              <p className="text-xs font-bold text-slate-500 uppercase tracking-wider animate-pulse">
+              <p className="text-sm font-bold text-slate-500 uppercase tracking-wider animate-pulse">
                 Loading base maps...
               </p>
             </div>
@@ -428,7 +465,7 @@ function EuroMeteoApp() {
             <div className="flex-grow flex flex-col items-center justify-center gap-3 text-center max-w-md mx-auto">
               <AlertCircle className="text-rose-500" size={40} />
               <h3 className="text-base font-bold text-slate-700">Database Connection Failed</h3>
-              <p className="text-xs text-slate-400 leading-relaxed">{errorMsg}</p>
+              <p className="text-sm text-slate-400 leading-relaxed">{errorMsg}</p>
             </div>
           ) : (
             <div className="flex-grow w-full h-full min-h-0 relative">
@@ -455,7 +492,7 @@ function EuroMeteoApp() {
               {/* Tab: Stations Info table */}
               {activeTab === "stations" && (
                 <div className="w-full h-full flex flex-col gap-4">
-                  <div className="bg-blue-50/50 border border-blue-100/50 rounded-2xl p-4 flex gap-3 items-center text-xs font-medium text-slate-600">
+                  <div className="bg-blue-50/50 border border-blue-100/50 rounded-2xl p-4 flex gap-3 items-center text-sm font-medium text-slate-600">
                     <Info size={16} className="text-blue-500 shrink-0" />
                     <p>
                       Double-click or tap a row to select the station and view its detailed hourly weather log.
@@ -480,7 +517,7 @@ function EuroMeteoApp() {
                     <div className="w-full h-[400px] flex flex-col items-center justify-center text-center gap-3">
                       <BarChart3 className="text-slate-300" size={48} />
                       <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">No Station Selected</h3>
-                      <p className="text-xs text-slate-400 max-w-sm leading-relaxed">
+                      <p className="text-sm text-slate-400 max-w-sm leading-relaxed">
                         Select a marker from the Map View or double-click a row in the Stations list to inspect metrics.
                       </p>
                     </div>
@@ -493,11 +530,11 @@ function EuroMeteoApp() {
                             <h2 className="text-lg font-bold text-slate-800 tracking-tight">
                               {activeStationDetails.name}
                             </h2>
-                            <p className="text-xs text-slate-400 font-semibold tracking-wider uppercase">
+                            <p className="text-sm text-slate-400 font-semibold tracking-wider uppercase">
                               WIGOS ID: {activeStationDetails.id} &bull; Country: {activeStationDetails.country}
                             </p>
                           </div>
-                          <div className="flex items-center gap-6 text-xs font-bold text-slate-500 border-l border-slate-100 pl-0 sm:pl-6 pt-3 sm:pt-0">
+                          <div className="flex items-center gap-6 text-sm font-bold text-slate-500 border-l border-slate-100 pl-0 sm:pl-6 pt-3 sm:pt-0">
                             <div className="flex flex-col gap-2">
                               <div className="flex items-center gap-2">
                                 <button
@@ -538,7 +575,7 @@ function EuroMeteoApp() {
                       {isLoadingLogs ? (
                         <div className="w-full h-[200px] flex flex-col items-center justify-center gap-2">
                           <div className="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                          <p className="text-[10px] font-bold text-slate-400 tracking-wider uppercase animate-pulse">
+                          <p className="text-xs font-bold text-slate-400 tracking-wider uppercase animate-pulse">
                             {loadingMessage}
                           </p>
                         </div>
@@ -591,9 +628,9 @@ function EuroMeteoApp() {
 export default function Page() {
   return (
     <Suspense fallback={
-      <div className="h-screen w-screen flex flex-col items-center justify-center gap-3 bg-slate-50">
+      <div className="h-[100dvh] w-screen flex flex-col items-center justify-center gap-3 bg-slate-50">
         <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-        <p className="text-xs font-bold text-slate-400 tracking-wider uppercase animate-pulse">
+        <p className="text-sm font-bold text-slate-400 tracking-wider uppercase animate-pulse">
           Initializing EuroMeteo...
         </p>
       </div>

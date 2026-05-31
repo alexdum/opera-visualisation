@@ -108,7 +108,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Mobile Toggle Button */}
       <button 
         onClick={() => setIsOpen(!isOpen)}
-        className="lg:hidden fixed top-4 left-4 z-50 p-2.5 bg-white/90 backdrop-blur-md border border-slate-200 rounded-xl shadow-md text-slate-700 hover:text-slate-900 transition-all active:scale-95"
+        className="lg:hidden fixed top-4 left-4 z-50 p-2.5 bg-white/90 backdrop-blur-md border border-slate-200 rounded-xl shadow-md text-slate-700 hover:text-slate-900 transition-all active:scale-95 min-w-[44px] min-h-[44px] flex items-center justify-center"
         aria-label="Toggle navigation menu"
       >
         {isOpen ? <X size={20} /> : <Menu size={20} />}
@@ -131,13 +131,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="flex-1 my-6 overflow-y-auto custom-scrollbar pr-1 flex flex-col gap-6">
           {/* Zoom to Country */}
           <div className="flex flex-col gap-2">
-            <label className="text-xs font-semibold text-slate-500 tracking-wider uppercase flex items-center gap-1.5">
+            <label className="text-sm font-semibold text-slate-500 tracking-wider uppercase flex items-center gap-1.5">
               Zoom to Country
-              <div className="group relative">
+              <div className="group relative" title="Select a country to filter the station list and zoom the map.">
                 <Info size={12} className="text-slate-400 cursor-help" />
-                <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity shadow-md leading-normal z-50">
-                  Select a country to filter the station list and zoom the map.
-                </span>
               </div>
             </label>
             <div className="relative">
@@ -162,7 +159,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           {/* Find Station */}
           <div className="flex flex-col gap-2">
-            <label className="text-xs font-semibold text-slate-500 tracking-wider uppercase flex items-center gap-1.5">
+            <label className="text-sm font-semibold text-slate-500 tracking-wider uppercase flex items-center gap-1.5">
               Find Station
             </label>
             <div className="relative">
@@ -185,7 +182,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           {/* Date Picker Range */}
           <div className="flex flex-col gap-2">
-            <label className="text-xs font-semibold text-slate-500 tracking-wider uppercase flex items-center gap-1.5">
+            <label className="text-sm font-semibold text-slate-500 tracking-wider uppercase flex items-center gap-1.5">
               Select Period
             </label>
             <div className="flex flex-col gap-2">
@@ -216,7 +213,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           {/* Weather Parameter Selector */}
           <div className="flex flex-col gap-2">
-            <label className="text-xs font-semibold text-slate-500 tracking-wider uppercase flex items-center gap-1.5">
+            <label className="text-sm font-semibold text-slate-500 tracking-wider uppercase flex items-center gap-1.5">
               Map Parameter
             </label>
             <div className="flex flex-col gap-1.5">
@@ -249,7 +246,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Footer info & stats */}
         <div className="border-t border-slate-100 pt-4 flex flex-col gap-3">
-          <div className="bg-slate-50 border border-slate-100 rounded-xl p-3 flex flex-col gap-1 text-[11px] font-medium text-slate-500">
+          <div className="bg-slate-50 border border-slate-100 rounded-xl p-3 flex flex-col gap-1 text-xs font-medium text-slate-500">
             <div className="flex justify-between">
               <span>Active Stations:</span>
               <span className="font-bold text-slate-800">{activeCount}</span>
@@ -260,7 +257,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           </div>
 
-          <div className="text-[10px] text-slate-400 font-medium leading-relaxed">
+          <div className="text-xs text-slate-400 font-medium leading-relaxed">
             Data Source: <span className="font-semibold text-slate-500">MeteoGate / E-SOH</span>
             <br />
             Includes: Temperature, Precip, Wind, Pressure.

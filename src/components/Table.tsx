@@ -64,7 +64,7 @@ export function WeatherTable<T>({
             value={globalFilter}
             onChange={(e) => setGlobalFilter(e.target.value)}
             placeholder={searchPlaceholder}
-            className="w-full bg-white/70 border border-slate-200 rounded-xl pl-9 pr-4 py-2.5 text-xs font-semibold text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+            className="w-full bg-white/70 border border-slate-200 rounded-xl pl-9 pr-4 py-2.5 text-sm font-semibold text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
           />
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
         </div>
@@ -81,7 +81,7 @@ export function WeatherTable<T>({
                   return (
                   <th
                     key={header.id}
-                    className={`p-4 text-xs font-bold text-slate-500 uppercase tracking-wider select-none ${index === 0 ? "sticky left-0 bg-slate-50 z-20 shadow-[1px_0_0_0_#f1f5f9]" : ""} ${metaClassName}`}
+                    className={`p-4 text-sm font-bold text-slate-500 uppercase tracking-wider select-none ${index === 0 ? "sticky left-0 bg-slate-50 z-20 shadow-[1px_0_0_0_#f1f5f9]" : ""} ${metaClassName}`}
                   >
                     {header.isPlaceholder ? null : (
                       <div
@@ -116,7 +116,7 @@ export function WeatherTable<T>({
                   return (
                   <td 
                     key={cell.id} 
-                    className={`p-4 text-xs text-slate-600 font-medium ${index === 0 ? "sticky left-0 bg-white shadow-[1px_0_0_0_#f1f5f9] z-10 group-hover:bg-slate-50" : ""} ${metaClassName}`}
+                    className={`p-4 text-sm text-slate-600 font-medium ${index === 0 ? "sticky left-0 bg-white shadow-[1px_0_0_0_#f1f5f9] z-10 group-hover:bg-slate-50" : ""} ${metaClassName}`}
                   >
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
                   </td>
@@ -125,7 +125,7 @@ export function WeatherTable<T>({
             ))}
             {table.getRowModel().rows.length === 0 && (
               <tr>
-                <td colSpan={columns.length} className="p-8 text-center text-xs text-slate-400 font-medium">
+                <td colSpan={columns.length} className="p-8 text-center text-sm text-slate-400 font-medium">
                   No records matching your filters.
                 </td>
               </tr>
@@ -136,7 +136,7 @@ export function WeatherTable<T>({
 
       {/* Pagination Controls */}
       <div className="flex items-center justify-between px-1 py-1">
-        <span className="text-xs text-slate-500 font-semibold">
+        <span className="text-sm text-slate-500 font-semibold">
           Page <span className="font-bold text-slate-700">{table.getState().pagination.pageIndex + 1}</span> of{" "}
           <span className="font-bold text-slate-700">{table.getPageCount()}</span>
         </span>
@@ -144,14 +144,14 @@ export function WeatherTable<T>({
           <button
             onClick={() => table.previousPage()}
             disabled={!table.getCanPreviousPage()}
-            className="p-2 border border-slate-200 rounded-xl hover:bg-slate-50 active:scale-95 text-slate-600 disabled:opacity-40 disabled:pointer-events-none transition-all cursor-pointer"
+            className="p-2 border border-slate-200 rounded-xl hover:bg-slate-50 active:scale-95 text-slate-600 disabled:opacity-40 disabled:pointer-events-none transition-all cursor-pointer min-w-[44px] min-h-[44px] flex items-center justify-center"
           >
             <ChevronLeft size={16} />
           </button>
           <button
             onClick={() => table.nextPage()}
             disabled={!table.getCanNextPage()}
-            className="p-2 border border-slate-200 rounded-xl hover:bg-slate-50 active:scale-95 text-slate-600 disabled:opacity-40 disabled:pointer-events-none transition-all cursor-pointer"
+            className="p-2 border border-slate-200 rounded-xl hover:bg-slate-50 active:scale-95 text-slate-600 disabled:opacity-40 disabled:pointer-events-none transition-all cursor-pointer min-w-[44px] min-h-[44px] flex items-center justify-center"
           >
             <ChevronRight size={16} />
           </button>
