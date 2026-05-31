@@ -25,16 +25,15 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=7860
 ENV HOSTNAME="0.0.0.0"
 
-# Create a non-root user for security (Hugging Face default is uid 1000)
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1000 nextjs
+# The node image already has a built-in user 'node' with UID 1000.
+# Hugging Face Spaces requires running as UID 1000, so we use that directly.
 
 # Set up Next.js standalone output copy
 COPY --from=builder /app/public ./public
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=builder --chown=1000:1000 /app/.next/standalone ./
+COPY --from=builder --chown=1000:1000 /app/.next/static ./.next/static
 
-USER nextjs
+USER 1000
 
 EXPOSE 7860
 
