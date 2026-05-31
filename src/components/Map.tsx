@@ -369,8 +369,8 @@ export const WeatherMap: React.FC<MapProps> = ({
       center: [10, 50],
       zoom: 4,
       attributionControl: false,
-      projection: { type: "globe" } as any
-    });
+      projection: { type: "globe" }
+    } as any);
 
     map.current.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-left");
     map.current.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
