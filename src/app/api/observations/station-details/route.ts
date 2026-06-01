@@ -84,45 +84,145 @@ function isBadValue(v: number): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Physical sanity bounds (matching R clean_weather_data())
+// Physical sanity bounds — QC limits based on measurement domain
+// Values outside these ranges are set to null (removed from the row).
 // ---------------------------------------------------------------------------
 function cleanWeatherData(rows: any[]): any[] {
   const bounds: Record<string, [number, number]> = {
-    temperature:     [-90, 60],
-    tempMin:         [-90, 60],
-    tempMax:         [-90, 60],
-    tempMin50cm:     [-90, 60],
-    tempMinGround:   [-90, 70],
+    // ── Temperature (°C) ──
+    // World record cold: −89.2 °C (Vostok), hot: 56.7 °C (Death Valley)
+    temperature:     [-90, 65],
+    tempMin:         [-90, 65],
+    tempMax:         [-90, 65],
+    tempMin50cm:     [-90, 65],
+    tempMinGround:   [-90, 75],   // ground can exceed air by ~10 °C
     dewPoint:        [-90, 60],
+    virtualTemperature: [-90, 70],
+    surfaceTemperature: [-90, 85], // surface (sand, asphalt) can be very hot
+
+    // ── Humidity (%) ──
     humidity:        [0, 100],
+
+    // ── Wind (m/s, degrees) ──
+    // Strongest gust: 113.3 m/s (Barrow Island, 1996)
+    windSpeed:       [0, 120],
+    windSpeed2m:     [0, 120],
+    windGust:        [0, 150],
+    windGustInst:    [0, 150],
+    windDirection:   [0, 360],
+    windGustDirection: [0, 360],
+
+    // ── Pressure (hPa) ──
+    // Lowest: ~870 hPa (typhoon eye), highest: ~1084 hPa (Siberia)
+    pressure:        [850, 1090],
+    pressureStation: [450, 1090],  // high-altitude stations can be ~450 hPa
+    pressureTendency:[-50, 50],    // hPa per 3h
+
+    // ── Precipitation (mm) ──
     precipitation:   [0, 500],
-    pressure:        [800, 1100],
-    pressureStation: [500, 1100],
-    pressureTendency:[-50, 50],
-    cloudCover:      [0, 100],
-    cloudCoverLow:   [0, 100],
-    solarRadiation:  [0, 3500],
-    snowDepth:       [0, 1000],
+    precipitation1h: [0, 200],     // world record 1h: ~305 mm (Holt, MO)
+    precipitation3h: [0, 400],
+    precipitation6h: [0, 600],
+    precipitation12h:[0, 800],
+    precipitation24h:[0, 1200],    // world record 24h: ~1825 mm (Cilaos)
+    lwePrecipitationRate: [0, 500], // mm/h
+    rainfallRate:    [0, 500],
+
+    // ── Snow (cm) ──
+    snowDepth:       [0, 2500],    // deepest: ~1182 cm (Tamarack, CA)
     snowFresh:       [0, 500],
-    etp:             [0, 600],
-    sunshineDuration:[0, 1440],
+
+    // ── Cloud & Visibility ──
+    cloudCover:      [0, 100],     // %
+    cloudCoverLow:   [0, 100],     // %
+    cloudBaseAltitude: [0, 20000], // metres
+    visibility:      [0, 200000],  // metres (200 km max)
+
+    // ── Radiation (W/m²) ──
+    // Solar constant ~1361 W/m², ground max ~1400 with reflection
+    solarRadiation:  [0, 1600],
+    surfaceDiffuseDownwellingShortwave:  [0, 1000],
+    surfaceDirectDownwellingShortwave:   [0, 1600],
+    surfaceDownwellingLongwaveFluxInAir: [0, 600],
+    surfaceUpwellingLongwaveFluxInAir:   [0, 800],
+    surfaceUpwellingShortwaveFluxInAir:  [0, 1400],
+    surfaceNetDownwardRadiativeFlux:     [-500, 1600],
+    downwellingLongwaveFluxInAir:        [0, 600],
+    surfaceDownwellingPhotosyntheticPhotonFluxInAir: [0, 3000],  // µmol/m²/s
+    surfaceDownwellingPhotosyntheticRadiativeFluxInAir: [0, 700],
+    // Integral (J/m²) — daily totals can be very large
+    integralWrtTimeOfSurfaceDownwellingLongwaveFluxInAir:  [0, 5e7],
+    integralWrtTimeOfSurfaceDownwellingShortwaveFluxInAir: [0, 5e7],
+
+    // ── Sunshine & UV ──
+    sunshineDuration:[0, 1440],    // minutes in a day
+    ultravioletIndex:[0, 20],      // extreme UV = 11+, theoretical max ~20
+
+    // ── Soil (°C) ──
     soilTemp10cm:    [-50, 60],
     soilTemp20cm:    [-50, 60],
     soilTemp50cm:    [-50, 60],
-    visibility:      [0, 200000],
-    windGustDirection: [0, 360],
-    windDirection:   [0, 360],
-    precipitation1h: [0, 200],
-    precipitation3h: [0, 300],
-    precipitation6h: [0, 400],
-    precipitation12h:[0, 500],
-    precipitation24h:[0, 800],
+
+    // ── Evapotranspiration (mm) ──
+    etp:             [0, 600],
+
+    // ── Radar ──
+    equivalentReflectivityFactor: [-30, 80],  // dBZ
+
+    // ── Ocean / Marine ──
+    seaSurfaceTemperature:                    [-2, 40],  // sea ice ~ -2 °C
+    seaWaterTemperature:                      [-2, 40],
+    seaWaterSalinity:                         [0, 45],   // PSU
+    seaWaterSpeed:                            [0, 10],   // m/s (currents)
+    seaWaterElectricalConductivity:           [0, 70],   // mS/cm
+    seaSurfaceWaveSignificantHeight:          [0, 25],   // m (record ~23 m)
+    seaSurfaceWaveMaximumHeight:              [0, 40],   // m
+    seaSurfaceWaveMaximumPeriod:              [0, 30],   // seconds
+    seaSurfaceWaveMeanPeriod:                 [0, 30],
+    seaSurfaceWaveSignificantPeriod:          [0, 30],
+    seaSurfaceWaveFromDirection:              [0, 360],
+    seaSurfaceWaveDirectionalSpread:          [0, 360],
+    seaSurfaceWavePeriodOfHighestWave:        [0, 30],
+    seaSurfaceWaveEnergyAtVarianceSpectralDensityMaximum: [0, 200],  // m²/Hz
+    seaSurfaceWaveFromDirectionAtVarianceSpectralDensityMaximum: [0, 360],
+    seaSurfaceWaveMeanPeriodFromVarianceSpectralDensityFirstFrequencyMoment:  [0, 30],
+    seaSurfaceWaveMeanPeriodFromVarianceSpectralDensitySecondFrequencyMoment: [0, 30],
+    seaSurfaceWavePeriodAtVarianceSpectralDensityMaximum: [0, 30],
+    seaSurfaceSwellWaveFromDirection:         [0, 360],
+    seaSurfaceSwellWaveSignificantHeight:     [0, 20],
+    seaSurfaceSwellWaveMeanPeriodFromVarianceSpectralDensitySecondFrequencyMoment: [0, 30],
+    seaSurfaceWindWaveFromDirection:          [0, 360],
+    seaSurfaceWindWaveSignificantHeight:      [0, 20],
+    seaSurfaceWindWaveMeanPeriodFromVarianceSpectralDensitySecondFrequencyMoment: [0, 30],
   };
 
+  // Fallback heuristic bounds for dynamically-added camelCase keys
+  // that are not in the explicit map above
+  function inferBounds(key: string): [number, number] | null {
+    const k = key.toLowerCase();
+    if (k.includes("temperature") || k.includes("temp"))     return [-90, 75];
+    if (k.includes("direction") || k.includes("spread"))     return [0, 360];
+    if (k.includes("speed") || k.includes("gust"))           return [0, 150];
+    if (k.includes("humidity") || k.includes("fraction") || k.includes("cover")) return [0, 100];
+    if (k.includes("pressure"))                               return [400, 1100];
+    if (k.includes("precipitation") || k.includes("rain"))   return [0, 1200];
+    if (k.includes("salinity"))                               return [0, 50];
+    if (k.includes("period"))                                 return [0, 30];
+    if (k.includes("height") && k.includes("wave"))          return [0, 40];
+    if (k.includes("visibility"))                             return [0, 200000];
+    if (k.includes("radiation") || k.includes("flux"))       return [-500, 5000];
+    if (k.includes("snow"))                                   return [0, 2500];
+    return null; // no heuristic — pass through
+  }
+
   for (const row of rows) {
-    for (const [key, [lo, hi]] of Object.entries(bounds)) {
+    for (const key of Object.keys(row)) {
+      if (key === "datetime") continue;
       const val = row[key];
-      if (val !== undefined && val !== null && (val < lo || val > hi)) {
+      if (val === undefined || val === null || typeof val !== "number") continue;
+
+      const limit = bounds[key] || inferBounds(key);
+      if (limit && (val < limit[0] || val > limit[1])) {
         delete row[key];
       }
     }
