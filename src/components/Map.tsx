@@ -731,10 +731,9 @@ export const WeatherMap: React.FC<MapProps> = ({
       <div className="absolute bottom-6 left-6 right-6 z-10 bg-white/95 backdrop-blur-md border border-slate-200 rounded-2xl p-4 shadow-xl flex flex-col md:flex-row items-center gap-4">
         {/* Timeline Slider bar */}
         <div className="flex-1 w-full flex flex-col gap-1">
-          <div className="flex justify-between items-center text-xs font-bold text-slate-600 px-1">
-            <span>Hourly Timeline (24h UTC)</span>
-            <span className="text-blue-500 bg-blue-50 border border-blue-100 rounded px-2 py-0.5">
-              Hour: {selectedHour} UTC
+          <div className="flex justify-center items-center text-sm font-bold px-1 mb-1">
+            <span className="text-blue-600 bg-blue-50 border border-blue-200 shadow-sm rounded-full px-4 py-1">
+              {endDate} at {selectedHour.toString().padStart(2, "0")}:00 UTC
             </span>
           </div>
           <input
