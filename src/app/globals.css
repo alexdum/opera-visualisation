@@ -46,6 +46,22 @@ body {
   contain-intrinsic-size: auto none auto 360px;
 }
 
+/* Fast tab switching: caches rendering state instead of destroying it */
+.cached-view {
+  content-visibility: hidden;
+  /* Prevent the hidden tab from taking up space */
+  height: 0;
+  overflow: hidden;
+  /* But let the browser remember the layout size for instant reveal */
+  contain-intrinsic-size: auto none auto 800px;
+}
+
+.cached-view.is-active {
+  content-visibility: visible;
+  height: auto;
+  overflow: visible;
+}
+
 /* Modern micro-animations and hovers */
 .btn-premium {
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);

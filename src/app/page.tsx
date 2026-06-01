@@ -749,15 +749,14 @@ function EuroMeteoApp() {
                             </button>
                           </div>
 
-                          {/* Sub-tab: Plots (always mounted, hidden if not active) */}
-                          <div style={{ display: dashboardSubTab === "plots" ? "block" : "none" }}>
+                          {/* Sub-tab: Plots (always mounted, cached when inactive) */}
+                          <div className={`cached-view ${dashboardSubTab === "plots" ? "is-active" : ""}`}>
                             <DashboardCharts data={stationLogs} />
                           </div>
 
-                          {/* Sub-tab: Data Table (always mounted, hidden if not active) */}
+                          {/* Sub-tab: Data Table (always mounted, cached when inactive) */}
                           <div 
-                            className="flex-col gap-3 min-h-[400px]" 
-                            style={{ display: dashboardSubTab === "data" ? "flex" : "none" }}
+                            className={`cached-view flex-col gap-3 min-h-[400px] ${dashboardSubTab === "data" ? "is-active" : ""}`}
                           >
                             {/* Land / Ocean sub-tabs (only show if both exist) */}
                             {hasLandData && hasOceanData && (

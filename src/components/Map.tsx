@@ -382,7 +382,7 @@ export const WeatherMap: React.FC<MapProps> = ({
       container: mapContainer.current,
       style: "https://tiles.openfreemap.org/styles/positron",
       center: [10, 50],
-      zoom: 4,
+      zoom: 3,
       attributionControl: false,
       projection: { type: "globe" }
     } as any);
@@ -647,7 +647,7 @@ export const WeatherMap: React.FC<MapProps> = ({
     } else {
       map.current.flyTo({
         center: [15, 50],
-        zoom: 3.5,
+        zoom: 3,
         essential: true
       });
     }
@@ -658,7 +658,7 @@ export const WeatherMap: React.FC<MapProps> = ({
     setSelectedStation("");
     map.current.flyTo({ 
       center: [10, 50], 
-      zoom: 4, 
+      zoom: 3, 
       essential: true,
       duration: 1500
     });
