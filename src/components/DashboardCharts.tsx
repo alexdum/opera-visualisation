@@ -1,5 +1,5 @@
 import React from "react";
-import { AreaChartCard, BarChartCard, ComposedChartCard } from "./ChartCards";
+import { AreaChartCard, BarChartCard, ComposedChartCard, DivergingBarChartCard } from "./ChartCards";
 import { WindRose } from "./Charts";
 
 interface HourlyRow {
@@ -17,14 +17,26 @@ const PRECIP_KEYS = [
   { key: "precipitation", label: "Precipitation" },
 ];
 
+// Helper: check if any row has a defined, non-null value for a given key
+function hasKey(data: HourlyRow[], key: string): boolean {
+  return data.some((d) => d[key] !== undefined && d[key] !== null);
+}
+
 export const DashboardCharts: React.FC<{ data: HourlyRow[] }> = ({ data }) => {
   // Determine which precipitation columns have data
-  const precipCharts = PRECIP_KEYS.filter(({ key }) =>
-    data.some((d) => d[key] !== undefined && d[key] !== null)
-  );
+  const precipCharts = PRECIP_KEYS.filter(({ key }) => hasKey(data, key));
+
+  // Detect available data categories for conditional rendering
+  const hasSeaTemp = hasKey(data, "seaSurfaceTemperature");
+  const hasWaveHeight = hasKey(data, "seaSurfaceWaveSignificantHeight");
+  const hasWavePeriod = hasKey(data, "seaSurfaceWaveMeanPeriod");
+  const hasPressureTendency = hasKey(data, "pressureTendency");
+  const hasUV = hasKey(data, "ultravioletIndex");
+  const hasPrecipRate = hasKey(data, "lwePrecipitationRate") || hasKey(data, "rainfallRate");
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 lazy-render">
+      {/* ─── Core Meteorological Charts ─── */}
       <AreaChartCard 
         data={data} 
         title="Temperature Profile" 
@@ -44,7 +56,8 @@ export const DashboardCharts: React.FC<{ data: HourlyRow[] }> = ({ data }) => {
           { key: "dewPoint", name: "Dew Point (°C)", color: "#1e88e5" }
         ]} 
       />
-      {/* Dynamic precipitation charts — one per available accumulation period */}
+
+      {/* ─── Dynamic Precipitation Charts (one per accumulation period) ─── */}
       {precipCharts.map(({ key, label }) => (
         <BarChartCard 
           key={key}
@@ -56,6 +69,24 @@ export const DashboardCharts: React.FC<{ data: HourlyRow[] }> = ({ data }) => {
           ]} 
         />
       ))}
+
+      {/* ─── Precipitation Rate (instantaneous mm/h) ─── */}
+      {hasPrecipRate && (
+        <AreaChartCard
+          data={data}
+          title="Precipitation Rate"
+          unit="mm/h"
+          config={[
+            ...(hasKey(data, "lwePrecipitationRate")
+              ? [{ key: "lwePrecipitationRate", name: "Precip Rate", color: "#0288D1" }]
+              : []),
+            ...(hasKey(data, "rainfallRate")
+              ? [{ key: "rainfallRate", name: "Rainfall Rate", color: "#4FC3F7" }]
+              : []),
+          ]}
+        />
+      )}
+
       <BarChartCard 
         data={data} 
         title="Snow Profile" 
@@ -94,6 +125,20 @@ export const DashboardCharts: React.FC<{ data: HourlyRow[] }> = ({ data }) => {
           { key: "pressureStation", name: "Station Pressure", color: "#7B1FA2" }
         ]} 
       />
+
+      {/* ─── Pressure Tendency (diverging bar: green = rising, red = falling) ─── */}
+      {hasPressureTendency && (
+        <DivergingBarChartCard
+          data={data}
+          title="Pressure Tendency"
+          unit="hPa/3h"
+          dataKey="pressureTendency"
+          name="Pressure Tendency"
+          posColor="#43a047"
+          negColor="#e53935"
+        />
+      )}
+
       <AreaChartCard 
         data={data} 
         title="Cloud Cover" 
@@ -141,6 +186,19 @@ export const DashboardCharts: React.FC<{ data: HourlyRow[] }> = ({ data }) => {
           { key: "sunshineDuration", name: "Sunshine Duration", color: "#FFD700" }
         ]} 
       />
+
+      {/* ─── UV Index ─── */}
+      {hasUV && (
+        <AreaChartCard
+          data={data}
+          title="UV Index"
+          unit=""
+          config={[
+            { key: "ultravioletIndex", name: "UV Index", color: "#9C27B0" }
+          ]}
+        />
+      )}
+
       <BarChartCard 
         data={data} 
         title="Evapotranspiration (ETP)" 
@@ -151,6 +209,39 @@ export const DashboardCharts: React.FC<{ data: HourlyRow[] }> = ({ data }) => {
       />
       {data.some(d => d.windSpeed !== undefined && d.windDirection !== undefined) && (
         <WindRose data={data as any} />
+      )}
+
+      {/* ─── Marine / Ocean Charts (only render for coastal/buoy stations) ─── */}
+      {hasSeaTemp && (
+        <ComposedChartCard
+          data={data}
+          title="Air vs. Sea Surface Temperature"
+          unit="°C"
+          areaConfig={{ key: "seaSurfaceTemperature", name: "SST", color: "#0097A7" }}
+          lineConfig={{ key: "temperature", name: "Air Temp", color: "#FF7043" }}
+        />
+      )}
+
+      {hasWaveHeight && (
+        <ComposedChartCard
+          data={data}
+          title="Wave Height"
+          unit="m"
+          areaConfig={{ key: "seaSurfaceWaveSignificantHeight", name: "Sig. Wave Ht", color: "#0277BD" }}
+          lineConfig={{ key: "seaSurfaceWaveMaximumHeight", name: "Max Wave Ht", color: "#E53935" }}
+        />
+      )}
+
+      {hasWavePeriod && (
+        <AreaChartCard
+          data={data}
+          title="Wave Period"
+          unit="s"
+          config={[
+            { key: "seaSurfaceWaveMeanPeriod", name: "Mean Period", color: "#00838F" },
+            { key: "seaSurfaceWaveSignificantPeriod", name: "Sig. Period", color: "#4DB6AC" },
+          ]}
+        />
       )}
     </div>
   );

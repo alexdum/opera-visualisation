@@ -11,35 +11,13 @@ import {
   CartesianGrid,
   ComposedChart,
   Line,
+  ReferenceLine,
+  Cell,
 } from "recharts";
 
 interface HourlyRow {
   datetime: string;
-  temperature?: number;
-  precipitation?: number;
-  pressure?: number;
-  windSpeed?: number;
-  windDirection?: number;
-  tempMin?: number;
-  tempMax?: number;
-  tempMin50cm?: number;
-  tempMinGround?: number;
-  pressureStation?: number;
-  windGust?: number;
-  windGustInst?: number;
-  windSpeed2m?: number;
-  humidity?: number;
-  dewPoint?: number;
-  cloudCover?: number;
-  visibility?: number;
-  solarRadiation?: number;
-  sunshineDuration?: number;
-  snowDepth?: number;
-  snowFresh?: number;
-  soilTemp10cm?: number;
-  soilTemp20cm?: number;
-  soilTemp50cm?: number;
-  etp?: number;
+  [key: string]: string | number | undefined;
 }
 
 const formatDate = (isoString: string) => {
@@ -120,7 +98,7 @@ export const BarChartCard = ({ data, title, unit, config, stacked = false }: { d
     config.forEach(c => {
       let val = (d as any)[c.key];
       // Clamp negative precipitation values to 0
-      if (c.key === "precipitation" && typeof val === "number" && val < 0) {
+      if (c.key.startsWith("precipitation") && typeof val === "number" && val < 0) {
         val = 0;
       }
       row[c.key] = val;
@@ -190,6 +168,43 @@ export const ComposedChartCard = ({ data, title, unit, areaConfig, lineConfig }:
               <Line type="monotone" dataKey={lineConfig.key} name={lineConfig.name} stroke={lineConfig.color} strokeWidth={0} dot={{ r: 3, fill: lineConfig.color, strokeWidth: 0 }} activeDot={{ r: 5 }} connectNulls={false} />
             )}
           </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+};
+
+// Diverging Bar Chart Card (bars above/below zero, dual-colored)
+export const DivergingBarChartCard = ({ data, title, unit, dataKey, name, posColor = "#43a047", negColor = "#e53935" }: {
+  data: HourlyRow[], title: string, unit: string, dataKey: string, name: string, posColor?: string, negColor?: string
+}) => {
+  const chartData = useMemo(() => data.map(d => ({
+    time: formatDate(d.datetime),
+    [dataKey]: (d as any)[dataKey],
+  })), [data, dataKey]);
+
+  const hasData = useMemo(() => chartData.some(d => d[dataKey] !== undefined && d[dataKey] !== null), [chartData, dataKey]);
+
+  if (!hasData) return null;
+
+  return (
+    <div className="w-full h-[360px] glass-card rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4">
+      <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title}</h3>
+      <div className="flex-1 w-full min-h-0">
+        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+          <BarChart data={chartData}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+            <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
+            <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} unit={` ${unit}`} domain={['auto', 'auto']} />
+            <Tooltip content={<CustomTooltip unit={unit} />} />
+            <ReferenceLine y={0} stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="4 2" />
+            <Bar dataKey={dataKey} name={name} radius={[3, 3, 0, 0]}>
+              {chartData.map((entry, index) => {
+                const val = entry[dataKey] as number | undefined;
+                return <Cell key={`cell-${index}`} fill={val !== undefined && val !== null && val >= 0 ? posColor : negColor} />;
+              })}
+            </Bar>
+          </BarChart>
         </ResponsiveContainer>
       </div>
     </div>
