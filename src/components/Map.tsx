@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { Play, Pause, Layers, ShieldAlert, Home } from "lucide-react";
+import { Layers, ShieldAlert, Home } from "lucide-react";
 import { getColorFromPalette, getUnitForParam } from "@/utils/colors";
 import { MapLegend } from "./MapLegend";
 
@@ -69,7 +69,6 @@ export const WeatherMap: React.FC<MapProps> = ({
 
   const [basemap, setBasemap] = useState<string>("positron");
   const [showLabels, setShowLabels] = useState<boolean>(true);
-  const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isStyleSelectorOpen, setIsStyleSelectorOpen] = useState<boolean>(false);
@@ -649,16 +648,6 @@ export const WeatherMap: React.FC<MapProps> = ({
     });
   };
 
-  // ── 6. Play Timeline Animation loop ──
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (isPlaying) {
-      interval = setInterval(() => {
-        setSelectedHour((prev) => (prev >= 23 ? 0 : prev + 1));
-      }, 800);
-    }
-    return () => clearInterval(interval);
-  }, [isPlaying]);
 
   return (
     <div className="relative w-full h-full flex flex-col min-h-0">
@@ -740,20 +729,12 @@ export const WeatherMap: React.FC<MapProps> = ({
 
       {/* Timeline slider control panel at bottom of map */}
       <div className="absolute bottom-6 left-6 right-6 z-10 bg-white/95 backdrop-blur-md border border-slate-200 rounded-2xl p-4 shadow-xl flex flex-col md:flex-row items-center gap-4">
-        {/* Play/Pause Button */}
-        <button
-          onClick={() => setIsPlaying(!isPlaying)}
-          className="p-3 bg-blue-500 hover:bg-blue-600 active:scale-95 text-white rounded-xl shadow-md transition-all cursor-pointer"
-        >
-          {isPlaying ? <Pause size={18} fill="white" /> : <Play size={18} fill="white" />}
-        </button>
-
         {/* Timeline Slider bar */}
         <div className="flex-1 w-full flex flex-col gap-1">
           <div className="flex justify-between items-center text-xs font-bold text-slate-600 px-1">
             <span>Hourly Timeline (24h UTC)</span>
             <span className="text-blue-500 bg-blue-50 border border-blue-100 rounded px-2 py-0.5">
-              Hour: {selectedHour.toString().padStart(2, "0")}:00 UTC
+              Hour: {selectedHour} UTC
             </span>
           </div>
           <input
@@ -764,12 +745,16 @@ export const WeatherMap: React.FC<MapProps> = ({
             onChange={(e) => setSelectedHour(parseInt(e.target.value))}
             className="w-full h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-blue-500"
           />
-          <div className="flex justify-between text-[10px] text-slate-400 font-semibold px-1">
-            <span>00:00</span>
-            <span>06:00</span>
-            <span>12:00</span>
-            <span>18:00</span>
-            <span>23:00</span>
+          <div className="flex justify-between text-xs text-slate-400 font-semibold px-1">
+            <span>0</span>
+            <span>3</span>
+            <span>6</span>
+            <span>9</span>
+            <span>12</span>
+            <span>15</span>
+            <span>18</span>
+            <span>21</span>
+            <span>23</span>
           </div>
         </div>
       </div>
