@@ -610,8 +610,8 @@ function EuroMeteoApp() {
             </div>
           ) : (
             <div className="flex-grow w-full h-full min-h-0 relative">
-              {/* Tab: Map View */}
-              {activeTab === "map" && (
+              {/* Tab: Map View — always mounted, hidden when inactive */}
+              <div className="w-full h-full" style={{ display: activeTab === "map" ? "block" : "none" }}>
                 <WeatherMap
                   stations={stations}
                   selectedCountry={selectedCountry}
@@ -628,32 +628,29 @@ function EuroMeteoApp() {
                     setActiveTab("dashboard");
                   }}
                 />
-              )}
+              </div>
 
-              {/* Tab: Stations Info table */}
-              {activeTab === "stations" && (
-                <div className="w-full h-full flex flex-col gap-4">
-                  <div className="bg-blue-50/50 border border-blue-100/50 rounded-2xl p-4 flex gap-3 items-center text-sm font-medium text-slate-600">
-                    <Info size={16} className="text-blue-500 shrink-0" />
-                    <p>
-                      Double-click or tap a row to select the station and view its detailed hourly weather log.
-                    </p>
-                  </div>
-                  <div className="flex-grow min-h-0">
-                    <WeatherTable
-                      data={stations}
-                      columns={stationColumns}
-                      onRowDoubleClick={handleStationDoubleClick}
-                      searchPlaceholder="Search stations by name or WIGOS ID..."
-                      searchKey="name"
-                    />
-                  </div>
+              {/* Tab: Stations Info table — always mounted, hidden when inactive */}
+              <div className="w-full h-full flex flex-col gap-4" style={{ display: activeTab === "stations" ? "flex" : "none" }}>
+                <div className="bg-blue-50/50 border border-blue-100/50 rounded-2xl p-4 flex gap-3 items-center text-sm font-medium text-slate-600">
+                  <Info size={16} className="text-blue-500 shrink-0" />
+                  <p>
+                    Double-click or tap a row to select the station and view its detailed hourly weather log.
+                  </p>
                 </div>
-              )}
+                <div className="flex-grow min-h-0">
+                  <WeatherTable
+                    data={stations}
+                    columns={stationColumns}
+                    onRowDoubleClick={handleStationDoubleClick}
+                    searchPlaceholder="Search stations by name or WIGOS ID..."
+                    searchKey="name"
+                  />
+                </div>
+              </div>
 
-              {/* Tab: Dashboard charts & raw logs */}
-              {activeTab === "dashboard" && (
-                <div className="w-full h-full overflow-y-auto custom-scrollbar flex flex-col gap-6 pr-1 pb-6">
+              {/* Tab: Dashboard charts & raw logs — always mounted, hidden when inactive */}
+              <div className="w-full h-full overflow-y-auto custom-scrollbar flex flex-col gap-6 pr-1 pb-6" style={{ display: activeTab === "dashboard" ? "flex" : "none" }}>
                   {!selectedStation ? (
                     <div className="w-full h-[400px] flex flex-col items-center justify-center text-center gap-3">
                       <BarChart3 className="text-slate-300" size={48} />
@@ -786,7 +783,7 @@ function EuroMeteoApp() {
                     </>
                   )}
                 </div>
-              )}
+              </div>
             </div>
           )}
         </div>

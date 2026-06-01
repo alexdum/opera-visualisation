@@ -1,5 +1,5 @@
 import React from "react";
-import { AreaChartCard, BarChartCard, ComposedChartCard, DivergingBarChartCard } from "./ChartCards";
+import { AreaChartCard, BarChartCard, ComposedChartCard, DivergingBarChartCard, DualAxisChartCard } from "./ChartCards";
 import { WindRose } from "./Charts";
 
 interface HourlyRow {
@@ -47,14 +47,11 @@ export const DashboardCharts: React.FC<{ data: HourlyRow[] }> = ({ data }) => {
           { key: "tempMin", name: "Min Temp", color: "#1976d2" }
         ]} 
       />
-      <AreaChartCard 
+      <DualAxisChartCard 
         data={data} 
-        title="Humidity" 
-        unit="%" 
-        config={[
-          { key: "humidity", name: "Relative Humidity", color: "#43a047" },
-          { key: "dewPoint", name: "Dew Point (°C)", color: "#1e88e5" }
-        ]} 
+        title="Humidity & Dew Point" 
+        leftConfig={{ key: "humidity", name: "Relative Humidity", color: "#43a047", unit: "%" }}
+        rightConfig={{ key: "dewPoint", name: "Dew Point", color: "#1e88e5", unit: "°C" }}
       />
 
       {/* ─── Dynamic Precipitation Charts (one per accumulation period) ─── */}

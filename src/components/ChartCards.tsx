@@ -210,3 +210,112 @@ export const DivergingBarChartCard = ({ data, title, unit, dataKey, name, posCol
     </div>
   );
 };
+
+// Dual-Axis Chart Card (left Y-axis + right Y-axis with different units)
+export const DualAxisChartCard = ({ data, title, leftConfig, rightConfig }: {
+  data: HourlyRow[],
+  title: string,
+  leftConfig: { key: string, name: string, color: string, unit: string },
+  rightConfig: { key: string, name: string, color: string, unit: string },
+}) => {
+  const chartData = useMemo(() => data.map(d => ({
+    time: formatDate(d.datetime),
+    [leftConfig.key]: (d as any)[leftConfig.key],
+    [rightConfig.key]: (d as any)[rightConfig.key],
+  })), [data, leftConfig, rightConfig]);
+
+  const hasLeftData = useMemo(() => chartData.some(d => d[leftConfig.key] !== undefined && d[leftConfig.key] !== null), [chartData, leftConfig]);
+  const hasRightData = useMemo(() => chartData.some(d => d[rightConfig.key] !== undefined && d[rightConfig.key] !== null), [chartData, rightConfig]);
+
+  if (!hasLeftData && !hasRightData) return null;
+
+  // Custom tooltip that shows the correct unit per series
+  const DualTooltip = ({ active, payload, label }: any) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className="bg-white/95 backdrop-blur-sm rounded-xl border border-slate-200 shadow-lg p-3 text-sm">
+          <p className="font-bold text-slate-700 mb-2">{label}</p>
+          {payload.map((entry: any, index: number) => {
+            const u = entry.dataKey === leftConfig.key ? leftConfig.unit : rightConfig.unit;
+            return (
+              <div key={`item-${index}`} className="flex items-center gap-2 mb-1">
+                <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: entry.color }} />
+                <span className="text-slate-600 font-medium capitalize">{entry.name}:</span>
+                <span className="text-slate-800 font-bold">
+                  {entry.value !== undefined ? Number(entry.value).toFixed(1) : "-"} {u}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+    return null;
+  };
+
+  return (
+    <div className="w-full h-[360px] glass-card rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4">
+      <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title}</h3>
+      <div className="flex-1 w-full min-h-0">
+        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+          <ComposedChart data={chartData}>
+            <defs>
+              <linearGradient id={`grad-dual-${leftConfig.key}`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={leftConfig.color} stopOpacity={0.4} />
+                <stop offset="95%" stopColor={leftConfig.color} stopOpacity={0.0} />
+              </linearGradient>
+              <linearGradient id={`grad-dual-${rightConfig.key}`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={rightConfig.color} stopOpacity={0.3} />
+                <stop offset="95%" stopColor={rightConfig.color} stopOpacity={0.0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+            <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
+            <YAxis
+              yAxisId="left"
+              stroke={leftConfig.color}
+              fontSize={11}
+              tickLine={false}
+              unit={` ${leftConfig.unit}`}
+              domain={[0, 100]}
+            />
+            <YAxis
+              yAxisId="right"
+              orientation="right"
+              stroke={rightConfig.color}
+              fontSize={11}
+              tickLine={false}
+              unit={` ${rightConfig.unit}`}
+              domain={["auto", "auto"]}
+            />
+            <Tooltip content={<DualTooltip />} />
+            {hasLeftData && (
+              <Area
+                yAxisId="left"
+                type="monotone"
+                dataKey={leftConfig.key}
+                name={leftConfig.name}
+                stroke={leftConfig.color}
+                strokeWidth={2}
+                fill={`url(#grad-dual-${leftConfig.key})`}
+                connectNulls
+              />
+            )}
+            {hasRightData && (
+              <Line
+                yAxisId="right"
+                type="monotone"
+                dataKey={rightConfig.key}
+                name={rightConfig.name}
+                stroke={rightConfig.color}
+                strokeWidth={2}
+                dot={false}
+                connectNulls
+              />
+            )}
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+};
