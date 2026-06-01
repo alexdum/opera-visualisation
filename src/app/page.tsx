@@ -204,6 +204,14 @@ function EuroMeteoApp() {
         ? stations.find((st) => st.id === selectedStation) || null
         : null;
 
+      // Build lightweight station list for the selected country so the parent
+      // page can render clickable station links in the dynamic context area
+      const countryStations = selectedCountry
+        ? stations
+            .filter((st) => st.country === selectedCountry)
+            .map((st) => ({ id: st.id, name: st.name }))
+        : null;
+
       window.parent.postMessage({
         type: 'EUROMETEO_STATE_CHANGE',
         payload: {
@@ -214,7 +222,8 @@ function EuroMeteoApp() {
           parameter: parameter,
           start: startDate,
           end: endDate,
-          tab: activeTab
+          tab: activeTab,
+          countryStations: countryStations
         },
         search: `?${params.toString()}`
       }, '*');
