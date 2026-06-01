@@ -158,11 +158,19 @@ function EuroMeteoApp() {
 
     // Notify parent window of state changes if embedded in an iframe
     if (window.parent !== window) {
+      // Resolve station name and country from loaded metadata so the parent
+      // page can build SEO-friendly URL slugs without a pre-populated cache
+      const stationDetails = selectedStation
+        ? stations.find((st) => st.id === selectedStation) || null
+        : null;
+
       window.parent.postMessage({
         type: 'EUROMETEO_STATE_CHANGE',
         payload: {
           country: selectedCountry,
           station: selectedStation,
+          stationName: stationDetails?.name || null,
+          stationCountry: stationDetails?.country || null,
           parameter: parameter,
           start: startDate,
           end: endDate,
@@ -171,7 +179,8 @@ function EuroMeteoApp() {
         search: `?${params.toString()}`
       }, '*');
     }
-  }, [selectedCountry, selectedStation, parameter, startDate, endDate, activeTab]);
+  }, [selectedCountry, selectedStation, parameter, startDate, endDate, activeTab, stations]);
+
 
   const [loadingMessage, setLoadingMessage] = useState<string>("Connecting to API...");
 
