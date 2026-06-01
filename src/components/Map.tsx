@@ -673,7 +673,7 @@ export const WeatherMap: React.FC<MapProps> = ({
       {/* Home Button */}
       <button
         onClick={handleHomeClick}
-        className="absolute top-[80px] left-2.5 z-10 p-1.5 bg-white shadow-sm border border-slate-200 rounded-md text-slate-600 hover:bg-slate-50 transition-colors"
+        className="absolute top-[80px] left-2.5 z-10 p-1.5 min-w-[44px] min-h-[44px] flex items-center justify-center bg-white shadow-sm border border-slate-200 rounded-md text-slate-600 hover:bg-slate-50 transition-colors"
         title="Zoom to All Stations"
       >
         <Home size={20} />
@@ -683,10 +683,10 @@ export const WeatherMap: React.FC<MapProps> = ({
       <MapLegend parameter={parameter} values={currentValues} />
 
       {/* Map Styles Layer selector - Collapsed by default, positioned below Home button */}
-      <div className="absolute top-[120px] left-2.5 z-10 flex flex-col gap-1">
+      <div className="absolute top-[130px] left-2.5 z-10 flex flex-col gap-1">
         <button
           onClick={() => setIsStyleSelectorOpen(!isStyleSelectorOpen)}
-          className={`p-1.5 shadow-sm border rounded-md transition-colors ${
+          className={`p-1.5 min-w-[44px] min-h-[44px] flex items-center justify-center shadow-sm border rounded-md transition-colors ${
             isStyleSelectorOpen 
               ? 'bg-blue-50 border-blue-200 text-blue-600' 
               : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
@@ -773,7 +773,7 @@ export const WeatherMap: React.FC<MapProps> = ({
                 setSelectedHour(val);
               }
             }}
-            className="w-full h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-blue-500"
+            className="w-full h-4 md:h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-blue-500"
           />
           <div className="relative w-full h-6 mt-1 text-xs text-slate-400 font-semibold">
             {[0, 3, 6, 9, 12, 15, 18, 21, 23].map((h) => (

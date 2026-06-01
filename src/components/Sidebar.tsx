@@ -83,7 +83,7 @@ const SearchableStationSelect = ({
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full bg-white/70 border border-slate-200 rounded-xl pl-9 pr-8 py-2.5 text-sm text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer text-left flex items-center justify-between"
+        className="w-full bg-white/70 border border-slate-200 rounded-xl pl-9 pr-8 py-2.5 text-base md:text-sm text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer text-left flex items-center justify-between"
       >
         <div className="truncate pr-2">
           {selected ? `${selected.name} (${selected.country})` : <span className="text-slate-400">Select a station...</span>}
@@ -103,7 +103,7 @@ const SearchableStationSelect = ({
                 placeholder="Search name, ID or country..."
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                className="w-full pl-8 pr-3 py-1.5 text-base md:text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
               />
             </div>
           </div>
@@ -282,7 +282,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   setSelectedCountry(e.target.value);
                   setSelectedStation(""); // Reset station on country change
                 }}
-                className="w-full bg-white/70 border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer appearance-none"
+                className="w-full bg-white/70 border border-slate-200 rounded-xl px-3.5 py-2.5 text-base md:text-sm text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer appearance-none"
               >
                 <option value="">All Countries</option>
                 {countries.map((country) => (
@@ -320,7 +320,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   min="2026-03-05"
                   max={endDate || new Date().toISOString().split("T")[0]}
                   onChange={(e) => handleStartDateChange(e.target.value)}
-                  className="w-full bg-white/70 border border-slate-200 rounded-xl pl-9 pr-3.5 py-2 text-sm text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer"
+                  className="w-full bg-white/70 border border-slate-200 rounded-xl pl-9 pr-3.5 py-2 text-base md:text-sm text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer"
                 />
                 <Calendar className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
               </div>
@@ -331,7 +331,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   min={startDate || "2026-03-05"}
                   max={new Date().toISOString().split("T")[0]}
                   onChange={(e) => handleEndDateChange(e.target.value)}
-                  className="w-full bg-white/70 border border-slate-200 rounded-xl pl-9 pr-3.5 py-2 text-sm text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer"
+                  className="w-full bg-white/70 border border-slate-200 rounded-xl pl-9 pr-3.5 py-2 text-base md:text-sm text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer"
                 />
                 <Calendar className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
               </div>
