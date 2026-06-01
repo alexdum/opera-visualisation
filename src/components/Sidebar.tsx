@@ -271,7 +271,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="flex flex-col gap-2">
             <label className="text-sm font-semibold text-slate-500 tracking-wider uppercase flex items-center gap-1.5">
               Zoom to Country
-              <div className="group relative" title="Select a country to filter the station list and zoom the map.">
+              <div className="group relative" title="Select a country to filter the station list and zoom the map to its bounds.">
                 <Info size={12} className="text-slate-400 cursor-help" />
               </div>
             </label>
@@ -299,6 +299,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="flex flex-col gap-2">
             <label className="text-sm font-semibold text-slate-500 tracking-wider uppercase flex items-center gap-1.5">
               Find Station
+              <div className="group relative" title="Search for a specific station by name, ID, or country to select it.">
+                <Info size={12} className="text-slate-400 cursor-help" />
+              </div>
             </label>
             <SearchableStationSelect 
               stations={filteredStations} 
@@ -311,6 +314,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="flex flex-col gap-2">
             <label className="text-sm font-semibold text-slate-500 tracking-wider uppercase flex items-center gap-1.5">
               Select Period
+              <div className="group relative" title="Choose a date range (up to 31 days) to fetch historical observation data.">
+                <Info size={12} className="text-slate-400 cursor-help" />
+              </div>
             </label>
             <div className="flex flex-col gap-2">
               <div className="relative">
@@ -342,6 +348,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="flex flex-col gap-2">
             <label className="text-sm font-semibold text-slate-500 tracking-wider uppercase flex items-center gap-1.5">
               Map Parameter
+              <div className="group relative" title="Select the weather variable to display on the map markers using color coding.">
+                <Info size={12} className="text-slate-400 cursor-help" />
+              </div>
             </label>
             <div className="flex flex-col gap-1.5">
               {[
