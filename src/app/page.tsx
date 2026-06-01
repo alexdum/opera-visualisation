@@ -42,11 +42,39 @@ function camelToTitle(str: string): string {
     .trim();
 }
 
+// Slugify station/country names — must match the parent page's implementation exactly
+function slugify(text: string): string {
+  if (!text) return '';
+  let s = text;
+  // Norwegian/Danish
+  s = s.replace(/\u00f8/g, 'o').replace(/\u00d8/g, 'o');
+  s = s.replace(/\u00e6/g, 'ae').replace(/\u00c6/g, 'ae');
+  // Polish
+  s = s.replace(/\u0142/g, 'l').replace(/\u0141/g, 'l');
+  // Icelandic
+  s = s.replace(/\u00f0/g, 'd').replace(/\u00d0/g, 'd');
+  s = s.replace(/\u00fe/g, 'th').replace(/\u00de/g, 'th');
+  // Turkish
+  s = s.replace(/\u0131/g, 'i');
+  // German umlauts
+  s = s.replace(/\u00fc/g, 'ue').replace(/\u00dc/g, 'ue');
+  s = s.replace(/\u00f6/g, 'oe').replace(/\u00d6/g, 'oe');
+  s = s.replace(/\u00e4/g, 'ae').replace(/\u00c4/g, 'ae');
+  s = s.replace(/\u00df/g, 'ss');
+  s = s.toLowerCase();
+  s = s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  s = s.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return s;
+}
+
 function EuroMeteoApp() {
   // --- Sidebar & General Filters State ---
   const [stations, setStations] = useState<Station[]>([]);
   const [selectedCountry, setSelectedCountry] = useState<string>("");
   const [selectedStation, setSelectedStation] = useState<string>("");
+  // Pending station slug: set when a station slug is received (from URL or message)
+  // but can't be resolved yet because stations haven't loaded
+  const [pendingStationSlug, setPendingStationSlug] = useState<string>("");
   
   // Default to Last 31 Days like MeteoGate
   const [endDate, setEndDate] = useState<string>(
@@ -141,7 +169,24 @@ function EuroMeteoApp() {
     if (start) setStartDate(start);
     if (end) setEndDate(end);
     if (tab) setActiveTab(tab);
+
+    // Read stationSlug for deferred resolution (SEO hub links pass slugs, not IDs)
+    const stationSlug = params.get("stationSlug");
+    if (stationSlug && !station) {
+      setPendingStationSlug(stationSlug);
+    }
   }, []);
+
+  // --- Resolve pending station slug once stations are loaded ---
+  useEffect(() => {
+    if (!pendingStationSlug || stations.length === 0) return;
+
+    const match = stations.find((st) => slugify(st.name) === pendingStationSlug);
+    if (match) {
+      setSelectedStation(match.id);
+      setPendingStationSlug('');
+    }
+  }, [pendingStationSlug, stations]);
 
   // --- Listen for navigation commands from parent window (iframe embedding) ---
   // The parent page (climateexplorer.app) sends 'eurometeo-navigate' messages
@@ -166,11 +211,16 @@ function EuroMeteoApp() {
         setSelectedCountry('');
       }
 
-      // Update station (WIGOS ID)
+      // Update station (WIGOS ID or slug)
       if (data.stationId) {
         setSelectedStation(data.stationId);
+        setPendingStationSlug('');
+      } else if (data.stationSlug) {
+        // Slug needs deferred resolution against the stations list
+        setPendingStationSlug(data.stationSlug);
       } else {
         setSelectedStation('');
+        setPendingStationSlug('');
       }
 
       // Update tab
