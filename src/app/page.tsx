@@ -261,6 +261,20 @@ function EuroMeteoApp() {
     };
   }, [selectedStation, startDate, endDate]);
 
+  // Jump to Dashboard 3 seconds after a station is selected
+  useEffect(() => {
+    if (!selectedStation) return;
+    
+    // Only set timeout if we aren't already on the dashboard
+    if (activeTab === "dashboard") return;
+    
+    const timer = setTimeout(() => {
+      setActiveTab("dashboard");
+    }, 3000);
+    
+    return () => clearTimeout(timer);
+  }, [selectedStation]); // We only trigger on station selection, activeTab is checked inside to avoid loops
+
   // Find active station object details
   const activeStationDetails = useMemo(() => {
     return stations.find((st) => st.id === selectedStation) || null;
