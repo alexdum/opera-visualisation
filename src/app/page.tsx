@@ -749,49 +749,54 @@ function EuroMeteoApp() {
                             </button>
                           </div>
 
-                          {dashboardSubTab === "plots" ? (
+                          {/* Sub-tab: Plots (always mounted, hidden if not active) */}
+                          <div style={{ display: dashboardSubTab === "plots" ? "block" : "none" }}>
                             <DashboardCharts data={stationLogs} />
-                          ) : (
-                            <div className="flex flex-col gap-3 min-h-[400px]">
-                              {/* Land / Ocean sub-tabs (only show if both exist) */}
-                              {hasLandData && hasOceanData && (
-                                <div className="flex items-center gap-2 mb-1">
-                                  <button
-                                    onClick={() => setDashboardDataTab("land")}
-                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                                      dashboardDataTab === "land"
-                                        ? "bg-emerald-100 text-emerald-700"
-                                        : "text-slate-400 hover:bg-slate-100"
-                                    }`}
-                                  >
-                                    🌍 Land
-                                  </button>
-                                  <button
-                                    onClick={() => setDashboardDataTab("ocean")}
-                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                                      dashboardDataTab === "ocean"
-                                        ? "bg-cyan-100 text-cyan-700"
-                                        : "text-slate-400 hover:bg-slate-100"
-                                    }`}
-                                  >
-                                    🌊 Ocean
-                                  </button>
-                                </div>
-                              )}
-                              <div className="flex-1">
-                                <WeatherTable
-                                  data={stationLogs}
-                                  columns={
-                                    hasOceanData && (!hasLandData || dashboardDataTab === "ocean")
-                                      ? oceanColumns
-                                      : landColumns
-                                  }
-                                  searchPlaceholder="Filter logs by hour or value..."
-                                  searchKey="datetime"
-                                />
+                          </div>
+
+                          {/* Sub-tab: Data Table (always mounted, hidden if not active) */}
+                          <div 
+                            className="flex-col gap-3 min-h-[400px]" 
+                            style={{ display: dashboardSubTab === "data" ? "flex" : "none" }}
+                          >
+                            {/* Land / Ocean sub-tabs (only show if both exist) */}
+                            {hasLandData && hasOceanData && (
+                              <div className="flex items-center gap-2 mb-1">
+                                <button
+                                  onClick={() => setDashboardDataTab("land")}
+                                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                    dashboardDataTab === "land"
+                                      ? "bg-emerald-100 text-emerald-700"
+                                      : "text-slate-400 hover:bg-slate-100"
+                                  }`}
+                                >
+                                  🌍 Land
+                                </button>
+                                <button
+                                  onClick={() => setDashboardDataTab("ocean")}
+                                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                    dashboardDataTab === "ocean"
+                                      ? "bg-cyan-100 text-cyan-700"
+                                      : "text-slate-400 hover:bg-slate-100"
+                                  }`}
+                                >
+                                  🌊 Ocean
+                                </button>
                               </div>
+                            )}
+                            <div className="flex-1">
+                              <WeatherTable
+                                data={stationLogs}
+                                columns={
+                                  hasOceanData && (!hasLandData || dashboardDataTab === "ocean")
+                                    ? oceanColumns
+                                    : landColumns
+                                }
+                                searchPlaceholder="Filter logs by hour or value..."
+                                searchKey="datetime"
+                              />
                             </div>
-                          )}
+                          </div>
                         </>
                       )}
                     </>
