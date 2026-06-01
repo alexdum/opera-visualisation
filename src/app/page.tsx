@@ -783,7 +783,6 @@ function EuroMeteoApp() {
                     </>
                   )}
                 </div>
-              </div>
             </div>
           )}
         </div>
