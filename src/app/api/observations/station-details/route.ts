@@ -32,11 +32,11 @@ function mapParamToRow(row: any, paramName: string, val: number): void {
   else if (paramName.includes("minimum_grass_temperature") || paramName.includes("minimum_temperature_at_ground_level")) row.tempMinGround = val;
   else if (paramName.includes("air_temperature")) row.temperature = val;
   // Duration-specific precipitation columns (must come before generic precipitation)
-  else if (paramName.includes("precipitation_amount_1h") || paramName.includes("rainfall_amount_1h")) row.precipitation1h = val;
-  else if (paramName.includes("precipitation_amount_3h") || paramName.includes("rainfall_amount_3h")) row.precipitation3h = val;
-  else if (paramName.includes("precipitation_amount_6h") || paramName.includes("rainfall_amount_6h")) row.precipitation6h = val;
-  else if (paramName.includes("precipitation_amount_12h") || paramName.includes("rainfall_amount_12h")) row.precipitation12h = val;
-  else if (paramName.includes("precipitation_amount_24h") || paramName.includes("rainfall_amount_24h")) row.precipitation24h = val;
+  else if (paramName.includes("precipitation_amount_1h") || paramName.includes("rainfall_amount_1h") || ((paramName.includes("precipitation") || paramName.includes("rain")) && paramName.includes("PT1H"))) row.precipitation1h = val;
+  else if (paramName.includes("precipitation_amount_3h") || paramName.includes("rainfall_amount_3h") || ((paramName.includes("precipitation") || paramName.includes("rain")) && paramName.includes("PT3H"))) row.precipitation3h = val;
+  else if (paramName.includes("precipitation_amount_6h") || paramName.includes("rainfall_amount_6h") || ((paramName.includes("precipitation") || paramName.includes("rain")) && paramName.includes("PT6H"))) row.precipitation6h = val;
+  else if (paramName.includes("precipitation_amount_12h") || paramName.includes("rainfall_amount_12h") || ((paramName.includes("precipitation") || paramName.includes("rain")) && paramName.includes("PT12H"))) row.precipitation12h = val;
+  else if (paramName.includes("precipitation_amount_24h") || paramName.includes("rainfall_amount_24h") || ((paramName.includes("precipitation") || paramName.includes("rain")) && paramName.includes("PT24H"))) row.precipitation24h = val;
   else if (paramName.includes("precipitation_amount") || paramName.includes("rainfall_amount")) row.precipitation = val;
   else if (paramName.includes("air_pressure_at_mean_sea_level")) row.pressure = val;
   // Pressure tendency must come before generic air_pressure

@@ -254,7 +254,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Sidebar Container */}
       <aside 
-        className={`fixed top-0 left-0 z-40 h-full w-[310px] glass-sidebar flex flex-col justify-between p-6 transition-transform duration-300 ease-in-out lg:translate-x-0 ${
+        className={`fixed top-0 left-0 z-40 h-full w-[280px] glass-sidebar flex flex-col justify-between p-6 transition-transform duration-300 ease-in-out lg:translate-x-0 ${
           isOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
