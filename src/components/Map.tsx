@@ -745,16 +745,19 @@ export const WeatherMap: React.FC<MapProps> = ({
             onChange={(e) => setSelectedHour(parseInt(e.target.value))}
             className="w-full h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-blue-500"
           />
-          <div className="flex justify-between text-xs text-slate-400 font-semibold px-1">
-            <span>0</span>
-            <span>3</span>
-            <span>6</span>
-            <span>9</span>
-            <span>12</span>
-            <span>15</span>
-            <span>18</span>
-            <span>21</span>
-            <span>23</span>
+          <div className="relative w-full h-6 mt-1 text-xs text-slate-400 font-semibold">
+            {[0, 3, 6, 9, 12, 15, 18, 21, 23].map((h) => (
+              <div
+                key={h}
+                className="absolute top-0 flex flex-col items-center w-6 -ml-3"
+                style={{
+                  left: `calc(10px + (100% - 20px) * ${h / 23})`,
+                }}
+              >
+                <div className="w-[1.5px] h-1.5 bg-slate-300 mb-0.5 rounded-full" />
+                <span>{h}</span>
+              </div>
+            ))}
           </div>
         </div>
       </div>
