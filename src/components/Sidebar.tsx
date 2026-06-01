@@ -36,6 +36,8 @@ interface SidebarProps {
   setParameter: (param: string) => void;
   isOpen: boolean;
   setIsOpen: (isOpen: boolean) => void;
+  selectedHour: number;
+  observations?: Record<string, number[]>;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -51,7 +53,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   parameter,
   setParameter,
   isOpen,
-  setIsOpen
+  setIsOpen,
+  selectedHour,
+  observations
 }) => {
   // Extract unique countries sorted alphabetically
   const countries = useMemo(() => {
@@ -65,8 +69,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return stations.filter(st => st.country === selectedCountry);
   }, [stations, selectedCountry]);
 
-  // Count filtered stations
-  const activeCount = filteredStations.length;
+  // Count stations that have actual valid observations for the selected hour
+  const activeCount = useMemo(() => {
+    if (!observations || Object.keys(observations).length === 0) {
+      return filteredStations.length;
+    }
+    let count = 0;
+    filteredStations.forEach((st) => {
+      const val = observations[st.id]?.[selectedHour];
+      if (val !== undefined && val !== null && !isNaN(val)) {
+        count++;
+      }
+    });
+    return count;
+  }, [filteredStations, observations, selectedHour]);
+
+  const hoursAgo = useMemo(() => {
+    const selectedDateStr = `${endDate}T${selectedHour.toString().padStart(2, "0")}:00:00Z`;
+    const selectedTime = new Date(selectedDateStr).getTime();
+    const now = new Date().getTime();
+    const diff = now - selectedTime;
+    return Math.max(0, Math.floor(diff / (1000 * 60 * 60)));
+  }, [endDate, selectedHour]);
 
   // Date range constraints (max 31 days)
   const handleStartDateChange = (newStart: string) => {
@@ -246,21 +270,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Footer info & stats */}
         <div className="border-t border-slate-100 pt-4 flex flex-col gap-3">
-          <div className="bg-slate-50 border border-slate-100 rounded-xl p-3 flex flex-col gap-1 text-xs font-medium text-slate-500">
-            <div className="flex justify-between">
-              <span>Active Stations:</span>
-              <span className="font-bold text-slate-800">{activeCount}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Total in Domain:</span>
-              <span className="text-slate-600">{stations.length}</span>
-            </div>
+          <div className="bg-slate-50 border border-slate-100 rounded-xl p-4 flex flex-col gap-1.5 text-sm font-medium text-slate-600">
+            <div><span className="font-bold text-slate-800">{stations.length}</span> stations found</div>
+            <div className="text-blue-600 font-semibold border-b border-slate-200 pb-2 mb-1">Showing: {activeCount} stations</div>
+            <div className="text-slate-800 font-bold">{endDate} {selectedHour.toString().padStart(2, "0")}:00 UTC</div>
+            <div className="text-slate-500 text-xs">{hoursAgo} hour(s) ago</div>
           </div>
 
-          <div className="text-xs text-slate-400 font-medium leading-relaxed">
-            Data Source: <span className="font-semibold text-slate-500">MeteoGate / E-SOH</span>
-            <br />
-            Includes: Temperature, Precip, Wind, Pressure.
+          <div className="bg-blue-50/50 border border-blue-100/50 rounded-xl p-3 flex gap-2 items-start text-xs font-medium text-slate-600">
+            <Info size={14} className="text-blue-500 shrink-0 mt-0.5" />
+            <p>Tip: Click map points to view detailed weather plots.</p>
           </div>
         </div>
       </aside>

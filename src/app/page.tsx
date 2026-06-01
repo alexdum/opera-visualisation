@@ -408,6 +408,8 @@ function EuroMeteoApp() {
         setParameter={setParameter}
         isOpen={sidebarOpen}
         setIsOpen={setSidebarOpen}
+        selectedHour={selectedHour}
+        observations={areaObservations}
       />
 
       {/* Main View Shell Container */}
