@@ -143,6 +143,46 @@ function EuroMeteoApp() {
     if (tab) setActiveTab(tab);
   }, []);
 
+  // --- Listen for navigation commands from parent window (iframe embedding) ---
+  // The parent page (climateexplorer.app) sends 'eurometeo-navigate' messages
+  // when users click country/station links, so the iframe can navigate without
+  // a full page reload.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handleParentMessage = (event: MessageEvent) => {
+      const data = event.data;
+      if (!data || data.type !== 'eurometeo-navigate') return;
+
+      // Update parameter
+      if (data.parameter) {
+        setParameter(data.parameter);
+      }
+
+      // Update country (display name)
+      if (data.country) {
+        setSelectedCountry(data.country);
+      } else if (data.country === '' || data.country === null) {
+        setSelectedCountry('');
+      }
+
+      // Update station (WIGOS ID)
+      if (data.stationId) {
+        setSelectedStation(data.stationId);
+      } else {
+        setSelectedStation('');
+      }
+
+      // Update tab
+      if (data.tab) {
+        setActiveTab(data.tab);
+      }
+    };
+
+    window.addEventListener('message', handleParentMessage);
+    return () => window.removeEventListener('message', handleParentMessage);
+  }, []);
+
   // Sync state changes back to URL query parameters and notify parent iframe
   useEffect(() => {
     const params = new URLSearchParams();
