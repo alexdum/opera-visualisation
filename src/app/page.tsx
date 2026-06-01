@@ -470,7 +470,11 @@ function EuroMeteoApp() {
     cloudCover: "Cloud Cover", cloudCoverLow: "Low Cloud",
     cloudBaseAltitude: "Cloud Base", visibility: "Visibility",
     // Radiation
-    solarRadiation: "Solar Rad", sunshineDuration: "Sun Dur",
+    solarRadiation: "Solar Rad",
+    sunshineDuration10m: "Sun Dur 10m", sunshineDuration1h: "Sun Dur 1h",
+    sunshineDuration3h: "Sun Dur 3h", sunshineDuration6h: "Sun Dur 6h",
+    sunshineDuration12h: "Sun Dur 12h", sunshineDuration24h: "Sun Dur 24h",
+    sunshineDuration: "Sun Dur",
     surfaceDiffuseDownwellingShortwave: "Diffuse SW↓",
     surfaceDirectDownwellingShortwave: "Direct SW↓",
     surfaceDownwellingLongwaveFluxInAir: "LW↓",
@@ -526,7 +530,10 @@ function EuroMeteoApp() {
     "windSpeed", "windSpeed2m", "windGust", "windGustInst", "windGustDirection", "windDirection",
     "pressure", "pressureStation", "pressureTendency",
     "cloudCover", "cloudCoverLow", "cloudBaseAltitude", "visibility",
-    "solarRadiation", "sunshineDuration", "ultravioletIndex", "etp",
+    "solarRadiation",
+    "sunshineDuration10m", "sunshineDuration1h", "sunshineDuration3h",
+    "sunshineDuration6h", "sunshineDuration12h", "sunshineDuration24h",
+    "sunshineDuration", "ultravioletIndex", "etp",
     "soilTemp10cm", "soilTemp20cm", "soilTemp50cm",
     "equivalentReflectivityFactor",
   ];
@@ -868,7 +875,7 @@ function EuroMeteoApp() {
 
                           {/* Sub-tab: Plots (always mounted, cached when inactive) */}
                           <div className={`cached-view ${dashboardSubTab === "plots" ? "is-active" : ""}`}>
-                            <DashboardCharts data={stationLogs} />
+                            <DashboardCharts data={stationLogs} units={stationUnits} />
                           </div>
 
                           {/* Sub-tab: Data Table (always mounted, cached when inactive) */}

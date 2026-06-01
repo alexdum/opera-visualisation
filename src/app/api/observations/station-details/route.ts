@@ -25,7 +25,17 @@ function buildDateRange(startDate: Date, endDate: Date): string[] {
 }
 
 // Map a standard_name string to a HourlyRow field
-function mapParamToRow(row: any, paramName: string, val: number): void {
+function mapParamToRow(row: any, paramName: string, val: number, unit?: string): void {
+  // Determine conversion factor for sunshine duration to always store in minutes.
+  // WMO CF standard implies seconds (divisor=60), but providers might explicitly send 'min' or 'h'.
+  let sunshineDivisor = 60; 
+  if (unit) {
+    const u = unit.toLowerCase();
+    if (u === "min" || u === "minutes" || u === "minute") sunshineDivisor = 1;
+    else if (u === "h" || u === "hour" || u === "hours" || u === "hr") sunshineDivisor = 1 / 60; // 1 hr / (1/60) = 60 min
+    else if (u === "s" || u === "sec" || u === "seconds") sunshineDivisor = 60;
+  }
+
   if (paramName.includes("minimum_air_temperature")) row.tempMin = val;
   else if (paramName.includes("maximum_air_temperature")) row.tempMax = val;
   else if (paramName.includes("minimum_temperature_at_height_above_ground_50cm")) row.tempMin50cm = val;
@@ -56,9 +66,14 @@ function mapParamToRow(row: any, paramName: string, val: number): void {
   else if (paramName.includes("cloud_cover") || paramName.includes("cloud_area_fraction")) row.cloudCover = val;
   else if (paramName.includes("visibility_in_air") || paramName.includes("horizontal_visibility")) row.visibility = val;
   else if (paramName.includes("surface_downwelling_shortwave_flux_in_air")) row.solarRadiation = val;
-  // duration_of_sunshine must come before sunshine_duration
-  else if (paramName.includes("duration_of_sunshine")) row.sunshineDuration = val;
-  else if (paramName.includes("sunshine_duration")) row.sunshineDuration = val;
+  // duration_of_sunshine must come before sunshine_duration. Values are usually in seconds (WMO standard), so we convert to minutes (/60).
+  else if (paramName.includes("duration_of_sunshine_10m") || paramName.includes("sunshine_duration_10m") || ((paramName.includes("sunshine") || paramName.includes("duration")) && paramName.includes("PT10M"))) row.sunshineDuration10m = val / sunshineDivisor;
+  else if (paramName.includes("duration_of_sunshine_1h") || paramName.includes("sunshine_duration_1h") || ((paramName.includes("sunshine") || paramName.includes("duration")) && paramName.includes("PT1H"))) row.sunshineDuration1h = val / sunshineDivisor;
+  else if (paramName.includes("duration_of_sunshine_3h") || paramName.includes("sunshine_duration_3h") || ((paramName.includes("sunshine") || paramName.includes("duration")) && paramName.includes("PT3H"))) row.sunshineDuration3h = val / sunshineDivisor;
+  else if (paramName.includes("duration_of_sunshine_6h") || paramName.includes("sunshine_duration_6h") || ((paramName.includes("sunshine") || paramName.includes("duration")) && paramName.includes("PT6H"))) row.sunshineDuration6h = val / sunshineDivisor;
+  else if (paramName.includes("duration_of_sunshine_12h") || paramName.includes("sunshine_duration_12h") || ((paramName.includes("sunshine") || paramName.includes("duration")) && paramName.includes("PT12H"))) row.sunshineDuration12h = val / sunshineDivisor;
+  else if (paramName.includes("duration_of_sunshine_24h") || paramName.includes("sunshine_duration_24h") || ((paramName.includes("sunshine") || paramName.includes("duration")) && paramName.includes("PT24H"))) row.sunshineDuration24h = val / sunshineDivisor;
+  else if (paramName.includes("duration_of_sunshine") || paramName.includes("sunshine_duration")) row.sunshineDuration = val / sunshineDivisor;
   // surface_snow_thickness must come before snow_depth
   else if (paramName.includes("surface_snow_thickness")) row.snowDepth = val;
   else if (paramName.includes("snow_depth")) row.snowDepth = val;
@@ -155,8 +170,14 @@ function cleanWeatherData(rows: any[]): any[] {
     integralWrtTimeOfSurfaceDownwellingShortwaveFluxInAir: [0, 5e7],
 
     // ── Sunshine & UV ──
-    sunshineDuration:[0, 1440],    // minutes in a day
-    ultravioletIndex:[0, 20],      // extreme UV = 11+, theoretical max ~20
+    sunshineDuration10m:[0, 10],     // minutes in 10 minutes
+    sunshineDuration1h: [0, 60],     // minutes in 1 hour
+    sunshineDuration3h: [0, 180],    // minutes in 3 hours
+    sunshineDuration6h: [0, 360],
+    sunshineDuration12h:[0, 720],
+    sunshineDuration24h:[0, 1440],
+    sunshineDuration:   [0, 1440],   // fallback
+    ultravioletIndex:   [0, 20],     // extreme UV = 11+, theoretical max ~20
 
     // ── Soil (°C) ──
     soilTemp10cm:    [-50, 60],
@@ -448,9 +469,15 @@ async function fetchLiveDetails(
         Object.keys(ranges).forEach((paramName) => {
           const values = ranges[paramName]?.values || [];
           const val = values[index];
+          
+          const observedProperty = ranges[paramName]?.observedProperty;
+          const unitSymbol = observedProperty?.unit?.symbol?.value
+            || observedProperty?.unit?.symbol
+            || ranges[paramName]?.unit?.symbol?.value
+            || ranges[paramName]?.unit?.symbol;
 
           if (val !== null && val !== undefined && !isBadValue(val)) {
-            mapParamToRow(row, paramName, val);
+            mapParamToRow(row, paramName, val, unitSymbol);
           }
         });
 
@@ -575,6 +602,7 @@ export async function GET(request: Request) {
           precipitation1h: "mm", precipitation3h: "mm",
           precipitation6h: "mm", precipitation12h: "mm",
           precipitation24h: "mm",
+          lwePrecipitationRate: "mm/h", rainfallRate: "mm/h",
           pressure: "hPa", pressureStation: "hPa",
           pressureTendency: "hPa/3h",
           windSpeed: "m/s", windSpeed2m: "m/s",
@@ -585,10 +613,19 @@ export async function GET(request: Request) {
           cloudCoverLow: "%",
           visibility: "m",
           solarRadiation: "W/m²",
+          sunshineDuration10m: "min", sunshineDuration1h: "min",
+          sunshineDuration3h: "min", sunshineDuration6h: "min",
+          sunshineDuration12h: "min", sunshineDuration24h: "min",
           sunshineDuration: "min",
+          ultravioletIndex: "",
           snowDepth: "cm", snowFresh: "cm",
           soilTemp10cm: "°C", soilTemp20cm: "°C", soilTemp50cm: "°C",
           etp: "mm",
+          seaSurfaceTemperature: "°C",
+          seaSurfaceWaveSignificantHeight: "m",
+          seaSurfaceWaveMaximumHeight: "m",
+          seaSurfaceWaveMeanPeriod: "s",
+          seaSurfaceWaveSignificantPeriod: "s",
         };
         const units = { ...defaultUnits, ...liveUnits };
 
