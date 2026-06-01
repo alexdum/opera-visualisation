@@ -115,7 +115,7 @@ export const ClimateChart: React.FC<ChartsProps> = ({ data, parameter }) => {
   const isPrecip = parameter === "precipitation_amount";
 
   return (
-    <div className="w-full h-[360px] glass-card rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4">
+    <div className="w-full h-[360px] glass-card heavy-chart rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4">
       <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{config.title}</h3>
       <div className="flex-1 w-full min-h-0">
         <ResponsiveContainer width="100%" height="100%">
@@ -191,9 +191,9 @@ export const WindRose: React.FC<{ data: HourlyRow[] }> = ({ data }) => {
   // Calculate frequencies by direction & speed classes
   const roseData = useMemo(() => {
     const counts = directions.reduce((acc, dir) => {
-      acc[dir] = { c1: 0, c2: 0, c3: 0, c4: 0 }; // c1: 0-2 m/s, c2: 2-5, c3: 5-8, c4: >8
+      acc[dir] = { c1: 0, c2: 0, c3: 0, c4: 0, c5: 0 }; 
       return acc;
-    }, {} as Record<string, { c1: number; c2: number; c3: number; c4: number }>);
+    }, {} as Record<string, { c1: number; c2: number; c3: number; c4: number; c5: number }>);
 
     let validRowsCount = 0;
 
@@ -211,10 +211,11 @@ export const WindRose: React.FC<{ data: HourlyRow[] }> = ({ data }) => {
 
       if (!sector || !counts[sector]) return; // Safety check
 
-      if (speed <= 2) counts[sector].c1++;
-      else if (speed <= 5) counts[sector].c2++;
-      else if (speed <= 8) counts[sector].c3++;
-      else counts[sector].c4++;
+      if (speed <= 1.0) counts[sector].c1++;
+      else if (speed <= 5.0) counts[sector].c2++;
+      else if (speed <= 10.0) counts[sector].c3++;
+      else if (speed <= 15.0) counts[sector].c4++;
+      else counts[sector].c5++;
     });
 
     // Normalize counts to percentages
@@ -227,6 +228,7 @@ export const WindRose: React.FC<{ data: HourlyRow[] }> = ({ data }) => {
         c2: (item.c2 / total) * 100,
         c3: (item.c3 / total) * 100,
         c4: (item.c4 / total) * 100,
+        c5: (item.c5 / total) * 100,
       };
     });
 
@@ -269,7 +271,7 @@ export const WindRose: React.FC<{ data: HourlyRow[] }> = ({ data }) => {
 
   // Find max stack size to scale the circles appropriately
   const maxStack = Math.max(
-    ...roseData.dataPoints.map(d => d.c1 + d.c2 + d.c3 + d.c4),
+    ...roseData.dataPoints.map(d => d.c1 + d.c2 + d.c3 + d.c4 + d.c5),
     5 // minimum scale ceiling
   );
 
@@ -278,7 +280,7 @@ export const WindRose: React.FC<{ data: HourlyRow[] }> = ({ data }) => {
   };
 
   return (
-    <div className="w-full h-[360px] glass-card rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4">
+    <div className="w-full h-[360px] glass-card heavy-chart rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4">
       <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">Wind Rose Distribution</h3>
       <div className="flex-1 flex flex-col sm:flex-row items-center justify-center gap-6 pr-2">
         {/* SVG Circle Canvas */}
@@ -337,35 +339,43 @@ export const WindRose: React.FC<{ data: HourlyRow[] }> = ({ data }) => {
             const r2 = getRadius(item.c1 + item.c2);
             const r3 = getRadius(item.c1 + item.c2 + item.c3);
             const r4 = getRadius(item.c1 + item.c2 + item.c3 + item.c4);
+            const r5 = getRadius(item.c1 + item.c2 + item.c3 + item.c4 + item.c5);
 
             return (
               <g key={item.dir} className="hover:opacity-90 transition-opacity">
-                {/* 0-2 m/s: Emerald */}
+                {/* 0-1 m/s: Emerald */}
                 {item.c1 > 0 && (
                   <path
                     d={getWedgePath(cx, cy, 0, r1, angle)}
                     className="fill-emerald-400 stroke-emerald-500/20 stroke-[0.5]"
                   />
                 )}
-                {/* 2-5 m/s: Amber */}
+                {/* 1-5 m/s: Amber */}
                 {item.c2 > 0 && (
                   <path
                     d={getWedgePath(cx, cy, r1, r2, angle)}
                     className="fill-amber-400 stroke-amber-500/20 stroke-[0.5]"
                   />
                 )}
-                {/* 5-8 m/s: Orange */}
+                {/* 5-10 m/s: Orange */}
                 {item.c3 > 0 && (
                   <path
                     d={getWedgePath(cx, cy, r2, r3, angle)}
                     className="fill-orange-400 stroke-orange-500/20 stroke-[0.5]"
                   />
                 )}
-                {/* >8 m/s: Rose */}
+                {/* 10-15 m/s: Rose */}
                 {item.c4 > 0 && (
                   <path
                     d={getWedgePath(cx, cy, r3, r4, angle)}
                     className="fill-rose-400 stroke-rose-500/20 stroke-[0.5]"
+                  />
+                )}
+                {/* >15 m/s: Purple */}
+                {item.c5 > 0 && (
+                  <path
+                    d={getWedgePath(cx, cy, r4, r5, angle)}
+                    className="fill-fuchsia-500 stroke-fuchsia-600/20 stroke-[0.5]"
                   />
                 )}
               </g>
@@ -378,10 +388,11 @@ export const WindRose: React.FC<{ data: HourlyRow[] }> = ({ data }) => {
           <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Wind Speed Class</h4>
           <div className="flex flex-col gap-2">
             {[
-              { label: "Calm (0 - 2 m/s)", color: "bg-emerald-400" },
-              { label: "Gentle (2 - 5 m/s)", color: "bg-amber-400" },
-              { label: "Moderate (5 - 8 m/s)", color: "bg-orange-400" },
-              { label: "Gale ( > 8 m/s)", color: "bg-rose-400" },
+              { label: "Calm / No Wind (< 1 m/s)", color: "bg-emerald-400" },
+              { label: "Breezy / Light (1 - 5 m/s)", color: "bg-amber-400" },
+              { label: "Windy (5 - 10 m/s)", color: "bg-orange-400" },
+              { label: "Very Windy / Strong (10 - 15 m/s)", color: "bg-rose-400" },
+              { label: "Storm / Dangerous (> 15 m/s)", color: "bg-fuchsia-500" },
             ].map((item) => (
               <div key={item.label} className="flex items-center gap-2.5 text-xs text-slate-600 font-medium">
                 <span className={`w-3.5 h-3.5 rounded ${item.color} shadow-sm border border-black/5`} />

@@ -40,6 +40,12 @@ body {
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.02);
 }
 
+/* Defer rendering for heavy off-screen charts */
+.heavy-chart {
+  content-visibility: auto;
+  contain-intrinsic-size: auto none auto 360px;
+}
+
 /* Modern micro-animations and hovers */
 .btn-premium {
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
