@@ -73,6 +73,22 @@ export const WeatherMap: React.FC<MapProps> = ({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isStyleSelectorOpen, setIsStyleSelectorOpen] = useState<boolean>(false);
 
+  // Calculate maximum allowed hour (prevent future selections for today)
+  const maxAllowedHour = useMemo(() => {
+    const todayStr = new Date().toISOString().split("T")[0];
+    if (endDate === todayStr) {
+      return new Date().getUTCHours();
+    }
+    return 23;
+  }, [endDate]);
+
+  // Clamp selected hour if it exceeds max allowed (e.g. when changing date to today)
+  useEffect(() => {
+    if (selectedHour > maxAllowedHour) {
+      setSelectedHour(maxAllowedHour);
+    }
+  }, [maxAllowedHour, selectedHour, setSelectedHour]);
+
   // ── Stable refs for all values used inside map event handlers ──
   // This avoids stale closures in the one-time-registered event handlers.
   const setSelectedStationRef = useRef(setSelectedStation);
@@ -727,6 +743,16 @@ export const WeatherMap: React.FC<MapProps> = ({
         </div>
       )}
 
+      {/* Loading Overlay Spinner */}
+      {isLoading && (
+        <div className="absolute inset-0 z-40 bg-slate-50/40 backdrop-blur-[2px] flex items-center justify-center pointer-events-none transition-all duration-300">
+          <div className="flex flex-col items-center gap-3 bg-white/95 p-5 rounded-2xl shadow-xl border border-slate-200 pointer-events-auto">
+            <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+            <p className="text-xs font-bold text-slate-600 uppercase tracking-wider animate-pulse">Fetching Data...</p>
+          </div>
+        </div>
+      )}
+
       {/* Timeline slider control panel at bottom of map */}
       <div className="absolute bottom-6 left-6 right-6 z-10 bg-white/95 backdrop-blur-md border border-slate-200 rounded-2xl p-4 shadow-xl flex flex-col md:flex-row items-center gap-4">
         {/* Timeline Slider bar */}
@@ -741,14 +767,19 @@ export const WeatherMap: React.FC<MapProps> = ({
             min="0"
             max="23"
             value={selectedHour}
-            onChange={(e) => setSelectedHour(parseInt(e.target.value))}
+            onChange={(e) => {
+              const val = parseInt(e.target.value);
+              if (val <= maxAllowedHour) {
+                setSelectedHour(val);
+              }
+            }}
             className="w-full h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-blue-500"
           />
           <div className="relative w-full h-6 mt-1 text-xs text-slate-400 font-semibold">
             {[0, 3, 6, 9, 12, 15, 18, 21, 23].map((h) => (
               <div
                 key={h}
-                className="absolute top-0 flex flex-col items-center w-6 -ml-3"
+                className={`absolute top-0 flex flex-col items-center w-6 -ml-3 transition-opacity ${h > maxAllowedHour ? "opacity-30" : "opacity-100"}`}
                 style={{
                   left: `calc(10px + (100% - 20px) * ${h / 23})`,
                 }}
