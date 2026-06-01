@@ -608,7 +608,7 @@ function EuroMeteoApp() {
         </header>
 
         {/* View Switch Panels Container */}
-        <div className="flex-1 w-full p-6 overflow-hidden min-h-0 flex flex-col">
+        <div className="flex-1 w-full p-1 md:p-6 overflow-hidden min-h-0 flex flex-col">
           {isLoadingStations ? (
             <div className="flex-grow flex flex-col items-center justify-center gap-3">
               <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />

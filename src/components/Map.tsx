@@ -754,7 +754,7 @@ export const WeatherMap: React.FC<MapProps> = ({
       )}
 
       {/* Timeline slider control panel at bottom of map */}
-      <div className="absolute bottom-6 left-6 right-6 z-10 bg-white/95 backdrop-blur-md border border-slate-200 rounded-2xl p-4 shadow-xl flex flex-col md:flex-row items-center gap-4">
+      <div className="absolute bottom-1 left-1 right-1 md:bottom-6 md:left-6 md:right-6 z-10 bg-white/95 backdrop-blur-md border border-slate-200 rounded-2xl p-4 shadow-xl flex flex-col md:flex-row items-center gap-4">
         {/* Timeline Slider bar */}
         <div className="flex-1 w-full flex flex-col gap-1">
           <div className="flex justify-center items-center text-sm font-bold px-1 mb-1">
