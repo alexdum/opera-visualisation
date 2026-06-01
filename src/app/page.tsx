@@ -732,7 +732,7 @@ function EuroMeteoApp() {
         </header>
 
         {/* View Switch Panels Container */}
-        <div className="flex-1 w-full p-1 md:p-6 overflow-hidden min-h-0 flex flex-col">
+        <div className="flex-1 w-full overflow-hidden min-h-0 flex flex-col">
           {isLoadingStations ? (
             <div className="flex-grow flex flex-col items-center justify-center gap-3">
               <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
@@ -769,7 +769,7 @@ function EuroMeteoApp() {
               </div>
 
               {/* Tab: Stations Info table — always mounted, hidden when inactive */}
-              <div className="w-full h-full flex flex-col gap-4" style={{ display: activeTab === "stations" ? "flex" : "none" }}>
+              <div className="w-full h-full flex flex-col gap-4 p-1 md:p-6" style={{ display: activeTab === "stations" ? "flex" : "none" }}>
                 <div className="bg-blue-50/50 border border-blue-100/50 rounded-2xl p-4 flex gap-3 items-center text-sm font-medium text-slate-600">
                   <Info size={16} className="text-blue-500 shrink-0" />
                   <p>
@@ -788,7 +788,7 @@ function EuroMeteoApp() {
               </div>
 
               {/* Tab: Dashboard charts & raw logs — always mounted, hidden when inactive */}
-              <div className="w-full h-full overflow-y-auto custom-scrollbar flex flex-col gap-6 pr-1 pb-6" style={{ display: activeTab === "dashboard" ? "flex" : "none" }}>
+              <div className="w-full h-full overflow-y-auto custom-scrollbar flex flex-col gap-6 pr-1 pb-6 p-1 md:p-6" style={{ display: activeTab === "dashboard" ? "flex" : "none" }}>
                   {!selectedStation ? (
                     <div className="w-full h-[400px] flex flex-col items-center justify-center text-center gap-3">
                       <BarChart3 className="text-slate-300" size={48} />
