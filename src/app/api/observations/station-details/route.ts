@@ -458,7 +458,13 @@ async function fetchLiveDetails(
           mapParamToRow(testRow, paramName, 0);
           const mappedKey = Object.keys(testRow)[0];
           if (mappedKey) {
-            unitMap[mappedKey] = unitSymbol;
+            // Sunshine values are always converted to minutes internally,
+            // so force the display unit to "min" regardless of the raw API unit
+            if (mappedKey.startsWith("sunshineDuration")) {
+              unitMap[mappedKey] = "min";
+            } else {
+              unitMap[mappedKey] = unitSymbol;
+            }
           }
         }
       });
