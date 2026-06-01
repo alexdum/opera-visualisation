@@ -283,6 +283,15 @@ function EuroMeteoApp() {
 
   const [loadingMessage, setLoadingMessage] = useState<string>("Connecting to API...");
 
+  // Sync country filter to match the selected station's country
+  useEffect(() => {
+    if (!selectedStation || stations.length === 0) return;
+    const station = stations.find(st => st.id === selectedStation);
+    if (station && station.country !== selectedCountry) {
+      setSelectedCountry(station.country);
+    }
+  }, [selectedStation, stations]);
+
   // --- Fetch detailed logs when a station is selected ---
   useEffect(() => {
     if (!selectedStation) {
