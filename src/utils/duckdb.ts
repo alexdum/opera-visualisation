@@ -174,7 +174,9 @@ export async function queryArchiveBatch(
     SELECT
       timestamp AS datetime,
       standard_name AS paramName,
-      value
+      value,
+      duration,
+      method
     FROM read_parquet([${pathsList}])
     WHERE station_id = '${stationId}'
   `;

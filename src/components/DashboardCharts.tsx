@@ -4,34 +4,25 @@ import { WindRose } from "./Charts";
 
 interface HourlyRow {
   datetime: string;
-  temperature?: number;
-  precipitation?: number;
-  pressure?: number;
-  windSpeed?: number;
-  windDirection?: number;
-  tempMin?: number;
-  tempMax?: number;
-  tempMin50cm?: number;
-  tempMinGround?: number;
-  pressureStation?: number;
-  windGust?: number;
-  windGustInst?: number;
-  windSpeed2m?: number;
-  humidity?: number;
-  dewPoint?: number;
-  cloudCover?: number;
-  visibility?: number;
-  solarRadiation?: number;
-  sunshineDuration?: number;
-  snowDepth?: number;
-  snowFresh?: number;
-  soilTemp10cm?: number;
-  soilTemp20cm?: number;
-  soilTemp50cm?: number;
-  etp?: number;
+  [key: string]: string | number | undefined;
 }
 
+// Precipitation duration keys in order of preference
+const PRECIP_KEYS = [
+  { key: "precipitation1h", label: "Precipitation (1h)" },
+  { key: "precipitation3h", label: "Precipitation (3h)" },
+  { key: "precipitation6h", label: "Precipitation (6h)" },
+  { key: "precipitation12h", label: "Precipitation (12h)" },
+  { key: "precipitation24h", label: "Precipitation (24h)" },
+  { key: "precipitation", label: "Precipitation" },
+];
+
 export const DashboardCharts: React.FC<{ data: HourlyRow[] }> = ({ data }) => {
+  // Determine which precipitation columns have data
+  const precipCharts = PRECIP_KEYS.filter(({ key }) =>
+    data.some((d) => d[key] !== undefined && d[key] !== null)
+  );
+
   return (
     <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 lazy-render">
       <AreaChartCard 
@@ -53,14 +44,18 @@ export const DashboardCharts: React.FC<{ data: HourlyRow[] }> = ({ data }) => {
           { key: "dewPoint", name: "Dew Point (°C)", color: "#1e88e5" }
         ]} 
       />
-      <BarChartCard 
-        data={data} 
-        title="Precipitation" 
-        unit="mm" 
-        config={[
-          { key: "precipitation", name: "Precipitation", color: "#0277bd" }
-        ]} 
-      />
+      {/* Dynamic precipitation charts — one per available accumulation period */}
+      {precipCharts.map(({ key, label }) => (
+        <BarChartCard 
+          key={key}
+          data={data} 
+          title={label} 
+          unit="mm" 
+          config={[
+            { key, name: label, color: "#0277bd" }
+          ]} 
+        />
+      ))}
       <BarChartCard 
         data={data} 
         title="Snow Profile" 
@@ -104,7 +99,8 @@ export const DashboardCharts: React.FC<{ data: HourlyRow[] }> = ({ data }) => {
         title="Cloud Cover" 
         unit="%" 
         config={[
-          { key: "cloudCover", name: "Cloud Cover", color: "#78909C" }
+          { key: "cloudCover", name: "Cloud Cover", color: "#78909C" },
+          { key: "cloudCoverLow", name: "Low Cloud", color: "#B0BEC5" }
         ]} 
       />
       <ComposedChartCard 

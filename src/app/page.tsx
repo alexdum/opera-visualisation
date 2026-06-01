@@ -21,31 +21,25 @@ interface Station {
 
 interface HourlyRow {
   datetime: string;
-  temperature?: number;
-  precipitation?: number;
-  pressure?: number;
-  windSpeed?: number;
-  windDirection?: number;
-  tempMin?: number;
-  tempMax?: number;
-  tempMin50cm?: number;
-  tempMinGround?: number;
-  pressureStation?: number;
-  windGust?: number;
-  windGustInst?: number;
-  windSpeed2m?: number;
-  humidity?: number;
-  dewPoint?: number;
-  cloudCover?: number;
-  visibility?: number;
-  solarRadiation?: number;
-  sunshineDuration?: number;
-  snowDepth?: number;
-  snowFresh?: number;
-  soilTemp10cm?: number;
-  soilTemp20cm?: number;
-  soilTemp50cm?: number;
-  etp?: number;
+  [key: string]: string | number | undefined;
+}
+
+// Keys that indicate ocean/marine data
+const OCEAN_KEY_PREFIXES = [
+  "seaSurface", "seaWater", "sea_surface", "sea_water",
+];
+
+function isOceanKey(key: string): boolean {
+  return OCEAN_KEY_PREFIXES.some((p) => key.startsWith(p));
+}
+
+// Convert camelCase to human-readable: "seaSurfaceTemperature" → "Sea Surface Temperature"
+function camelToTitle(str: string): string {
+  return str
+    .replace(/([A-Z])/g, " $1")
+    .replace(/^./, (s) => s.toUpperCase())
+    .replace(/(\d+)([a-zA-Z])/g, "$1 $2")
+    .trim();
 }
 
 function EuroMeteoApp() {
@@ -66,9 +60,11 @@ function EuroMeteoApp() {
   // --- UI Elements State ---
   const [activeTab, setActiveTab] = useState<string>("map");
   const [dashboardSubTab, setDashboardSubTab] = useState<string>("plots");
+  const [dashboardDataTab, setDashboardDataTab] = useState<string>("land");
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
   const [isLoadingStations, setIsLoadingStations] = useState<boolean>(true);
   const [stationLogs, setStationLogs] = useState<HourlyRow[]>([]);
+  const [stationUnits, setStationUnits] = useState<Record<string, string>>({});
   const [isLoadingLogs, setIsLoadingLogs] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -236,6 +232,7 @@ function EuroMeteoApp() {
               try {
                 const parsed = JSON.parse(data);
                 setStationLogs(parsed.data || []);
+                setStationUnits(parsed.units || {});
               } catch (e) {}
             } else if (event === "error" && data) {
               try {
@@ -315,76 +312,218 @@ function EuroMeteoApp() {
     [areaObservations, selectedHour]
   );
 
-  // 2. Observations logs table columns
-  const logColumns = useMemo<ColumnDef<HourlyRow>[]>(
-    () => [
-      {
-        accessorKey: "datetime",
-        header: "Datetime (UTC)",
-        cell: (info) => {
-          try {
-            return new Date(info.getValue() as string).toLocaleString(undefined, {
-              month: "short",
-              day: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-            });
-          } catch {
-            return info.getValue() as string;
+  // --- Comprehensive readable header labels ---
+  const paramMeta: Record<string, string> = useMemo(() => ({
+    // Temperature
+    temperature: "Temp", tempMin: "Min Temp", tempMax: "Max Temp",
+    tempMin50cm: "Min Temp 50cm", tempMinGround: "Min Temp Grnd",
+    dewPoint: "Dew Point", virtualTemperature: "Virtual Temp",
+    surfaceTemperature: "Surface Temp",
+    // Humidity
+    humidity: "Rel Humidity",
+    // Precipitation (multi-column)
+    precipitation: "Precip", precipitation1h: "Precip 1h",
+    precipitation3h: "Precip 3h", precipitation6h: "Precip 6h",
+    precipitation12h: "Precip 12h", precipitation24h: "Precip 24h",
+    lwePrecipitationRate: "Precip Rate", rainfallRate: "Rain Rate",
+    // Snow
+    snowDepth: "Snow Depth", snowFresh: "Fresh Snow",
+    // Wind
+    windSpeed: "Wind Speed", windSpeed2m: "Wind Speed 2m",
+    windGust: "Wind Gust", windGustInst: "Wind Gust Inst",
+    windGustDirection: "Gust Dir", windDirection: "Wind Dir",
+    // Pressure
+    pressure: "Pressure MSL", pressureStation: "Pressure Stn",
+    pressureTendency: "Press Tendency",
+    // Cloud & Visibility
+    cloudCover: "Cloud Cover", cloudCoverLow: "Low Cloud",
+    cloudBaseAltitude: "Cloud Base", visibility: "Visibility",
+    // Radiation
+    solarRadiation: "Solar Rad", sunshineDuration: "Sun Dur",
+    surfaceDiffuseDownwellingShortwave: "Diffuse SW↓",
+    surfaceDirectDownwellingShortwave: "Direct SW↓",
+    surfaceDownwellingLongwaveFluxInAir: "LW↓",
+    surfaceUpwellingLongwaveFluxInAir: "LW↑",
+    surfaceUpwellingShortwaveFluxInAir: "SW↑",
+    surfaceNetDownwardRadiativeFlux: "Net Rad↓",
+    downwellingLongwaveFluxInAir: "LW↓ Air",
+    surfaceDownwellingPhotosyntheticPhotonFluxInAir: "PAR Photon",
+    surfaceDownwellingPhotosyntheticRadiativeFluxInAir: "PAR Rad",
+    integralWrtTimeOfSurfaceDownwellingLongwaveFluxInAir: "LW↓ Integral",
+    integralWrtTimeOfSurfaceDownwellingShortwaveFluxInAir: "SW↓ Integral",
+    ultravioletIndex: "UV Index",
+    // Soil
+    soilTemp10cm: "Soil T 10cm", soilTemp20cm: "Soil T 20cm", soilTemp50cm: "Soil T 50cm",
+    // ETP
+    etp: "ETP",
+    // Radar
+    equivalentReflectivityFactor: "Radar Refl",
+    // Ocean / Marine
+    seaSurfaceTemperature: "SST",
+    seaSurfaceWaveSignificantHeight: "Sig Wave Ht",
+    seaSurfaceWaveMaximumHeight: "Max Wave Ht",
+    seaSurfaceWaveMaximumPeriod: "Max Wave Per",
+    seaSurfaceWaveMeanPeriod: "Mean Wave Per",
+    seaSurfaceWaveSignificantPeriod: "Sig Wave Per",
+    seaSurfaceWaveFromDirection: "Wave Dir",
+    seaSurfaceWaveDirectionalSpread: "Wave Spread",
+    seaSurfaceWavePeriodOfHighestWave: "Highest Wave Per",
+    seaSurfaceWaveEnergyAtVarianceSpectralDensityMaximum: "Wave Energy Max",
+    seaSurfaceWaveFromDirectionAtVarianceSpectralDensityMaximum: "Wave Dir Max",
+    seaSurfaceWaveMeanPeriodFromVarianceSpectralDensityFirstFrequencyMoment: "Wave Per 1st Mom",
+    seaSurfaceWaveMeanPeriodFromVarianceSpectralDensitySecondFrequencyMoment: "Wave Per 2nd Mom",
+    seaSurfaceWavePeriodAtVarianceSpectralDensityMaximum: "Wave Per Max",
+    seaSurfaceSwellWaveFromDirection: "Swell Dir",
+    seaSurfaceSwellWaveSignificantHeight: "Swell Ht",
+    seaSurfaceSwellWaveMeanPeriodFromVarianceSpectralDensitySecondFrequencyMoment: "Swell Per 2nd Mom",
+    seaSurfaceWindWaveFromDirection: "Wind Wave Dir",
+    seaSurfaceWindWaveSignificantHeight: "Wind Wave Ht",
+    seaSurfaceWindWaveMeanPeriodFromVarianceSpectralDensitySecondFrequencyMoment: "Wind Wave Per",
+    seaWaterTemperature: "Sea Water Temp",
+    seaWaterSalinity: "Salinity",
+    seaWaterSpeed: "Current Speed",
+    seaWaterElectricalConductivity: "Conductivity",
+  }), []);
+
+  // Weather-logical sort order for land parameters
+  const LAND_SORT_ORDER = [
+    "temperature", "tempMin", "tempMax", "tempMinGround", "tempMin50cm",
+    "dewPoint", "humidity", "virtualTemperature", "surfaceTemperature",
+    "precipitation", "precipitation1h", "precipitation3h", "precipitation6h",
+    "precipitation12h", "precipitation24h", "lwePrecipitationRate", "rainfallRate",
+    "snowDepth", "snowFresh",
+    "windSpeed", "windSpeed2m", "windGust", "windGustInst", "windGustDirection", "windDirection",
+    "pressure", "pressureStation", "pressureTendency",
+    "cloudCover", "cloudCoverLow", "cloudBaseAltitude", "visibility",
+    "solarRadiation", "sunshineDuration", "ultravioletIndex", "etp",
+    "soilTemp10cm", "soilTemp20cm", "soilTemp50cm",
+    "equivalentReflectivityFactor",
+  ];
+
+  // Keys that should render as integers (directions, percentages, indices)
+  const INTEGER_KEYS = new Set([
+    "windDirection", "windGustDirection", "cloudCover", "cloudCoverLow",
+    "humidity", "ultravioletIndex",
+  ]);
+
+  // --- Column builder helper ---
+  function buildColumns(
+    keys: string[],
+    sortOrder: string[],
+  ): ColumnDef<HourlyRow>[] {
+    const datetimeCol: ColumnDef<HourlyRow> = {
+      accessorKey: "datetime",
+      header: "Datetime (UTC)",
+      cell: (info) => {
+        try {
+          return new Date(info.getValue() as string).toLocaleString(undefined, {
+            month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+          });
+        } catch {
+          return info.getValue() as string;
+        }
+      },
+    };
+
+    const sorted = [...keys].sort((a, b) => {
+      const ia = sortOrder.indexOf(a);
+      const ib = sortOrder.indexOf(b);
+      if (ia === -1 && ib === -1) return a.localeCompare(b);
+      if (ia === -1) return 1;
+      if (ib === -1) return -1;
+      return ia - ib;
+    });
+
+    const dataCols: ColumnDef<HourlyRow>[] = sorted.map((key) => {
+      const headerName = paramMeta[key] || camelToTitle(key);
+      const unit = stationUnits[key] || "";
+      return {
+        accessorKey: key as any,
+        header: `${headerName}${unit ? ` [${unit}]` : ""}`,
+        cell: (info: any) => {
+          const val = info.getValue() as number | undefined;
+          if (val === undefined || val === null) return "-";
+          if (INTEGER_KEYS.has(key) || key.toLowerCase().includes("direction")) {
+            return `${Math.round(val)}`;
           }
+          return `${val.toFixed(1)}`;
         },
-      },
-      {
-        accessorKey: "temperature",
-        header: "Temp (°C)",
-        cell: (info) => {
-          const val = info.getValue() as number | undefined;
-          return val !== undefined ? `${val.toFixed(1)} °C` : "-";
-        },
-      },
-      {
-        accessorKey: "precipitation",
-        header: "Precipitation (mm)",
-        cell: (info) => {
-          const val = info.getValue() as number | undefined;
-          return val !== undefined ? `${val.toFixed(1)} mm` : "-";
-        },
-      },
-      {
-        accessorKey: "windSpeed",
-        header: "Wind Speed (m/s)",
-        cell: (info) => {
-          const val = info.getValue() as number | undefined;
-          return val !== undefined ? `${val.toFixed(1)} m/s` : "-";
-        },
-      },
-      {
-        accessorKey: "windGust",
-        header: "Wind Gust (m/s)",
-        cell: (info) => {
-          const val = info.getValue() as number | undefined;
-          return val !== undefined ? `${val.toFixed(1)} m/s` : "-";
-        },
-      },
-      {
-        accessorKey: "windDirection",
-        header: "Wind Dir (°)",
-        cell: (info) => {
-          const val = info.getValue() as number | undefined;
-          return val !== undefined ? `${Math.round(val)}°` : "-";
-        },
-      },
-      {
-        accessorKey: "pressure",
-        header: "Pressure (hPa)",
-        cell: (info) => {
-          const val = info.getValue() as number | undefined;
-          return val !== undefined ? `${val.toFixed(1)} hPa` : "-";
-        },
-      },
-    ],
-    []
-  );
+      };
+    });
+
+    return [datetimeCol, ...dataCols];
+  }
+
+  // 2. Observations logs: detect present keys, dedup, split land/ocean
+  const { landColumns, oceanColumns, hasOceanData, hasLandData } = useMemo(() => {
+    if (!stationLogs || stationLogs.length === 0) {
+      return {
+        landColumns: buildColumns([], LAND_SORT_ORDER),
+        oceanColumns: buildColumns([], []),
+        hasOceanData: false,
+        hasLandData: false,
+      };
+    }
+
+    // Collect all keys that have at least one non-null value
+    const presentKeys = new Set<string>();
+    stationLogs.forEach((row) => {
+      Object.keys(row).forEach((k) => {
+        if (k !== "datetime" && (row as any)[k] !== undefined && (row as any)[k] !== null) {
+          presentKeys.add(k);
+        }
+      });
+    });
+
+    // --- Duplicate column deduplication (matching R get_station_display_cols) ---
+    const keysArray = Array.from(presentKeys).sort((a, b) => a.length - b.length);
+    const deduped = new Set<string>();
+    const dropped = new Set<string>();
+
+    for (const key of keysArray) {
+      if (dropped.has(key)) continue;
+      let isDuplicate = false;
+      for (const kept of deduped) {
+        let allSame = true;
+        for (const row of stationLogs) {
+          const v1 = (row as any)[key];
+          const v2 = (row as any)[kept];
+          const v1null = v1 === undefined || v1 === null;
+          const v2null = v2 === undefined || v2 === null;
+          if (v1null && v2null) continue;
+          if (v1null !== v2null) { allSame = false; break; }
+          if (typeof v1 === "number" && typeof v2 === "number") {
+            if (Math.abs(v1 - v2) > 1e-9) { allSame = false; break; }
+          } else if (v1 !== v2) { allSame = false; break; }
+        }
+        if (allSame) { isDuplicate = true; break; }
+      }
+      if (!isDuplicate) deduped.add(key);
+      else dropped.add(key);
+    }
+
+    // Split into land and ocean keys
+    const landKeys: string[] = [];
+    const oceanKeys: string[] = [];
+    for (const key of deduped) {
+      if (isOceanKey(key)) oceanKeys.push(key);
+      else landKeys.push(key);
+    }
+
+    // Ocean sort: alphabetical by readable name
+    const oceanSort = [...oceanKeys].sort((a, b) => {
+      const na = paramMeta[a] || camelToTitle(a);
+      const nb = paramMeta[b] || camelToTitle(b);
+      return na.localeCompare(nb);
+    });
+
+    return {
+      landColumns: buildColumns(landKeys, LAND_SORT_ORDER),
+      oceanColumns: buildColumns(oceanKeys, oceanSort),
+      hasOceanData: oceanKeys.length > 0,
+      hasLandData: landKeys.length > 0,
+    };
+  }, [stationLogs, stationUnits]);
 
   const handleStationDoubleClick = (station: Station) => {
     setSelectedStation(station.id);
@@ -603,10 +742,39 @@ function EuroMeteoApp() {
                             <DashboardCharts data={stationLogs} />
                           ) : (
                             <div className="flex flex-col gap-3 min-h-[400px]">
+                              {/* Land / Ocean sub-tabs (only show if both exist) */}
+                              {hasLandData && hasOceanData && (
+                                <div className="flex items-center gap-2 mb-1">
+                                  <button
+                                    onClick={() => setDashboardDataTab("land")}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                      dashboardDataTab === "land"
+                                        ? "bg-emerald-100 text-emerald-700"
+                                        : "text-slate-400 hover:bg-slate-100"
+                                    }`}
+                                  >
+                                    🌍 Land
+                                  </button>
+                                  <button
+                                    onClick={() => setDashboardDataTab("ocean")}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                      dashboardDataTab === "ocean"
+                                        ? "bg-cyan-100 text-cyan-700"
+                                        : "text-slate-400 hover:bg-slate-100"
+                                    }`}
+                                  >
+                                    🌊 Ocean
+                                  </button>
+                                </div>
+                              )}
                               <div className="flex-1">
                                 <WeatherTable
                                   data={stationLogs}
-                                  columns={logColumns}
+                                  columns={
+                                    hasOceanData && (!hasLandData || dashboardDataTab === "ocean")
+                                      ? oceanColumns
+                                      : landColumns
+                                  }
                                   searchPlaceholder="Filter logs by hour or value..."
                                   searchKey="datetime"
                                 />
