@@ -56,7 +56,7 @@ function EuroMeteoApp() {
   
   // Default to Last 31 Days like MeteoGate
   const [endDate, setEndDate] = useState<string>(
-    new Date(new Date().getTime() - 24 * 60 * 60 * 1000).toISOString().split("T")[0] // default to yesterday
+    new Date().toISOString().split("T")[0] // default to today
   );
   const [startDate, setStartDate] = useState<string>(
     new Date(new Date().getTime() - 32 * 24 * 60 * 60 * 1000).toISOString().split("T")[0] // default to yesterday - 31 days
