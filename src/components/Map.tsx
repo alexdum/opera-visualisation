@@ -27,6 +27,7 @@ interface MapProps {
   setObservations: (obs: Record<string, number[]>) => void;
   selectedHour: number;
   setSelectedHour: (hour: number | ((prev: number) => number)) => void;
+  isLoadingStations?: boolean;
   onStationClick?: (stationId: string) => void;
 }
 
@@ -47,6 +48,7 @@ export const WeatherMap: React.FC<MapProps> = ({
   setObservations,
   selectedHour,
   setSelectedHour,
+  isLoadingStations,
   onStationClick
 }) => {
   const mapContainer = useRef<HTMLDivElement>(null);
@@ -69,7 +71,7 @@ export const WeatherMap: React.FC<MapProps> = ({
 
   const [basemap, setBasemap] = useState<string>("positron");
   const [showLabels, setShowLabels] = useState<boolean>(true);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isStyleSelectorOpen, setIsStyleSelectorOpen] = useState<boolean>(false);
 
@@ -743,12 +745,14 @@ export const WeatherMap: React.FC<MapProps> = ({
         </div>
       )}
 
-      {/* Loading Overlay Spinner */}
-      {isLoading && (
+      {/* Loading Overlay Spinner — unified for stations loading and data fetching */}
+      {(isLoadingStations || isLoading) && (
         <div className="absolute inset-0 z-40 bg-slate-50/40 backdrop-blur-[2px] flex items-center justify-center pointer-events-none transition-all duration-300">
           <div className="flex flex-col items-center gap-3 bg-white/95 p-5 rounded-2xl shadow-xl border border-slate-200 pointer-events-auto">
             <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-            <p className="text-xs font-bold text-slate-600 uppercase tracking-wider animate-pulse">Fetching Data...</p>
+            <p className="text-xs font-bold text-slate-600 uppercase tracking-wider animate-pulse">
+              {isLoadingStations ? "Loading Stations..." : "Fetching Data..."}
+            </p>
           </div>
         </div>
       )}

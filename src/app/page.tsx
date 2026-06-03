@@ -733,14 +733,7 @@ function EuroMeteoApp() {
 
         {/* View Switch Panels Container */}
         <div className="flex-1 w-full overflow-hidden min-h-0 flex flex-col">
-          {isLoadingStations ? (
-            <div className="flex-grow flex flex-col items-center justify-center gap-3">
-              <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-              <p className="text-sm font-bold text-slate-500 uppercase tracking-wider animate-pulse">
-                Loading base maps...
-              </p>
-            </div>
-          ) : errorMsg ? (
+          {errorMsg && !isLoadingStations && stations.length === 0 ? (
             <div className="flex-grow flex flex-col items-center justify-center gap-3 text-center max-w-md mx-auto">
               <AlertCircle className="text-rose-500" size={40} />
               <h3 className="text-base font-bold text-slate-700">Database Connection Failed</h3>
@@ -748,8 +741,8 @@ function EuroMeteoApp() {
             </div>
           ) : (
             <div className="flex-grow w-full h-full min-h-0 relative">
-              {/* Tab: Map View — always mounted, hidden when inactive */}
-              <div className="w-full h-full" style={{ display: activeTab === "map" ? "block" : "none" }}>
+              {/* Tab: Map View — always mounted, renders immediately even without stations */}
+              <div className="w-full h-full relative" style={{ display: activeTab === "map" ? "block" : "none" }}>
                 <WeatherMap
                   stations={stations}
                   selectedCountry={selectedCountry}
@@ -762,6 +755,7 @@ function EuroMeteoApp() {
                   setObservations={setAreaObservations}
                   selectedHour={selectedHour}
                   setSelectedHour={setSelectedHour}
+                  isLoadingStations={isLoadingStations}
                   onStationClick={(stationId) => {
                     setActiveTab("dashboard");
                   }}
@@ -770,26 +764,44 @@ function EuroMeteoApp() {
 
               {/* Tab: Stations Info table — always mounted, hidden when inactive */}
               <div className="w-full h-full flex flex-col gap-4 p-1 md:p-6" style={{ display: activeTab === "stations" ? "flex" : "none" }}>
-                <div className="bg-blue-50/50 border border-blue-100/50 rounded-2xl p-4 flex gap-3 items-center text-sm font-medium text-slate-600">
-                  <Info size={16} className="text-blue-500 shrink-0" />
-                  <p>
-                    Double-click or tap a row to select the station and view its detailed hourly weather log.
-                  </p>
-                </div>
-                <div className="flex-grow min-h-0">
-                  <WeatherTable
-                    data={stations}
-                    columns={stationColumns}
-                    onRowDoubleClick={handleStationDoubleClick}
-                    searchPlaceholder="Search stations by name or WIGOS ID..."
-                    searchKey="name"
-                  />
-                </div>
+                {isLoadingStations ? (
+                  <div className="flex-grow flex flex-col items-center justify-center gap-3">
+                    <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                    <p className="text-sm font-bold text-slate-500 uppercase tracking-wider animate-pulse">
+                      Loading stations...
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="bg-blue-50/50 border border-blue-100/50 rounded-2xl p-4 flex gap-3 items-center text-sm font-medium text-slate-600">
+                      <Info size={16} className="text-blue-500 shrink-0" />
+                      <p>
+                        Double-click or tap a row to select the station and view its detailed hourly weather log.
+                      </p>
+                    </div>
+                    <div className="flex-grow min-h-0">
+                      <WeatherTable
+                        data={stations}
+                        columns={stationColumns}
+                        onRowDoubleClick={handleStationDoubleClick}
+                        searchPlaceholder="Search stations by name or WIGOS ID..."
+                        searchKey="name"
+                      />
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* Tab: Dashboard charts & raw logs — always mounted, hidden when inactive */}
               <div className="w-full h-full overflow-y-auto custom-scrollbar flex flex-col gap-6 pr-1 pb-6 p-1 md:p-6" style={{ display: activeTab === "dashboard" ? "flex" : "none" }}>
-                  {!selectedStation ? (
+                  {isLoadingStations ? (
+                    <div className="flex-grow flex flex-col items-center justify-center gap-3">
+                      <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                      <p className="text-sm font-bold text-slate-500 uppercase tracking-wider animate-pulse">
+                        Loading stations...
+                      </p>
+                    </div>
+                  ) : !selectedStation ? (
                     <div className="w-full h-[400px] flex flex-col items-center justify-center text-center gap-3">
                       <BarChart3 className="text-slate-300" size={48} />
                       <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">No Station Selected</h3>

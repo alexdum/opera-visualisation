@@ -9,6 +9,56 @@ import path from "path";
 // Initialize a 3-hour cache (10800 seconds) for the station list
 const cache = new NodeCache({ stdTTL: 10800 });
 
+const FALLBACK_CSV_PATH = path.join(process.cwd(), "src/data/meteogate_stations_cache.csv");
+const CSV_HEADER = "id,name,longitude,latitude,elevation,wigos_id,available_params,country,start_date,end_date,detailed_summary,is_hourly,is_daily,is_minutely";
+
+/** Escape a value for CSV: wrap in quotes if it contains commas, quotes, or newlines */
+function csvEscape(val: string | number | null | undefined): string {
+  if (val === null || val === undefined) return "NA";
+  const s = String(val);
+  if (s.includes(",") || s.includes('"') || s.includes("\n")) {
+    return '"' + s.replace(/"/g, '""') + '"';
+  }
+  return s;
+}
+
+/** Write enriched stations back to the fallback CSV (async, fire-and-forget) */
+function writeFallbackCSV(stations: any[]): void {
+  const tmpPath = FALLBACK_CSV_PATH + ".tmp";
+  try {
+    const today = new Date().toISOString().split("T")[0];
+    const lines = [CSV_HEADER];
+    for (const st of stations) {
+      // Build a one-line summary matching the existing format
+      const summary = `Country: ${st.country || "Unknown"} | Parameters: ${st.available_params || "N/A"}`;
+      lines.push([
+        csvEscape(st.id),
+        csvEscape(st.name),
+        csvEscape(st.longitude),
+        csvEscape(st.latitude),
+        st.elevation !== null && st.elevation !== undefined ? csvEscape(st.elevation) : "NA",
+        csvEscape(st.wigos_id || st.id),
+        csvEscape(st.available_params),
+        csvEscape(st.country),
+        csvEscape("2020-01-01"),   // start_date placeholder
+        csvEscape(today),           // end_date = today
+        csvEscape(summary),
+        csvEscape(st.is_hourly || "true"),
+        csvEscape(st.is_daily || "true"),
+        csvEscape(st.is_minutely || "false"),
+      ].join(","));
+    }
+    // Atomic write: write to tmp file then rename to avoid corruption
+    fs.writeFileSync(tmpPath, lines.join("\n") + "\n", "utf-8");
+    fs.renameSync(tmpPath, FALLBACK_CSV_PATH);
+    console.info(`[api/stations] Fallback CSV updated with ${stations.length} stations.`);
+  } catch (err) {
+    console.warn("[api/stations] Failed to write fallback CSV:", err);
+    // Clean up temp file if rename failed
+    try { fs.unlinkSync(tmpPath); } catch {}
+  }
+}
+
 function loadFallbackStations(): any[] {
   try {
     const csvPath = path.join(process.cwd(), "src/data/meteogate_stations_cache.csv");
@@ -88,6 +138,7 @@ export async function GET() {
     }
 
     let stations: any[] = [];
+    let fetchedFromRemote = false;
     
     try {
       // Fetch raw stations list from MeteoGate with a 15-second timeout (matches R app)
@@ -126,6 +177,7 @@ export async function GET() {
       });
 
       console.info(`[api/stations] Fetched and processed ${stations.length} raw stations from MeteoGate.`);
+      fetchedFromRemote = true;
     } catch (fetchError: any) {
       console.warn(
         `[api/stations] Remote fetch failed or timed out (${fetchError.message}). Using local backup CSV fallback...`
@@ -167,6 +219,12 @@ export async function GET() {
 
     // Save to cache
     cache.set("stations", stations);
+
+    // Write back to fallback CSV if we got fresh data from MeteoGate
+    if (fetchedFromRemote) {
+      // Fire-and-forget: don't block the response
+      setImmediate(() => writeFallbackCSV(stations));
+    }
 
     return NextResponse.json({ success: true, fromCache: false, data: stations });
   } catch (error: any) {
