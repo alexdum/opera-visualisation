@@ -392,6 +392,13 @@ function EuroMeteoApp() {
     return () => clearTimeout(timer);
   }, [selectedStation]); // We only trigger on station selection, activeTab is checked inside to avoid loops
 
+  // Switch back to Map View when station is cleared while on the Dashboard
+  useEffect(() => {
+    if (!selectedStation && activeTab === "dashboard") {
+      setActiveTab("map");
+    }
+  }, [selectedStation, activeTab]);
+
   // Find active station object details
   const activeStationDetails = useMemo(() => {
     return stations.find((st) => st.id === selectedStation) || null;
