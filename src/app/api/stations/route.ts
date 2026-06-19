@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { fetchBypassSSL } from "@/utils/http";
-import { getCountryFromWigosId, applyCoordinateOverrides } from "@/utils/wigos";
+import { getCountryFromWigosId, applyCoordinateOverrides, isGenericRegionLabel, normalizeCountryName } from "@/utils/wigos";
 import { loadOscarCache } from "@/utils/oscar";
 import NodeCache from "node-cache";
 import fs from "fs";
@@ -11,6 +11,39 @@ const cache = new NodeCache({ stdTTL: 10800 });
 
 const FALLBACK_CSV_PATH = path.join(process.cwd(), "src/data/meteogate_stations_cache.csv");
 const CSV_HEADER = "id,name,longitude,latitude,elevation,wigos_id,available_params,country,start_date,end_date,detailed_summary,is_hourly,is_daily,is_minutely";
+
+interface StationRecord {
+  id: string;
+  wigos_id: string;
+  name: string;
+  longitude: number;
+  latitude: number;
+  elevation: number | null;
+  country: string | null;
+  available_params: string;
+  is_hourly: string;
+  is_daily: string;
+  is_minutely: string;
+}
+
+interface MeteoGateFeature {
+  id: string;
+  geometry?: {
+    coordinates?: number[];
+  };
+  properties?: {
+    name?: string;
+    "parameter-name"?: string[];
+  };
+}
+
+interface MeteoGateResponse {
+  features?: MeteoGateFeature[];
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 /** Escape a value for CSV: wrap in quotes if it contains commas, quotes, or newlines */
 function csvEscape(val: string | number | null | undefined): string {
@@ -23,7 +56,7 @@ function csvEscape(val: string | number | null | undefined): string {
 }
 
 /** Write enriched stations back to the fallback CSV (async, fire-and-forget) */
-function writeFallbackCSV(stations: any[]): void {
+function writeFallbackCSV(stations: StationRecord[]): void {
   const tmpPath = FALLBACK_CSV_PATH + ".tmp";
   try {
     const today = new Date().toISOString().split("T")[0];
@@ -59,7 +92,7 @@ function writeFallbackCSV(stations: any[]): void {
   }
 }
 
-function loadFallbackStations(): any[] {
+function loadFallbackStations(): StationRecord[] {
   try {
     const csvPath = path.join(process.cwd(), "src/data/meteogate_stations_cache.csv");
     if (!fs.existsSync(csvPath)) {
@@ -69,7 +102,7 @@ function loadFallbackStations(): any[] {
 
     const content = fs.readFileSync(csvPath, "utf-8");
     const lines = content.split("\n");
-    const stations: any[] = [];
+    const stations: StationRecord[] = [];
 
     // Header: id,name,longitude,latitude,elevation,wigos_id,available_params,country,start_date,end_date,detailed_summary,is_hourly,is_daily,is_minutely
     for (let i = 1; i < lines.length; i++) {
@@ -137,7 +170,7 @@ export async function GET() {
       return NextResponse.json({ success: true, fromCache: true, data: cached });
     }
 
-    let stations: any[] = [];
+    let stations: StationRecord[] = [];
     let fetchedFromRemote = false;
     
     try {
@@ -147,12 +180,12 @@ export async function GET() {
         15000
       );
       
-      const json = JSON.parse(rawData);
+      const json = JSON.parse(rawData) as MeteoGateResponse;
       if (!json.features) {
         throw new Error("Invalid MeteoGate response format");
       }
 
-      stations = json.features.map((feature: any) => {
+      stations = json.features.map((feature) => {
         const wigosId = feature.id;
         const coords = feature.geometry?.coordinates || [];
         const currentLon = coords[0] ?? 0;
@@ -178,9 +211,9 @@ export async function GET() {
 
       console.info(`[api/stations] Fetched and processed ${stations.length} raw stations from MeteoGate.`);
       fetchedFromRemote = true;
-    } catch (fetchError: any) {
+    } catch (fetchError: unknown) {
       console.warn(
-        `[api/stations] Remote fetch failed or timed out (${fetchError.message}). Using local backup CSV fallback...`
+        `[api/stations] Remote fetch failed or timed out (${getErrorMessage(fetchError)}). Using local backup CSV fallback...`
       );
       stations = loadFallbackStations();
     }
@@ -201,7 +234,13 @@ export async function GET() {
       
       const elevation = oscarInfo?.elevation ?? reconciledCoords.elevation;
       const name = oscarInfo?.name || st.name;
-      const country = oscarInfo?.country || st.country || getCountryFromWigosId(st.wigos_id, reconciledCoords.longitude, reconciledCoords.latitude);
+      const oscarCountry = oscarInfo?.country && !isGenericRegionLabel(oscarInfo.country)
+        ? normalizeCountryName(oscarInfo.country)
+        : null;
+      const cachedCountry = st.country && !isGenericRegionLabel(st.country)
+        ? normalizeCountryName(st.country)
+        : null;
+      const country = oscarCountry || cachedCountry || getCountryFromWigosId(st.wigos_id, reconciledCoords.longitude, reconciledCoords.latitude);
 
       return {
         ...st,
@@ -227,8 +266,8 @@ export async function GET() {
     }
 
     return NextResponse.json({ success: true, fromCache: false, data: stations });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("[api/stations] Error:", error);
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    return NextResponse.json({ success: false, message: getErrorMessage(error) }, { status: 500 });
   }
 }

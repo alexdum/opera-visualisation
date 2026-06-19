@@ -56,7 +56,7 @@ export function normalizeCountryName(country: string): string {
  */
 export function isGenericRegionLabel(country: string | null | undefined): boolean {
   if (!country) return true;
-  return ["Unknown", "Global", "Europe", "Africa", "North America", "South America", "Pacific Islands/Oceania"].includes(country);
+  return ["Unknown", "Global", "Europe", "Africa", "Antarctica", "North America", "South America", "Pacific Islands/Oceania"].includes(country);
 }
 
 /**
@@ -70,6 +70,9 @@ export function getCountryFromWmoBlock(locId: string, longitude?: number, latitu
     if (latitude >= 57 && latitude <= 60 && longitude >= 21 && longitude <= 29) {
       return "Estonia";
     }
+    if (latitude >= -53 && latitude <= -51 && longitude >= -61 && longitude <= -57) {
+      return "Falkland Islands (Malvinas)";
+    }
   }
 
   if (locId.length >= 3) {
@@ -79,7 +82,6 @@ export function getCountryFromWmoBlock(locId: string, longitude?: number, latitu
     // Estonia padding logic
     const coordsAvailable = longitude !== undefined && latitude !== undefined && isFinite(longitude) && isFinite(latitude);
     if (!coordsAvailable && locId.length < 5 && isNumericId) {
-      const numericVal = parseInt(locId, 10);
       const candidate = "26" + locId.padStart(3, "0");
       const wmoCandidate = parseInt(candidate.substring(0, 5), 10);
       if (!isNaN(wmoCandidate) && wmoCandidate >= 26000 && wmoCandidate <= 26499) {
@@ -97,6 +99,9 @@ export function getCountryFromWmoBlock(locId: string, longitude?: number, latitu
       if (wmoIdx === 13363 || (wmoIdx >= 13457 && wmoIdx <= 13463)) return "Montenegro";
       if (wmoIdx === 60320) return "Spain";
       if ([61901, 61902].includes(wmoIdx)) return "Saint Helena";
+      if ([89003, 89011].includes(wmoIdx)) return "Germany";
+      if (wmoIdx === 89262) return "United Kingdom";
+      if ([99507, 99508, 99509].includes(wmoIdx)) return "Falkland Islands (Malvinas)";
 
       // Granular WMO Block Mapping
       if (wmoIdx >= 1000 && wmoIdx <= 1999) return "Norway";
@@ -140,9 +145,11 @@ export function getCountryFromWmoBlock(locId: string, longitude?: number, latitu
       if (wmoIdx >= 27200 && wmoIdx <= 27999) return "Belarus";
       if (wmoIdx >= 33000 && wmoIdx <= 33799) return "Ukraine";
       if (wmoIdx >= 33800 && wmoIdx <= 33899) return "Moldova";
+      if (wmoIdx >= 99000 && wmoIdx <= 99499) return "United Kingdom";
 
       // Region I (Africa) WMO Blocks
       if (wmoIdx >= 60000 && wmoIdx <= 60099) return "Spain"; // Canary Islands
+      if (wmoIdx >= 61000 && wmoIdx <= 61099) return "Niger";
       if (wmoIdx >= 60100 && wmoIdx <= 60299) return "Morocco";
       if (wmoIdx >= 60300 && wmoIdx <= 60349) return "Morocco"; // Western Sahara
       if (wmoIdx >= 60350 && wmoIdx <= 60699) return "Algeria";
@@ -172,7 +179,7 @@ export function getCountryFromWigosId(wigosId: string, longitude?: number, latit
   if (parts.length < 4) return "Europe";
 
   const issuerRaw = parts[1];
-  const locId = parts[4];
+  const locId = parts[3];
 
   // Try parsing the issuer ID first
   const isNumericIssuer = /^[0-9]+$/.test(issuerRaw);
