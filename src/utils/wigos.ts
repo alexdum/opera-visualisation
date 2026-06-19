@@ -98,6 +98,7 @@ export function getCountryFromWmoBlock(locId: string, longitude?: number, latitu
       if (wmoIdx === 6590) return "Luxembourg";
       if (wmoIdx === 13363 || (wmoIdx >= 13457 && wmoIdx <= 13463)) return "Montenegro";
       if (wmoIdx === 60320) return "Spain";
+      if (wmoIdx === 60338) return "Spain";
       if ([61901, 61902].includes(wmoIdx)) return "Saint Helena";
       if ([89003, 89011].includes(wmoIdx)) return "Germany";
       if (wmoIdx === 89262) return "United Kingdom";
