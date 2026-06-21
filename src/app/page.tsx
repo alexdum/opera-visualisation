@@ -562,6 +562,7 @@ function EuroMeteoApp() {
       cell: (info) => {
         try {
           return new Date(info.getValue() as string).toLocaleString(undefined, {
+            timeZone: "UTC",
             month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
           });
         } catch {

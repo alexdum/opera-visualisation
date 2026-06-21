@@ -23,7 +23,7 @@ interface HourlyRow {
 const formatDate = (isoString: string) => {
   try {
     const d = new Date(isoString);
-    return d.toLocaleDateString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    return d.toLocaleDateString(undefined, { timeZone: "UTC", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
   } catch {
     return isoString;
   }
