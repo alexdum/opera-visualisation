@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState } from "react";
 import {
   useReactTable,
   getCoreRowModel,
@@ -14,6 +14,7 @@ import { ArrowUpDown, ChevronLeft, ChevronRight, Search } from "lucide-react";
 interface WeatherTableProps<T> {
   data: T[];
   columns: ColumnDef<T>[];
+  defaultSorting?: SortingState;
   onRowDoubleClick?: (row: T) => void;
   searchPlaceholder?: string;
   searchKey?: keyof T;
@@ -22,11 +23,12 @@ interface WeatherTableProps<T> {
 export function WeatherTable<T>({
   data,
   columns,
+  defaultSorting = [],
   onRowDoubleClick,
   searchPlaceholder = "Filter records...",
   searchKey
 }: WeatherTableProps<T>) {
-  const [sorting, setSorting] = useState<SortingState>([]);
+  const [sorting, setSorting] = useState<SortingState>(() => defaultSorting);
   const [globalFilter, setGlobalFilter] = useState("");
 
   const table = useReactTable({

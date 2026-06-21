@@ -559,6 +559,9 @@ function EuroMeteoApp() {
     const datetimeCol: ColumnDef<HourlyRow> = {
       accessorKey: "datetime",
       header: "Datetime (UTC)",
+      sortingFn: (rowA, rowB, columnId) =>
+        new Date(rowA.getValue(columnId) as string).getTime() -
+        new Date(rowB.getValue(columnId) as string).getTime(),
       cell: (info) => {
         try {
           return new Date(info.getValue() as string).toLocaleString(undefined, {
@@ -937,6 +940,7 @@ function EuroMeteoApp() {
                                 }
                                 searchPlaceholder="Filter logs by hour or value..."
                                 searchKey="datetime"
+                                defaultSorting={[{ id: "datetime", desc: true }]}
                               />
                             </div>
                           </div>
