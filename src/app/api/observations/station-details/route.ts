@@ -93,9 +93,187 @@ function mapParamToRow(row: any, paramName: string, val: number, unit?: string):
 }
 
 const BAD_VALUES = new Set([9999, -9999, -999.9, -999, 999.9]);
+const SUB_HOURLY_TIMESTAMP_THRESHOLD = 26;
+const MAX_HOURLY_WINDOW_DAYS = 31;
+const MIN_RECURRING_INTERVAL_COUNT = 2;
+
+type TimestampResolution = {
+  isSubHourly: boolean;
+  intervalMinutes: number | null;
+  label: string | null;
+  maxTimestampsPerDay: number;
+};
+
+function getRangeLimitDays(intervalMinutes: number | null): number | null {
+  if (intervalMinutes === null) return MAX_HOURLY_WINDOW_DAYS;
+  if (intervalMinutes <= 1) return 3;
+  if (intervalMinutes <= 5) return 10;
+  if (intervalMinutes <= 10) return 15;
+  if (intervalMinutes <= 30) return 20;
+  return MAX_HOURLY_WINDOW_DAYS;
+}
 
 function isBadValue(v: number): boolean {
   return v === null || v === undefined || isNaN(v) || BAD_VALUES.has(v);
+}
+
+function formatUtcDateKey(date: Date): string {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getLimitedWindowStart(endDate: Date, limitDays: number): Date {
+  const start = new Date(Date.UTC(
+    endDate.getUTCFullYear(),
+    endDate.getUTCMonth(),
+    endDate.getUTCDate()
+  ));
+  start.setUTCDate(start.getUTCDate() - (limitDays - 1));
+  return start;
+}
+
+function maxDate(a: Date, b: Date): Date {
+  return a > b ? a : b;
+}
+
+function getTimestampParts(
+  value: unknown
+): { dayKey: string; timestampKey: string; timestampMs: number | null } | null {
+  if (value instanceof Date) {
+    if (isNaN(value.getTime())) return null;
+    const iso = value.toISOString();
+    return { dayKey: iso.slice(0, 10), timestampKey: iso, timestampMs: value.getTime() };
+  }
+
+  if (typeof value !== "string" || value.length === 0) {
+    return null;
+  }
+
+  const parsed = new Date(value);
+  const timestampMs = isNaN(parsed.getTime()) ? null : parsed.getTime();
+
+  const dayMatch = value.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (dayMatch) {
+    return { dayKey: dayMatch[1], timestampKey: value, timestampMs };
+  }
+
+  if (timestampMs === null) return null;
+
+  const iso = parsed.toISOString();
+  return { dayKey: iso.slice(0, 10), timestampKey: iso, timestampMs };
+}
+
+function formatIntervalLabel(intervalMinutes: number | null): string | null {
+  if (intervalMinutes === null) return null;
+  if (intervalMinutes === 60) return "hourly";
+  if (intervalMinutes % 60 === 0) {
+    const hours = intervalMinutes / 60;
+    return `${hours} ${hours === 1 ? "hour" : "hours"}`;
+  }
+  return `${intervalMinutes} min`;
+}
+
+function preferHigherFrequencyResolution(
+  current: TimestampResolution,
+  candidate: TimestampResolution
+): TimestampResolution {
+  const maxTimestampsPerDay = Math.max(
+    current.maxTimestampsPerDay,
+    candidate.maxTimestampsPerDay
+  );
+  const isSubHourly =
+    current.isSubHourly ||
+    candidate.isSubHourly ||
+    maxTimestampsPerDay > SUB_HOURLY_TIMESTAMP_THRESHOLD;
+  const shouldUseCandidate =
+    current.intervalMinutes === null ||
+    (
+      candidate.intervalMinutes !== null &&
+      candidate.intervalMinutes < current.intervalMinutes
+    ) ||
+    (
+      candidate.intervalMinutes === current.intervalMinutes &&
+      candidate.maxTimestampsPerDay > current.maxTimestampsPerDay
+    );
+  const chosen = shouldUseCandidate ? candidate : current;
+
+  return {
+    isSubHourly,
+    intervalMinutes: chosen.intervalMinutes,
+    label: formatIntervalLabel(chosen.intervalMinutes),
+    maxTimestampsPerDay,
+  };
+}
+
+function analyzeTimestampResolution(rows: Array<{ datetime?: unknown }>): TimestampResolution {
+  const timestampsByDay = new Map<string, Map<string, number | null>>();
+
+  for (const row of rows) {
+    const timestampParts = getTimestampParts(row?.datetime);
+    if (!timestampParts) continue;
+
+    let timestamps = timestampsByDay.get(timestampParts.dayKey);
+    if (!timestamps) {
+      timestamps = new Map<string, number | null>();
+      timestampsByDay.set(timestampParts.dayKey, timestamps);
+    }
+
+    if (!timestamps.has(timestampParts.timestampKey)) {
+      timestamps.set(timestampParts.timestampKey, timestampParts.timestampMs);
+    }
+  }
+
+  let maxTimestampsPerDay = 0;
+  const intervalCounts = new Map<number, number>();
+
+  for (const timestamps of timestampsByDay.values()) {
+    maxTimestampsPerDay = Math.max(maxTimestampsPerDay, timestamps.size);
+
+    const timestampValues = Array.from(timestamps.values())
+      .filter((timestampMs): timestampMs is number => typeof timestampMs === "number")
+      .sort((a, b) => a - b);
+
+    for (let i = 1; i < timestampValues.length; i++) {
+      const diffMinutes = Math.round((timestampValues[i] - timestampValues[i - 1]) / 60000);
+      if (diffMinutes <= 0 || diffMinutes > 24 * 60) continue;
+      intervalCounts.set(diffMinutes, (intervalCounts.get(diffMinutes) || 0) + 1);
+    }
+  }
+
+  let intervalMinutes: number | null = null;
+  for (const [minutes, frequency] of intervalCounts) {
+    if (frequency < MIN_RECURRING_INTERVAL_COUNT) continue;
+    if (intervalMinutes === null || minutes < intervalMinutes) {
+      intervalMinutes = minutes;
+    }
+  }
+
+  if (intervalMinutes === null) {
+    for (const minutes of intervalCounts.keys()) {
+      if (intervalMinutes === null || minutes < intervalMinutes) {
+        intervalMinutes = minutes;
+      }
+    }
+  }
+
+  return {
+    isSubHourly: maxTimestampsPerDay > SUB_HOURLY_TIMESTAMP_THRESHOLD,
+    intervalMinutes,
+    label: formatIntervalLabel(intervalMinutes),
+    maxTimestampsPerDay,
+  };
+}
+
+function filterRowsFromDate<T extends { datetime?: unknown }>(
+  rows: T[],
+  minDateKey: string
+): T[] {
+  return rows.filter((row) => {
+    const timestampParts = getTimestampParts(row?.datetime);
+    return timestampParts ? timestampParts.dayKey >= minDateKey : true;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -379,23 +557,65 @@ async function fetchArchiveDetails(
   stationId: string,
   startDate: Date,
   endDate: Date,
-  onProgress: (msg: string) => void
-): Promise<any[]> {
+  onProgress: (msg: string) => void,
+  options: { detectSubHourly?: boolean; rangeLimitDays?: number; limitWindowStart?: Date } = {}
+): Promise<{ rows: any[]; resolution: TimestampResolution; rangeLimitDays: number | null }> {
   const dateStrs = buildDateRange(startDate, endDate);
-  if (dateStrs.length === 0) return [];
+  const emptyResolution = analyzeTimestampResolution([]);
+  if (dateStrs.length === 0) {
+    return { rows: [], resolution: emptyResolution, rangeLimitDays: null };
+  }
 
   onProgress(`Preparing to fetch ${dateStrs.length} days from Hugging Face archive...`);
 
   const BATCH_SIZE = 10;
   const allRawRows: any[] = [];
+  const batches: string[][] = [];
+  const shouldDetectSubHourly = options.detectSubHourly ?? true;
+  let rangeLimitDays = options.rangeLimitDays ?? MAX_HOURLY_WINDOW_DAYS;
+  let limitWindowStartKey = formatUtcDateKey(
+    options.limitWindowStart ?? getLimitedWindowStart(endDate, rangeLimitDays)
+  );
+  let archiveIsSubHourly = false;
+  let archiveResolution = emptyResolution;
 
-  for (let i = 0; i < dateStrs.length; i += BATCH_SIZE) {
-    const batch = dateStrs.slice(i, i + BATCH_SIZE);
-    onProgress(`Downloading and querying archive batch ${Math.floor(i / BATCH_SIZE) + 1} of ${Math.ceil(dateStrs.length / BATCH_SIZE)} (${batch[0]} to ${batch[batch.length - 1]})...`);
+  for (let end = dateStrs.length; end > 0; end -= BATCH_SIZE) {
+    const start = Math.max(0, end - BATCH_SIZE);
+    batches.push(dateStrs.slice(start, end));
+  }
+
+  for (let i = 0; i < batches.length; i++) {
+    const batch = archiveIsSubHourly
+      ? batches[i].filter((dateStr) => dateStr >= limitWindowStartKey)
+      : batches[i];
+
+    if (batch.length === 0) {
+      onProgress(`Reached ${rangeLimitDays}-day ${archiveResolution.label || "sub-hourly"} archive limit; stopping older archive fetches.`);
+      break;
+    }
+
+    onProgress(`Downloading and querying archive batch ${i + 1} of ${batches.length} (${batch[0]} to ${batch[batch.length - 1]})...`);
 
     try {
       const rows = await queryArchiveBatch(batch, stationId);
-      allRawRows.push(...rows);
+      allRawRows.push(...(archiveIsSubHourly ? filterRowsFromDate(rows, limitWindowStartKey) : rows));
+
+      const batchResolution = analyzeTimestampResolution(rows);
+      archiveResolution = preferHigherFrequencyResolution(
+        archiveResolution,
+        batchResolution
+      );
+
+      if (shouldDetectSubHourly && !archiveIsSubHourly && batchResolution.isSubHourly) {
+        archiveIsSubHourly = true;
+        rangeLimitDays = getRangeLimitDays(batchResolution.intervalMinutes) ?? MAX_HOURLY_WINDOW_DAYS;
+        limitWindowStartKey = formatUtcDateKey(getLimitedWindowStart(endDate, rangeLimitDays));
+        onProgress(`Detected ${batchResolution.label || "sub-hourly"} archive data; limiting archive history to ${rangeLimitDays} days.`);
+
+        const clampedRows = filterRowsFromDate(allRawRows, limitWindowStartKey);
+        allRawRows.length = 0;
+        allRawRows.push(...clampedRows);
+      }
     } catch (error: any) {
       console.warn(
         `[api/observations/station-details]   Batch query error: ${error.message || error}`
@@ -404,11 +624,19 @@ async function fetchArchiveDetails(
   }
 
   if (allRawRows.length === 0) {
-    return [];
+    return {
+      rows: [],
+      resolution: { ...archiveResolution, isSubHourly: archiveIsSubHourly },
+      rangeLimitDays: archiveIsSubHourly ? rangeLimitDays : null,
+    };
   }
 
   onProgress(`Processing and aggregating ${allRawRows.length} archive observations...`);
-  return pivotArchiveRows(allRawRows);
+  return {
+    rows: pivotArchiveRows(allRawRows),
+    resolution: { ...archiveResolution, isSubHourly: archiveIsSubHourly },
+    rangeLimitDays: archiveIsSubHourly ? rangeLimitDays : null,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -531,8 +759,31 @@ export async function GET(request: Request) {
 
   const stream = new ReadableStream({
     async start(controller) {
-      function sendEvent(event: string, data: any) {
-        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+      let streamClosed = false;
+
+      function closeStream() {
+        if (streamClosed) return;
+        streamClosed = true;
+        try {
+          controller.close();
+        } catch {
+          // The client may have already closed the SSE connection.
+        }
+      }
+
+      function sendEvent(event: string, data: any): boolean {
+        if (streamClosed || request.signal.aborted) {
+          streamClosed = true;
+          return false;
+        }
+
+        try {
+          controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+          return true;
+        } catch {
+          streamClosed = true;
+          return false;
+        }
       }
       
       function sendProgress(msg: string) {
@@ -547,6 +798,41 @@ export async function GET(request: Request) {
         let archiveRows: any[] = [];
         let liveRows: any[] = [];
         let liveUnits: Record<string, string> = {};
+        let stationIsSubHourly = false;
+        let rangeLimitDays = MAX_HOURLY_WINDOW_DAYS;
+        let limitWindowStart = getLimitedWindowStart(endDate, rangeLimitDays);
+        let effectiveStart = start;
+        let rangeAdjusted = startDate < limitWindowStart;
+        if (rangeAdjusted) {
+          effectiveStart = formatUtcDateKey(limitWindowStart);
+        }
+        let stationResolution = analyzeTimestampResolution([]);
+
+        // Fetch Live API first so dense recent data can clamp archive history.
+        if (endDate > apiCutoff) {
+          const liveStart = startDate > apiCutoff ? startDate : apiCutoff;
+          const liveResult = await fetchLiveDetails(stationId, liveStart, endDate, sendProgress);
+          liveRows = liveResult.rows;
+          liveUnits = liveResult.units;
+          const liveResolution = analyzeTimestampResolution(liveRows);
+
+          stationResolution = preferHigherFrequencyResolution(
+            stationResolution,
+            liveResolution
+          );
+
+          if (liveResolution.isSubHourly) {
+            stationIsSubHourly = true;
+            rangeLimitDays = getRangeLimitDays(liveResolution.intervalMinutes) ?? MAX_HOURLY_WINDOW_DAYS;
+            limitWindowStart = getLimitedWindowStart(endDate, rangeLimitDays);
+            sendProgress(`Detected ${liveResolution.label || "sub-hourly"} live data; limiting archive history to ${rangeLimitDays} days.`);
+            if (startDate < limitWindowStart) {
+              effectiveStart = formatUtcDateKey(limitWindowStart);
+              rangeAdjusted = true;
+            }
+            liveRows = filterRowsFromDate(liveRows, formatUtcDateKey(limitWindowStart));
+          }
+        }
 
         // Fetch Archive if requested range overlaps with past data (before cutoff)
         if (startDate < apiCutoff) {
@@ -554,15 +840,40 @@ export async function GET(request: Request) {
             endDate < apiCutoff
               ? endDate
               : new Date(apiCutoff.getTime() - 1000);
-          archiveRows = await fetchArchiveDetails(stationId, startDate, archiveEnd, sendProgress);
-        }
+          const archiveStart = maxDate(startDate, limitWindowStart);
 
-        // Fetch Live API if requested range overlaps with recent data (after cutoff)
-        if (endDate > apiCutoff) {
-          const liveStart = startDate > apiCutoff ? startDate : apiCutoff;
-          const liveResult = await fetchLiveDetails(stationId, liveStart, endDate, sendProgress);
-          liveRows = liveResult.rows;
-          liveUnits = liveResult.units;
+          if (archiveStart <= archiveEnd) {
+            const archiveResult = await fetchArchiveDetails(
+              stationId,
+              archiveStart,
+              archiveEnd,
+              sendProgress,
+              {
+                detectSubHourly: !stationIsSubHourly,
+                rangeLimitDays,
+                limitWindowStart,
+              }
+            );
+            archiveRows = archiveResult.rows;
+            const archiveResolution = archiveResult.resolution;
+
+            stationResolution = preferHigherFrequencyResolution(
+              stationResolution,
+              archiveResolution
+            );
+
+            if (archiveResolution.isSubHourly) {
+              stationIsSubHourly = true;
+              rangeLimitDays = archiveResult.rangeLimitDays
+                ?? getRangeLimitDays(archiveResolution.intervalMinutes)
+                ?? MAX_HOURLY_WINDOW_DAYS;
+              limitWindowStart = getLimitedWindowStart(endDate, rangeLimitDays);
+              if (startDate < limitWindowStart) {
+                effectiveStart = formatUtcDateKey(limitWindowStart);
+                rangeAdjusted = true;
+              }
+            }
+          }
         }
 
         sendProgress("Merging and sorting datasets...");
@@ -635,12 +946,30 @@ export async function GET(request: Request) {
         };
         const units = { ...defaultUnits, ...liveUnits };
 
-        sendEvent("complete", { success: true, data: mergedRows, units });
-        controller.close();
+        sendEvent("complete", {
+          success: true,
+          data: mergedRows,
+          units,
+          sampling: {
+            isSubHourly: stationIsSubHourly,
+            intervalMinutes: stationResolution.intervalMinutes,
+            intervalLabel: stationResolution.label,
+            rangeLimitDays,
+            maxTimestampsPerDay: stationResolution.maxTimestampsPerDay,
+          },
+          effectiveRange: {
+            start: effectiveStart,
+            end,
+            adjusted: rangeAdjusted,
+            reason: rangeAdjusted ? "frequency-window-limit" : null,
+            limitDays: rangeLimitDays,
+          },
+        });
+        closeStream();
       } catch (error: any) {
         console.error("[api/observations/station-details] Error:", error);
         sendEvent("error", { success: false, message: error.message });
-        controller.close();
+        closeStream();
       }
     }
   });

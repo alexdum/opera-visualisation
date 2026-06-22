@@ -24,6 +24,14 @@ interface HourlyRow {
   [key: string]: string | number | undefined;
 }
 
+interface StationSampling {
+  isSubHourly: boolean;
+  intervalMinutes: number | null;
+  intervalLabel: string | null;
+  rangeLimitDays: number | null;
+  maxTimestampsPerDay: number;
+}
+
 // Keys that indicate ocean/marine data
 const OCEAN_KEY_PREFIXES = [
   "seaSurface", "seaWater", "sea_surface", "sea_water",
@@ -93,6 +101,7 @@ function EuroMeteoApp() {
   const [isLoadingStations, setIsLoadingStations] = useState<boolean>(true);
   const [stationLogs, setStationLogs] = useState<HourlyRow[]>([]);
   const [stationUnits, setStationUnits] = useState<Record<string, string>>({});
+  const [stationSampling, setStationSampling] = useState<StationSampling | null>(null);
   const [isLoadingLogs, setIsLoadingLogs] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -296,6 +305,7 @@ function EuroMeteoApp() {
   useEffect(() => {
     if (!selectedStation) {
       setStationLogs([]);
+      setStationSampling(null);
       return;
     }
 
@@ -350,6 +360,15 @@ function EuroMeteoApp() {
                 const parsed = JSON.parse(data);
                 setStationLogs(parsed.data || []);
                 setStationUnits(parsed.units || {});
+                setStationSampling(parsed.sampling || null);
+                const effectiveRange = parsed.effectiveRange;
+                if (
+                  effectiveRange?.adjusted &&
+                  typeof effectiveRange.start === "string" &&
+                  effectiveRange.start !== startDate
+                ) {
+                  setStartDate(effectiveRange.start);
+                }
               } catch (e) {}
             } else if (event === "error" && data) {
               try {
@@ -833,10 +852,10 @@ function EuroMeteoApp() {
                               WIGOS ID: {activeStationDetails.id} &bull; Country: {activeStationDetails.country}
                             </p>
                           </div>
-                          <div className="flex items-center gap-6 text-sm font-bold text-slate-500 border-l border-slate-100 pl-0 sm:pl-6 pt-3 sm:pt-0">
-                            <div className="flex flex-col gap-2">
-                              <div className="flex items-center gap-2">
-                                <button
+	                          <div className="flex flex-wrap items-center gap-4 text-sm font-bold text-slate-500 border-l border-slate-100 pl-0 sm:pl-6 pt-3 sm:pt-0">
+	                            <div className="flex flex-col gap-2">
+	                              <div className="flex items-center gap-2">
+	                                <button
                                   onClick={() => downloadCSV(stationLogs, `meteo_station_${activeStationDetails.id}_${startDate}_${endDate}`)}
                                   disabled={stationLogs.length === 0}
                                   className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
@@ -849,12 +868,23 @@ function EuroMeteoApp() {
                                   className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 hover:text-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                                 >
                                   <Download size={14} /> Excel
-                                </button>
-                              </div>
-                            </div>
-                            <div className="flex flex-col gap-0.5">
-                              <span className="text-slate-400 flex items-center gap-1.5"><Mountain size={13} /> Elev</span>
-                              <span className="text-slate-800 text-sm">
+	                                </button>
+	                              </div>
+	                            </div>
+	                            {stationSampling?.intervalLabel && (
+	                              <div className="flex flex-col gap-0.5">
+	                                <span className="text-slate-400 flex items-center gap-1.5"><Database size={13} /> Freq</span>
+	                                <span className="text-slate-800 text-sm">
+	                                  {stationSampling.intervalLabel}
+	                                  {stationSampling.rangeLimitDays
+	                                    ? ` / ${stationSampling.rangeLimitDays} ${stationSampling.rangeLimitDays === 1 ? "day" : "days"}`
+	                                    : ""}
+	                                </span>
+	                              </div>
+	                            )}
+	                            <div className="flex flex-col gap-0.5">
+	                              <span className="text-slate-400 flex items-center gap-1.5"><Mountain size={13} /> Elev</span>
+	                              <span className="text-slate-800 text-sm">
                                 {activeStationDetails.elevation !== null ? `${activeStationDetails.elevation} m` : "Unknown"}
                               </span>
                             </div>
@@ -896,10 +926,10 @@ function EuroMeteoApp() {
                             </button>
                           </div>
 
-                          {/* Sub-tab: Plots (always mounted, cached when inactive) */}
-                          <div className={`cached-view ${dashboardSubTab === "plots" ? "is-active" : ""}`}>
-                            <DashboardCharts data={stationLogs} units={stationUnits} />
-                          </div>
+	                          {/* Sub-tab: Plots (always mounted, cached when inactive) */}
+	                          <div className={`cached-view ${dashboardSubTab === "plots" ? "is-active" : ""}`}>
+	                            <DashboardCharts data={stationLogs} units={stationUnits} />
+	                          </div>
 
                           {/* Sub-tab: Data Table (always mounted, cached when inactive) */}
                           <div 
@@ -930,10 +960,10 @@ function EuroMeteoApp() {
                                 </button>
                               </div>
                             )}
-                            <div className="flex-1">
-                              <WeatherTable
-                                data={stationLogs}
-                                columns={
+	                            <div className="flex-1">
+	                              <WeatherTable
+	                                data={stationLogs}
+	                                columns={
                                   hasOceanData && (!hasLandData || dashboardDataTab === "ocean")
                                     ? oceanColumns
                                     : landColumns
