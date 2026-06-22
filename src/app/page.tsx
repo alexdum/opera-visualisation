@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, Suspense } from "react";
+import React, { useState, useEffect, useMemo, useRef, Suspense } from "react";
 import { Sidebar } from "@/components/Sidebar";
 import { WeatherMap } from "@/components/Map";
 import { DashboardCharts } from "@/components/DashboardCharts";
@@ -32,6 +32,14 @@ interface StationSampling {
   maxTimestampsPerDay: number;
 }
 
+type DateRangeMode = "unknown" | "auto" | "manual";
+
+interface AutoRangeWindow {
+  startDate: string;
+  endDate: string;
+  limitDays: number;
+}
+
 // Keys that indicate ocean/marine data
 const OCEAN_KEY_PREFIXES = [
   "seaSurface", "seaWater", "sea_surface", "sea_water",
@@ -56,6 +64,14 @@ function getWindowStartDate(endDate: string, limitDays: number): string {
 
   end.setUTCDate(end.getUTCDate() - (limitDays - 1));
   return end.toISOString().split("T")[0];
+}
+
+function getDateWindowDays(startDate: string, endDate: string): number | null {
+  const start = new Date(`${startDate}T00:00:00Z`);
+  const end = new Date(`${endDate}T00:00:00Z`);
+  if (isNaN(start.getTime()) || isNaN(end.getTime()) || start > end) return null;
+
+  return Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
 }
 
 // Slugify station/country names — must match the parent page's implementation exactly
@@ -110,7 +126,8 @@ function EuroMeteoApp() {
   const [stationLogs, setStationLogs] = useState<HourlyRow[]>([]);
   const [stationUnits, setStationUnits] = useState<Record<string, string>>({});
   const [stationSampling, setStationSampling] = useState<StationSampling | null>(null);
-  const [autoRangeLimitDays, setAutoRangeLimitDays] = useState<number | null>(null);
+  const autoRangeWindowRef = useRef<AutoRangeWindow | null>(null);
+  const dateRangeModeRef = useRef<DateRangeMode>("unknown");
   const [isLoadingLogs, setIsLoadingLogs] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -237,6 +254,7 @@ function EuroMeteoApp() {
         // Slug needs deferred resolution against the stations list
         setPendingStationSlug(data.stationSlug);
       } else {
+        setStationSampling(null);
         setSelectedStation('');
         setPendingStationSlug('');
       }
@@ -315,7 +333,6 @@ function EuroMeteoApp() {
     if (!selectedStation) {
       setStationLogs([]);
       setStationSampling(null);
-      setAutoRangeLimitDays(null);
       return;
     }
 
@@ -385,19 +402,51 @@ function EuroMeteoApp() {
                   typeof effectiveRange.start === "string" &&
                   effectiveRange.start !== startDate
                 ) {
-                  setAutoRangeLimitDays(rangeLimitDays);
+                  if (rangeLimitDays !== null) {
+                    dateRangeModeRef.current = "auto";
+                    autoRangeWindowRef.current = {
+                      startDate: effectiveRange.start,
+                      endDate,
+                      limitDays: rangeLimitDays,
+                    };
+                  }
                   setStartDate(effectiveRange.start);
-                } else if (
-                  autoRangeLimitDays !== null &&
-                  rangeLimitDays !== null &&
-                  rangeLimitDays > autoRangeLimitDays
-                ) {
-                  const expandedStart = getWindowStartDate(endDate, rangeLimitDays);
-                  if (expandedStart !== startDate) {
-                    setAutoRangeLimitDays(rangeLimitDays);
-                    setStartDate(expandedStart);
-                  } else {
-                    setAutoRangeLimitDays(rangeLimitDays);
+                } else if (rangeLimitDays !== null) {
+                  const currentAutoRange = autoRangeWindowRef.current;
+                  const currentWindowDays = getDateWindowDays(startDate, endDate);
+                  const expectedWindowStart = getWindowStartDate(endDate, rangeLimitDays);
+                  const hasActiveAutoRange =
+                    dateRangeModeRef.current === "auto" &&
+                    currentAutoRange !== null &&
+                    currentAutoRange.startDate === startDate &&
+                    currentAutoRange.endDate === endDate;
+                  const shouldSeedAutoRange =
+                    dateRangeModeRef.current === "unknown" &&
+                    currentWindowDays === rangeLimitDays &&
+                    startDate === expectedWindowStart;
+                  const activeAutoRange = hasActiveAutoRange
+                    ? currentAutoRange
+                    : shouldSeedAutoRange
+                      ? { startDate, endDate, limitDays: rangeLimitDays }
+                      : null;
+
+                  if (shouldSeedAutoRange && activeAutoRange) {
+                    dateRangeModeRef.current = "auto";
+                    autoRangeWindowRef.current = activeAutoRange;
+                  }
+
+                  if (activeAutoRange && rangeLimitDays > activeAutoRange.limitDays) {
+                    const expandedStart = getWindowStartDate(endDate, rangeLimitDays);
+                    dateRangeModeRef.current = "auto";
+                    autoRangeWindowRef.current = {
+                      startDate: expandedStart,
+                      endDate,
+                      limitDays: rangeLimitDays,
+                    };
+
+                    if (expandedStart !== startDate) {
+                      setStartDate(expandedStart);
+                    }
                   }
                 }
               } catch (e) {}
@@ -426,7 +475,7 @@ function EuroMeteoApp() {
     return () => {
       abortController.abort();
     };
-  }, [selectedStation, startDate, endDate, autoRangeLimitDays]);
+  }, [selectedStation, startDate, endDate]);
 
   // Jump to Dashboard 3 seconds after a station is selected
   useEffect(() => {
@@ -724,18 +773,29 @@ function EuroMeteoApp() {
     };
   }, [stationLogs, stationUnits]);
 
+  const handleStationSelection = (stationId: string) => {
+    if (!stationId) {
+      setStationSampling(null);
+    }
+    setSelectedStation(stationId);
+  };
+
   const handleStationDoubleClick = (station: Station) => {
-    setSelectedStation(station.id);
+    handleStationSelection(station.id);
     setActiveTab("dashboard");
   };
 
   const handleManualStartDateChange = (date: string) => {
-    setAutoRangeLimitDays(null);
+    autoRangeWindowRef.current = null;
+    dateRangeModeRef.current = "manual";
+    setStationSampling(null);
     setStartDate(date);
   };
 
   const handleManualEndDateChange = (date: string) => {
-    setAutoRangeLimitDays(null);
+    autoRangeWindowRef.current = null;
+    dateRangeModeRef.current = "manual";
+    setStationSampling(null);
     setEndDate(date);
   };
 
@@ -747,7 +807,7 @@ function EuroMeteoApp() {
         selectedCountry={selectedCountry}
         setSelectedCountry={setSelectedCountry}
         selectedStation={selectedStation}
-        setSelectedStation={setSelectedStation}
+        setSelectedStation={handleStationSelection}
         startDate={startDate}
         setStartDate={handleManualStartDateChange}
         endDate={endDate}
@@ -818,7 +878,7 @@ function EuroMeteoApp() {
                   stations={stations}
                   selectedCountry={selectedCountry}
                   selectedStation={selectedStation}
-                  setSelectedStation={setSelectedStation}
+                  setSelectedStation={handleStationSelection}
                   parameter={parameter}
                   startDate={startDate}
                   endDate={endDate}
