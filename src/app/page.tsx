@@ -50,6 +50,14 @@ function camelToTitle(str: string): string {
     .trim();
 }
 
+function getWindowStartDate(endDate: string, limitDays: number): string {
+  const end = new Date(`${endDate}T00:00:00Z`);
+  if (isNaN(end.getTime())) return endDate;
+
+  end.setUTCDate(end.getUTCDate() - (limitDays - 1));
+  return end.toISOString().split("T")[0];
+}
+
 // Slugify station/country names — must match the parent page's implementation exactly
 function slugify(text: string): string {
   if (!text) return '';
@@ -102,6 +110,7 @@ function EuroMeteoApp() {
   const [stationLogs, setStationLogs] = useState<HourlyRow[]>([]);
   const [stationUnits, setStationUnits] = useState<Record<string, string>>({});
   const [stationSampling, setStationSampling] = useState<StationSampling | null>(null);
+  const [autoRangeLimitDays, setAutoRangeLimitDays] = useState<number | null>(null);
   const [isLoadingLogs, setIsLoadingLogs] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -306,6 +315,7 @@ function EuroMeteoApp() {
     if (!selectedStation) {
       setStationLogs([]);
       setStationSampling(null);
+      setAutoRangeLimitDays(null);
       return;
     }
 
@@ -360,14 +370,35 @@ function EuroMeteoApp() {
                 const parsed = JSON.parse(data);
                 setStationLogs(parsed.data || []);
                 setStationUnits(parsed.units || {});
-                setStationSampling(parsed.sampling || null);
+                const sampling = parsed.sampling || null;
+                setStationSampling(sampling);
                 const effectiveRange = parsed.effectiveRange;
+                const rangeLimitDays =
+                  typeof sampling?.rangeLimitDays === "number"
+                    ? sampling.rangeLimitDays
+                    : typeof effectiveRange?.limitDays === "number"
+                      ? effectiveRange.limitDays
+                      : null;
+
                 if (
                   effectiveRange?.adjusted &&
                   typeof effectiveRange.start === "string" &&
                   effectiveRange.start !== startDate
                 ) {
+                  setAutoRangeLimitDays(rangeLimitDays);
                   setStartDate(effectiveRange.start);
+                } else if (
+                  autoRangeLimitDays !== null &&
+                  rangeLimitDays !== null &&
+                  rangeLimitDays > autoRangeLimitDays
+                ) {
+                  const expandedStart = getWindowStartDate(endDate, rangeLimitDays);
+                  if (expandedStart !== startDate) {
+                    setAutoRangeLimitDays(rangeLimitDays);
+                    setStartDate(expandedStart);
+                  } else {
+                    setAutoRangeLimitDays(rangeLimitDays);
+                  }
                 }
               } catch (e) {}
             } else if (event === "error" && data) {
@@ -395,7 +426,7 @@ function EuroMeteoApp() {
     return () => {
       abortController.abort();
     };
-  }, [selectedStation, startDate, endDate]);
+  }, [selectedStation, startDate, endDate, autoRangeLimitDays]);
 
   // Jump to Dashboard 3 seconds after a station is selected
   useEffect(() => {
@@ -698,6 +729,16 @@ function EuroMeteoApp() {
     setActiveTab("dashboard");
   };
 
+  const handleManualStartDateChange = (date: string) => {
+    setAutoRangeLimitDays(null);
+    setStartDate(date);
+  };
+
+  const handleManualEndDateChange = (date: string) => {
+    setAutoRangeLimitDays(null);
+    setEndDate(date);
+  };
+
   return (
     <div className="flex h-[100dvh] w-screen overflow-hidden bg-slate-50">
       {/* Sidebar Filter controls panel */}
@@ -708,9 +749,9 @@ function EuroMeteoApp() {
         selectedStation={selectedStation}
         setSelectedStation={setSelectedStation}
         startDate={startDate}
-        setStartDate={setStartDate}
+        setStartDate={handleManualStartDateChange}
         endDate={endDate}
-        setEndDate={setEndDate}
+        setEndDate={handleManualEndDateChange}
         parameter={parameter}
         setParameter={setParameter}
         isOpen={sidebarOpen}
