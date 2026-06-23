@@ -31,10 +31,54 @@ interface MapProps {
   onStationClick?: (stationId: string) => void;
 }
 
+interface AreaObservation {
+  stationId: string;
+  value: number;
+}
+
+interface LegacyCoverageRange {
+  values?: unknown[];
+}
+
+interface LegacyCoverage {
+  "metocean:wigosId"?: string;
+  domain?: {
+    axes?: {
+      t?: {
+        values?: string[];
+      };
+    };
+  };
+  ranges?: Record<string, LegacyCoverageRange>;
+}
+
+interface AreaObservationsResponse {
+  success: boolean;
+  message?: string;
+  observations?: AreaObservation[];
+  coverages?: LegacyCoverage[];
+}
+
 const SOURCE_ID = "stations-source";
 const CIRCLE_LAYER = "stations-circles";
 const TEXT_LAYER = "stations-labels";
 const SELECTED_LAYER = "stations-selected";
+const OBSERVATION_FETCH_DEBOUNCE_MS = 250;
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function getErrorName(error: unknown): string {
+  return error instanceof Error ? error.name : "";
+}
+
+function getPointCoordinates(geometry: GeoJSON.Geometry | null | undefined): [number, number] | null {
+  if (!geometry || geometry.type !== "Point") return null;
+  const [longitude, latitude] = geometry.coordinates;
+  if (typeof longitude !== "number" || typeof latitude !== "number") return null;
+  return [longitude, latitude];
+}
 
 export const WeatherMap: React.FC<MapProps> = ({
   stations,
@@ -42,7 +86,6 @@ export const WeatherMap: React.FC<MapProps> = ({
   selectedStation,
   setSelectedStation,
   parameter,
-  startDate,
   endDate,
   observations,
   setObservations,
@@ -54,9 +97,16 @@ export const WeatherMap: React.FC<MapProps> = ({
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
+  const observationRequestKey = useMemo(
+    () => `${parameter}|${endDate}|${selectedHour}`,
+    [parameter, endDate, selectedHour]
+  );
+  const [activeObservationKey, setActiveObservationKey] = useState<string>("");
 
   // ── Extract the actual values present on the map for the legend ──
   const currentValues = useMemo(() => {
+    if (activeObservationKey !== observationRequestKey) return [];
+
     const vals: number[] = [];
     stations.forEach(st => {
       const val = observations[st.id]?.[selectedHour];
@@ -65,7 +115,7 @@ export const WeatherMap: React.FC<MapProps> = ({
       }
     });
     return vals;
-  }, [stations, observations, selectedHour]);
+  }, [activeObservationKey, observationRequestKey, stations, observations, selectedHour]);
 
   const sourceReadyRef = useRef(false);
 
@@ -94,33 +144,32 @@ export const WeatherMap: React.FC<MapProps> = ({
   // ── Stable refs for all values used inside map event handlers ──
   // This avoids stale closures in the one-time-registered event handlers.
   const setSelectedStationRef = useRef(setSelectedStation);
-  setSelectedStationRef.current = setSelectedStation;
   const onStationClickRef = useRef(onStationClick);
-  onStationClickRef.current = onStationClick;
-  const selectedStationRef = useRef(selectedStation);
-  selectedStationRef.current = selectedStation;
   const parameterRef = useRef(parameter);
-  parameterRef.current = parameter;
-  const stationsRef = useRef(stations);
-  stationsRef.current = stations;
-  const observationsRef = useRef(observations);
-  observationsRef.current = observations;
-  const selectedHourRef = useRef(selectedHour);
-  selectedHourRef.current = selectedHour;
   const showLabelsRef = useRef(showLabels);
-  showLabelsRef.current = showLabels;
   const basemapRef = useRef(basemap);
-  basemapRef.current = basemap;
+
+  useEffect(() => {
+    setSelectedStationRef.current = setSelectedStation;
+    onStationClickRef.current = onStationClick;
+    parameterRef.current = parameter;
+    showLabelsRef.current = showLabels;
+    basemapRef.current = basemap;
+  }, [setSelectedStation, onStationClick, parameter, showLabels, basemap]);
 
   // ── 1. Fetch area observations whenever period, parameter, or hour changes ──
   useEffect(() => {
     if (stations.length === 0) return;
 
     const abortController = new AbortController();
+    const requestKey = observationRequestKey;
 
     const fetchObservations = async () => {
       setIsLoading(true);
       setErrorMsg(null);
+      setObservations({});
+      setActiveObservationKey("");
+
       try {
         const bounds = stations.reduce(
           (acc, st) => ({
@@ -137,6 +186,10 @@ export const WeatherMap: React.FC<MapProps> = ({
         const endMinute = `${hourStr}:59`;
         const startMinute = `${hourStr}:00`;
         const datetimeRange = `${endDate}T${startMinute}Z/${endDate}T${endMinute}Z`;
+        const stationLocations = stations.map((st) => ({
+          longitude: st.longitude,
+          latitude: st.latitude,
+        }));
 
         const res = await fetch("/api/observations/area", {
           method: "POST",
@@ -145,78 +198,82 @@ export const WeatherMap: React.FC<MapProps> = ({
             parameter,
             datetimeRange,
             bounds,
-            stations
+            stations: stationLocations
           }),
           signal: abortController.signal
         });
 
         if (abortController.signal.aborted) return;
 
-        const json = await res.json();
+        const json = await res.json() as AreaObservationsResponse;
         if (!res.ok || !json.success) throw new Error(json.message || "Failed to fetch observations");
 
-        // Parse coverages: extract a single value per station (closest to target hour)
         const newObs: Record<string, number[]> = {};
 
-        json.coverages.forEach((coverage: any) => {
-          const wigosId = coverage["metocean:wigosId"];
-          const domain = coverage.domain || {};
-          const axes = domain.axes || {};
-          const tAxis = axes.t || {};
-          const timestamps: string[] = tAxis.values || [];
+        if (Array.isArray(json.observations)) {
+          json.observations.forEach((observation: AreaObservation) => {
+            const stationId = observation.stationId;
+            const numVal = Number(observation.value);
+            if (!stationId || !Number.isFinite(numVal)) return;
+            if (parameter.includes("temperature") && (numVal < -60 || numVal > 60)) return;
 
-          const ranges = coverage.ranges || {};
-          
-          // Match R: prefer instantaneous PT0S values for temperature
-          const rangeKeys = Object.keys(ranges);
-          let bestKey = rangeKeys[0];
-          if (!parameter.includes("precipitation")) {
-            const pt0s = rangeKeys.find(k => k.includes("PT0S"));
-            if (pt0s) bestKey = pt0s;
-          }
-
-          if (bestKey) {
-            const values: any[] = ranges[bestKey]?.values || [];
-            // Build hourly array — put all values into their respective hour slots
             const hourlyVals = new Array(24).fill(NaN);
-            const len = Math.min(values.length, timestamps.length);
-            
-            for (let i = 0; i < len; i++) {
-              const val = values[i];
-              if (val !== null && val !== undefined) {
-                try {
-                  const date = new Date(timestamps[i]);
-                  const hour = date.getUTCHours();
-                  if (hour >= 0 && hour < 24) {
-                    const numVal = parseFloat(val);
-                    // Basic QC matching R: temperature -60 to 60
-                    if (parameter.includes("temperature") && (numVal < -60 || numVal > 60)) continue;
-                    hourlyVals[hour] = numVal;
+            hourlyVals[selectedHour] = numVal;
+            newObs[stationId] = hourlyVals;
+          });
+        } else if (Array.isArray(json.coverages)) {
+          json.coverages.forEach((coverage) => {
+            const wigosId = coverage["metocean:wigosId"];
+            if (!wigosId) return;
+
+            const domain = coverage.domain || {};
+            const axes = domain.axes || {};
+            const tAxis = axes.t || {};
+            const timestamps: string[] = tAxis.values || [];
+            const ranges = coverage.ranges || {};
+
+            const rangeKeys = Object.keys(ranges);
+            let bestKey = rangeKeys[0];
+            if (!parameter.includes("precipitation")) {
+              const pt0s = rangeKeys.find(k => k.includes("PT0S"));
+              if (pt0s) bestKey = pt0s;
+            }
+
+            if (bestKey) {
+              const values: unknown[] = ranges[bestKey]?.values || [];
+              const hourlyVals = new Array(24).fill(NaN);
+              const len = Math.min(values.length, timestamps.length);
+
+              for (let i = 0; i < len; i++) {
+                const val = values[i];
+                if (val !== null && val !== undefined) {
+                  try {
+                    const date = new Date(timestamps[i]);
+                    const hour = date.getUTCHours();
+                    if (hour >= 0 && hour < 24) {
+                      const numVal = Number(val);
+                      if (parameter.includes("temperature") && (numVal < -60 || numVal > 60)) continue;
+                      hourlyVals[hour] = numVal;
+                    }
+                  } catch {
+                    // Ignore parse errors
                   }
-                } catch (e) {
-                  // Ignore parse errors
                 }
               }
+              newObs[wigosId] = hourlyVals;
             }
-            newObs[wigosId] = hourlyVals;
-          }
-        });
+          });
+        }
 
         if (abortController.signal.aborted) return;
-
-        // DEBUG: Log what we got
-        const obsIds = Object.keys(newObs);
-        const stIds = stations.slice(0, 3).map(s => s.id);
-        const sampleObs = obsIds.length > 0 ? newObs[obsIds[0]] : [];
-        console.log(`[Map DEBUG] Obs loaded: ${obsIds.length} stations. Sample obs IDs: ${obsIds.slice(0,3).join(', ')}`);
-        console.log(`[Map DEBUG] Sample station IDs: ${stIds.join(', ')}`);
-        console.log(`[Map DEBUG] Sample hourly values for first obs: ${JSON.stringify(sampleObs?.slice(selectedHour, selectedHour + 3))}`);
-        console.log(`[Map DEBUG] ID match test: station[0]="${stIds[0]}" in obs? ${stIds[0] in newObs}`);
         setObservations(newObs);
-      } catch (error: any) {
-        if (error.name === "AbortError") return;
+        setActiveObservationKey(requestKey);
+      } catch (error: unknown) {
+        if (getErrorName(error) === "AbortError") return;
         console.error("[Map] Fetch observations failed:", error);
-        setErrorMsg("MeteoGate observation fetch timed out or returned empty coordinates. Degraded mode active.");
+        setObservations({});
+        setActiveObservationKey("");
+        setErrorMsg(getErrorMessage(error) || "MeteoGate observation fetch timed out or returned empty coordinates. Degraded mode active.");
       } finally {
         if (!abortController.signal.aborted) {
           setIsLoading(false);
@@ -224,50 +281,63 @@ export const WeatherMap: React.FC<MapProps> = ({
       }
     };
 
-    fetchObservations();
-    return () => abortController.abort();
-  }, [stations, parameter, endDate, selectedHour]);
+    const timer = window.setTimeout(fetchObservations, OBSERVATION_FETCH_DEBOUNCE_MS);
+    return () => {
+      abortController.abort();
+      window.clearTimeout(timer);
+    };
+  }, [stations, parameter, endDate, selectedHour, observationRequestKey, setObservations]);
 
   // ── Build GeoJSON from current refs (always reads latest values) ──
   const buildGeoJSON = useCallback((): GeoJSON.FeatureCollection => {
-    const sts = stationsRef.current;
-    const obs = observationsRef.current;
-    const hour = selectedHourRef.current;
-    const param = parameterRef.current;
-    const selStation = selectedStationRef.current;
+    const features: GeoJSON.Feature[] = [];
+    if (activeObservationKey !== observationRequestKey) {
+      return {
+        type: "FeatureCollection",
+        features
+      };
+    }
+
+    for (const st of stations) {
+      const hourlyVals = observations[st.id] || [];
+      const hourVal = hourlyVals[selectedHour] ?? NaN;
+      if (!Number.isFinite(hourVal)) continue;
+
+      const value = Math.round(hourVal * 10) / 10;
+      const isSelected = st.id === selectedStation;
+
+      features.push({
+        type: "Feature" as const,
+        geometry: {
+          type: "Point" as const,
+          coordinates: [st.longitude, st.latitude]
+        },
+        properties: {
+          id: st.id,
+          name: st.name,
+          country: st.country,
+          elevation: st.elevation,
+          color: getColorFromPalette(hourVal, parameter),
+          label: `${value}`,
+          value,
+          selected: isSelected ? 1 : 0
+        }
+      });
+    }
 
     return {
       type: "FeatureCollection",
-      features: sts
-        .map((st) => {
-          const hourlyVals = obs[st.id] || [];
-          const hourVal = hourlyVals[hour] ?? NaN;
-          const color = isNaN(hourVal) ? "#cbd5e1" : getColorFromPalette(hourVal, param);
-          const label = isNaN(hourVal) ? "" : `${Math.round(hourVal * 10) / 10}`;
-          const isSelected = st.id === selStation;
-
-          return {
-            type: "Feature" as const,
-            geometry: {
-              type: "Point" as const,
-              coordinates: [st.longitude, st.latitude]
-            },
-            properties: {
-              id: st.id,
-              name: st.name,
-              country: st.country,
-              elevation: st.elevation,
-              color,
-              label,
-              value: isNaN(hourVal) ? null : Math.round(hourVal * 10) / 10,
-              selected: isSelected ? 1 : 0
-            }
-          };
-        })
-        // Only return features that have a valid observation for the selected hour
-        .filter((f) => f.properties.value !== null)
+      features
     };
-  }, []); // No deps — reads from refs
+  }, [
+    activeObservationKey,
+    observationRequestKey,
+    stations,
+    observations,
+    selectedHour,
+    selectedStation,
+    parameter
+  ]);
 
   // ── Add source and layers to the map ──
   const addSourceAndLayers = useCallback(() => {
@@ -374,20 +444,25 @@ export const WeatherMap: React.FC<MapProps> = ({
 
   // Ref so the style.load handler always calls the latest version
   const addSourceAndLayersRef = useRef(addSourceAndLayers);
-  addSourceAndLayersRef.current = addSourceAndLayers;
+
+  useEffect(() => {
+    addSourceAndLayersRef.current = addSourceAndLayers;
+  }, [addSourceAndLayers]);
 
   // ── 2. Initialize MapLibre GL (runs once) ──
   useEffect(() => {
     if (!mapContainer.current) return;
 
-    map.current = new maplibregl.Map({
+    const mapOptions: maplibregl.MapOptions & { projection: { type: "globe" } } = {
       container: mapContainer.current,
       style: "https://tiles.openfreemap.org/styles/positron",
       center: [10, 50],
       zoom: 3,
       attributionControl: false,
       projection: { type: "globe" }
-    } as any);
+    };
+
+    map.current = new maplibregl.Map(mapOptions);
 
     map.current.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-left");
     map.current.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
@@ -473,7 +548,8 @@ export const WeatherMap: React.FC<MapProps> = ({
       const feature = e.features?.[0];
       if (!feature || !feature.properties) return;
 
-      const coords = (feature.geometry as any).coordinates.slice();
+      const coords = getPointCoordinates(feature.geometry as GeoJSON.Geometry);
+      if (!coords) return;
       const props = feature.properties;
       const param = parameterRef.current; // always fresh
 
@@ -516,7 +592,8 @@ export const WeatherMap: React.FC<MapProps> = ({
       if (!feature || !feature.properties) return;
 
       const stationId = feature.properties.id;
-      const coords = (feature.geometry as any).coordinates;
+      const coords = getPointCoordinates(feature.geometry as GeoJSON.Geometry);
+      if (!coords) return;
 
       setSelectedStationRef.current(stationId);
       if (onStationClickRef.current) {
@@ -581,17 +658,13 @@ export const WeatherMap: React.FC<MapProps> = ({
 
     const tryUpdate = () => {
       if (!sourceReadyRef.current) {
-        console.log('[Map DEBUG] tryUpdate: sourceReadyRef is false');
         return false;
       }
       const source = m.getSource(SOURCE_ID) as maplibregl.GeoJSONSource;
       if (!source) {
-        console.log('[Map DEBUG] tryUpdate: source not found');
         return false;
       }
       const geojson = buildGeoJSON();
-      const coloredCount = geojson.features.filter((f: any) => f.properties?.color !== '#cbd5e1').length;
-      console.log(`[Map DEBUG] tryUpdate SUCCESS: ${geojson.features.length} features, ${coloredCount} colored`);
       source.setData(geojson);
       return true;
     };
