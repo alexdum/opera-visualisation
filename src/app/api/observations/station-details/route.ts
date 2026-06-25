@@ -558,7 +558,7 @@ async function fetchArchiveDetails(
   startDate: Date,
   endDate: Date,
   onProgress: (msg: string) => void,
-  options: { detectSubHourly?: boolean; rangeLimitDays?: number; limitWindowStart?: Date } = {}
+  options: { detectSubHourly?: boolean; rangeLimitDays?: number; limitWindowStart?: Date; rangeAnchorDate?: Date } = {}
 ): Promise<{ rows: any[]; resolution: TimestampResolution; rangeLimitDays: number | null }> {
   const dateStrs = buildDateRange(startDate, endDate);
   const emptyResolution = analyzeTimestampResolution([]);
@@ -573,8 +573,9 @@ async function fetchArchiveDetails(
   const batches: string[][] = [];
   const shouldDetectSubHourly = options.detectSubHourly ?? true;
   let rangeLimitDays = options.rangeLimitDays ?? MAX_HOURLY_WINDOW_DAYS;
+  const rangeAnchorDate = options.rangeAnchorDate ?? endDate;
   let limitWindowStartKey = formatUtcDateKey(
-    options.limitWindowStart ?? getLimitedWindowStart(endDate, rangeLimitDays)
+    options.limitWindowStart ?? getLimitedWindowStart(rangeAnchorDate, rangeLimitDays)
   );
   let archiveIsSubHourly = false;
   let archiveResolution = emptyResolution;
@@ -609,7 +610,7 @@ async function fetchArchiveDetails(
       if (shouldDetectSubHourly && !archiveIsSubHourly && batchResolution.isSubHourly) {
         archiveIsSubHourly = true;
         rangeLimitDays = getRangeLimitDays(batchResolution.intervalMinutes) ?? MAX_HOURLY_WINDOW_DAYS;
-        limitWindowStartKey = formatUtcDateKey(getLimitedWindowStart(endDate, rangeLimitDays));
+        limitWindowStartKey = formatUtcDateKey(getLimitedWindowStart(rangeAnchorDate, rangeLimitDays));
         onProgress(`Detected ${batchResolution.label || "sub-hourly"} archive data; limiting archive history to ${rangeLimitDays} days.`);
 
         const clampedRows = filterRowsFromDate(allRawRows, limitWindowStartKey);
@@ -852,6 +853,7 @@ export async function GET(request: Request) {
                 detectSubHourly: !stationIsSubHourly,
                 rangeLimitDays,
                 limitWindowStart,
+                rangeAnchorDate: endDate,
               }
             );
             archiveRows = archiveResult.rows;

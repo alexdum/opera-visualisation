@@ -38,6 +38,9 @@ interface AutoRangeWindow {
   startDate: string;
   endDate: string;
   limitDays: number;
+  stationId: string;
+  locked: boolean;
+  sampling: StationSampling | null;
 }
 
 // Keys that indicate ocean/marine data
@@ -97,6 +100,19 @@ function slugify(text: string): string {
   s = s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   s = s.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
   return s;
+}
+
+function NoStationDataMessage() {
+  return (
+    <div className="min-h-[260px] w-full flex items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-white/70 px-6 text-center">
+      <div className="flex flex-col items-center gap-3">
+        <AlertCircle className="text-slate-300" size={32} />
+        <p className="text-sm font-bold text-slate-500">
+          No data available for the station and period selected.
+        </p>
+      </div>
+    </div>
+  );
 }
 
 function EuroMeteoApp() {
@@ -388,14 +404,26 @@ function EuroMeteoApp() {
                 setStationLogs(parsed.data || []);
                 setStationUnits(parsed.units || {});
                 const sampling = parsed.sampling || null;
-                setStationSampling(sampling);
                 const effectiveRange = parsed.effectiveRange;
+                const currentAutoRange = autoRangeWindowRef.current;
+                const lockedAutoRangeApplies =
+                  dateRangeModeRef.current === "auto" &&
+                  currentAutoRange !== null &&
+                  currentAutoRange.locked &&
+                  currentAutoRange.stationId === selectedStation &&
+                  currentAutoRange.startDate === startDate &&
+                  currentAutoRange.endDate === endDate;
                 const rangeLimitDays =
                   typeof sampling?.rangeLimitDays === "number"
                     ? sampling.rangeLimitDays
                     : typeof effectiveRange?.limitDays === "number"
                       ? effectiveRange.limitDays
                       : null;
+                setStationSampling(
+                  lockedAutoRangeApplies && currentAutoRange?.sampling
+                    ? currentAutoRange.sampling
+                    : sampling
+                );
 
                 if (
                   effectiveRange?.adjusted &&
@@ -408,11 +436,13 @@ function EuroMeteoApp() {
                       startDate: effectiveRange.start,
                       endDate,
                       limitDays: rangeLimitDays,
+                      stationId: selectedStation,
+                      locked: true,
+                      sampling,
                     };
                   }
                   setStartDate(effectiveRange.start);
                 } else if (rangeLimitDays !== null) {
-                  const currentAutoRange = autoRangeWindowRef.current;
                   const currentWindowDays = getDateWindowDays(startDate, endDate);
                   const expectedWindowStart = getWindowStartDate(endDate, rangeLimitDays);
                   const hasActiveAutoRange =
@@ -427,7 +457,14 @@ function EuroMeteoApp() {
                   const activeAutoRange = hasActiveAutoRange
                     ? currentAutoRange
                     : shouldSeedAutoRange
-                      ? { startDate, endDate, limitDays: rangeLimitDays }
+                      ? {
+                          startDate,
+                          endDate,
+                          limitDays: rangeLimitDays,
+                          stationId: selectedStation,
+                          locked: false,
+                          sampling,
+                        }
                       : null;
 
                   if (shouldSeedAutoRange && activeAutoRange) {
@@ -435,13 +472,24 @@ function EuroMeteoApp() {
                     autoRangeWindowRef.current = activeAutoRange;
                   }
 
-                  if (activeAutoRange && rangeLimitDays > activeAutoRange.limitDays) {
+                  const isLockedToCurrentStation =
+                    activeAutoRange?.locked &&
+                    activeAutoRange.stationId === selectedStation;
+
+                  if (
+                    activeAutoRange &&
+                    !isLockedToCurrentStation &&
+                    rangeLimitDays > activeAutoRange.limitDays
+                  ) {
                     const expandedStart = getWindowStartDate(endDate, rangeLimitDays);
                     dateRangeModeRef.current = "auto";
                     autoRangeWindowRef.current = {
                       startDate: expandedStart,
                       endDate,
                       limitDays: rangeLimitDays,
+                      stationId: selectedStation,
+                      locked: false,
+                      sampling,
                     };
 
                     if (expandedStart !== startDate) {
@@ -773,6 +821,10 @@ function EuroMeteoApp() {
     };
   }, [stationLogs, stationUnits]);
 
+  const showingOceanData = hasOceanData && (!hasLandData || dashboardDataTab === "ocean");
+  const activeLogColumns = showingOceanData ? oceanColumns : landColumns;
+  const hasActiveLogData = stationLogs.length > 0 && (showingOceanData ? hasOceanData : hasLandData);
+
   const handleStationSelection = (stationId: string) => {
     if (!stationId) {
       setStationSampling(null);
@@ -1062,17 +1114,17 @@ function EuroMeteoApp() {
                               </div>
                             )}
 	                            <div className="flex-1">
-	                              <WeatherTable
-	                                data={stationLogs}
-	                                columns={
-                                  hasOceanData && (!hasLandData || dashboardDataTab === "ocean")
-                                    ? oceanColumns
-                                    : landColumns
-                                }
-                                searchPlaceholder="Filter logs by hour or value..."
-                                searchKey="datetime"
-                                defaultSorting={[{ id: "datetime", desc: true }]}
-                              />
+                                {hasActiveLogData ? (
+                                  <WeatherTable
+                                    data={stationLogs}
+                                    columns={activeLogColumns}
+                                    searchPlaceholder="Filter logs by hour or value..."
+                                    searchKey="datetime"
+                                    defaultSorting={[{ id: "datetime", desc: true }]}
+                                  />
+                                ) : (
+                                  <NoStationDataMessage />
+                                )}
                             </div>
                           </div>
                         </>
