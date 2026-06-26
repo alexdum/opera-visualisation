@@ -8,6 +8,7 @@ import { WeatherTable } from "@/components/Table";
 import { ColumnDef } from "@tanstack/react-table";
 import { Map, List, BarChart3, AlertCircle, Info, Calendar, Thermometer, Wind, Database, Download, Maximize, Minimize, MapPin, Mountain, Loader2 } from "lucide-react";
 import { downloadCSV, downloadExcel } from "@/utils/export";
+import { countryMatches, resolveCountryName } from "@/utils/country";
 
 interface Station {
   id: string;
@@ -156,6 +157,16 @@ function EuroMeteoApp() {
     d.setUTCHours(d.getUTCHours() - 3);
     return d.getUTCHours();
   });
+
+  const countryNames = useMemo(() => {
+    const unique = new Set(stations.map((st) => st.country).filter(Boolean));
+    return Array.from(unique).sort();
+  }, [stations]);
+
+  const canonicalSelectedCountry = useMemo(
+    () => resolveCountryName(selectedCountry, countryNames),
+    [selectedCountry, countryNames]
+  );
   
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
 
@@ -288,7 +299,7 @@ function EuroMeteoApp() {
   // Sync state changes back to URL query parameters and notify parent iframe
   useEffect(() => {
     const params = new URLSearchParams();
-    if (selectedCountry) params.set("country", selectedCountry);
+    if (canonicalSelectedCountry) params.set("country", canonicalSelectedCountry);
     if (selectedStation) params.set("station", selectedStation);
     if (parameter) params.set("parameter", parameter);
     if (startDate) params.set("start", startDate);
@@ -308,16 +319,16 @@ function EuroMeteoApp() {
 
       // Build lightweight station list for the selected country so the parent
       // page can render clickable station links in the dynamic context area
-      const countryStations = selectedCountry
+      const countryStations = canonicalSelectedCountry
         ? stations
-            .filter((st) => st.country === selectedCountry)
+            .filter((st) => countryMatches(st.country, canonicalSelectedCountry))
             .map((st) => ({ id: st.id, name: st.name }))
         : null;
 
       window.parent.postMessage({
         type: 'EUROMETEO_STATE_CHANGE',
         payload: {
-          country: selectedCountry,
+          country: canonicalSelectedCountry,
           station: selectedStation,
           stationName: stationDetails?.name || null,
           stationCountry: stationDetails?.country || null,
@@ -330,7 +341,7 @@ function EuroMeteoApp() {
         search: `?${params.toString()}`
       }, '*');
     }
-  }, [selectedCountry, selectedStation, parameter, startDate, endDate, activeTab, stations]);
+  }, [canonicalSelectedCountry, selectedStation, parameter, startDate, endDate, activeTab, stations]);
 
 
   const [loadingMessage, setLoadingMessage] = useState<string>("Connecting to API...");
@@ -339,10 +350,10 @@ function EuroMeteoApp() {
   useEffect(() => {
     if (!selectedStation || stations.length === 0) return;
     const station = stations.find(st => st.id === selectedStation);
-    if (station && station.country !== selectedCountry) {
+    if (station && !countryMatches(station.country, canonicalSelectedCountry)) {
       setSelectedCountry(station.country);
     }
-  }, [selectedStation, stations]);
+  }, [selectedStation, stations, canonicalSelectedCountry]);
 
   // --- Fetch detailed logs when a station is selected ---
   useEffect(() => {
@@ -856,7 +867,7 @@ function EuroMeteoApp() {
       {/* Sidebar Filter controls panel */}
       <Sidebar
         stations={stations}
-        selectedCountry={selectedCountry}
+        selectedCountry={canonicalSelectedCountry}
         setSelectedCountry={setSelectedCountry}
         selectedStation={selectedStation}
         setSelectedStation={handleStationSelection}
@@ -928,7 +939,7 @@ function EuroMeteoApp() {
               <div className="w-full h-full relative" style={{ display: activeTab === "map" ? "block" : "none" }}>
                 <WeatherMap
                   stations={stations}
-                  selectedCountry={selectedCountry}
+                  selectedCountry={canonicalSelectedCountry}
                   selectedStation={selectedStation}
                   setSelectedStation={handleStationSelection}
                   parameter={parameter}

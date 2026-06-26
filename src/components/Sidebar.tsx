@@ -1,6 +1,5 @@
 import React, { useMemo, useState, useRef, useEffect } from "react";
 import { 
-  Globe, 
   Search, 
   Calendar, 
   CloudRain, 
@@ -12,6 +11,7 @@ import {
   X,
   ChevronDown
 } from "lucide-react";
+import { countryMatches } from "@/utils/country";
 
 interface Station {
   id: string;
@@ -180,7 +180,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // Filter stations based on selected country for the station dropdown
   const filteredStations = useMemo(() => {
     if (!selectedCountry) return stations;
-    return stations.filter(st => st.country === selectedCountry);
+    return stations.filter(st => countryMatches(st.country, selectedCountry));
   }, [stations, selectedCountry]);
 
   // Count stations that have actual valid observations for the selected hour

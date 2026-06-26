@@ -3,6 +3,7 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { Layers, ShieldAlert, Home } from "lucide-react";
 import { getColorFromPalette, getUnitForParam } from "@/utils/colors";
+import { countryMatches } from "@/utils/country";
 import { MapLegend } from "./MapLegend";
 
 interface Station {
@@ -702,7 +703,7 @@ export const WeatherMap: React.FC<MapProps> = ({
         });
       }
     } else if (selectedCountry) {
-      const countryStations = stations.filter(st => st.country === selectedCountry);
+      const countryStations = stations.filter(st => countryMatches(st.country, selectedCountry));
       if (countryStations.length > 0) {
         const bounds = countryStations.reduce(
           (acc, st) => ({
