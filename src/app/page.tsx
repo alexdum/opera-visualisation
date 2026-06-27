@@ -864,6 +864,12 @@ function EuroMeteoApp() {
 
   const handleMapParameterChange = (param: string) => {
     setParameter(param);
+    if (activeTab === "dashboard") {
+      setStationSampling(null);
+      setSelectedStation("");
+      setPendingStationSlug("");
+      setSelectedCountry("");
+    }
     setActiveTab("map");
     setSidebarOpen(false);
   };

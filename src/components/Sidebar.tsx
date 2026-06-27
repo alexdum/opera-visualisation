@@ -426,7 +426,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <FilterLabel
               id="filter-help-parameter"
               label="Map Parameter"
-              help="Chooses the weather variable shown by marker colors on the map. Selecting a parameter returns to Map View so the spatial distribution is visible."
+              help="Chooses the weather variable shown by marker colors on the map. From the Dashboard, selecting a parameter returns to the initial broad Map View so the spatial distribution is visible."
             />
             <div className="flex flex-col gap-1.5">
               {[
