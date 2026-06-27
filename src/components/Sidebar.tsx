@@ -41,6 +41,86 @@ interface SidebarProps {
   observations?: Record<string, number[]>;
 }
 
+const FilterLabel = ({
+  id,
+  label,
+  help,
+}: {
+  id: string;
+  label: string;
+  help: string;
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handlePointerDown = (event: MouseEvent | TouchEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("touchstart", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("touchstart", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isOpen]);
+
+  const handleBlur = (event: React.FocusEvent<HTMLDivElement>) => {
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+      setIsOpen(false);
+    }
+  };
+
+  return (
+    <div
+      ref={wrapperRef}
+      onMouseEnter={() => setIsOpen(true)}
+      onMouseLeave={() => setIsOpen(false)}
+      onFocus={() => setIsOpen(true)}
+      onBlur={handleBlur}
+      className="relative w-full text-sm font-semibold text-slate-500 tracking-wider uppercase flex items-center gap-1.5"
+    >
+      <span>{label}</span>
+      <button
+        type="button"
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          setIsOpen(true);
+        }}
+        aria-label={`Explain ${label}`}
+        aria-expanded={isOpen}
+        aria-controls={id}
+        className="inline-flex min-h-[24px] min-w-[24px] items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+      >
+        <Info size={12} />
+      </button>
+      {isOpen && (
+        <div
+          id={id}
+          role="tooltip"
+          className="absolute left-0 top-7 z-[70] w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium leading-relaxed text-slate-600 shadow-lg normal-case tracking-normal"
+        >
+          {help}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // Custom Searchable Dropdown for Stations
 const SearchableStationSelect = ({ 
   stations, 
@@ -269,12 +349,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="flex-1 my-6 overflow-y-auto custom-scrollbar pr-1 flex flex-col gap-6">
           {/* Zoom to Country */}
           <div className="flex flex-col gap-2">
-            <label className="text-sm font-semibold text-slate-500 tracking-wider uppercase flex items-center gap-1.5">
-              Zoom to Country
-              <div className="group relative" title="Select a country to filter the station list and zoom the map to its bounds.">
-                <Info size={12} className="text-slate-400 cursor-help" />
-              </div>
-            </label>
+            <FilterLabel
+              id="filter-help-country"
+              label="Zoom to Country"
+              help="Filters the station list to the selected country and moves the map to that country's station area. All Countries shows every available station."
+            />
             <div className="relative">
               <select
                 value={selectedCountry}
@@ -297,12 +376,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           {/* Find Station */}
           <div className="flex flex-col gap-2">
-            <label className="text-sm font-semibold text-slate-500 tracking-wider uppercase flex items-center gap-1.5">
-              Find Station
-              <div className="group relative" title="Search for a specific station by name, ID, or country to select it.">
-                <Info size={12} className="text-slate-400 cursor-help" />
-              </div>
-            </label>
+            <FilterLabel
+              id="filter-help-station"
+              label="Find Station"
+              help="Searches by station name, WIGOS ID, or country. Selecting a station focuses it on the map and loads its detailed observation dashboard."
+            />
             <SearchableStationSelect 
               stations={filteredStations} 
               selectedStation={selectedStation} 
@@ -312,12 +390,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           {/* Date Picker Range */}
           <div className="flex flex-col gap-2">
-            <label className="text-sm font-semibold text-slate-500 tracking-wider uppercase flex items-center gap-1.5">
-              Select Period
-              <div className="group relative" title="Choose a date range (up to 31 days) to fetch historical observation data.">
-                <Info size={12} className="text-slate-400 cursor-help" />
-              </div>
-            </label>
+            <FilterLabel
+              id="filter-help-period"
+              label="Select Period"
+              help="Sets the observation date range used for station logs, charts, and map values. The range is limited to 31 days and cannot go into the future."
+            />
             <div className="flex flex-col gap-2">
               <div className="relative">
                 <input
@@ -346,12 +423,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           {/* Weather Parameter Selector */}
           <div className="flex flex-col gap-2">
-            <label className="text-sm font-semibold text-slate-500 tracking-wider uppercase flex items-center gap-1.5">
-              Map Parameter
-              <div className="group relative" title="Select the weather variable to display on the map markers using color coding.">
-                <Info size={12} className="text-slate-400 cursor-help" />
-              </div>
-            </label>
+            <FilterLabel
+              id="filter-help-parameter"
+              label="Map Parameter"
+              help="Chooses the weather variable shown by marker colors on the map. Selecting a parameter returns to Map View so the spatial distribution is visible."
+            />
             <div className="flex flex-col gap-1.5">
               {[
                 { id: "air_temperature", label: "Air Temperature", icon: Thermometer, color: "text-rose-500 bg-rose-50 border-rose-100" },

@@ -862,6 +862,12 @@ function EuroMeteoApp() {
     setEndDate(date);
   };
 
+  const handleMapParameterChange = (param: string) => {
+    setParameter(param);
+    setActiveTab("map");
+    setSidebarOpen(false);
+  };
+
   return (
     <div className="flex h-[100dvh] w-screen overflow-hidden bg-slate-50">
       {/* Sidebar Filter controls panel */}
@@ -876,7 +882,7 @@ function EuroMeteoApp() {
         endDate={endDate}
         setEndDate={handleManualEndDateChange}
         parameter={parameter}
-        setParameter={setParameter}
+        setParameter={handleMapParameterChange}
         isOpen={sidebarOpen}
         setIsOpen={setSidebarOpen}
         selectedHour={selectedHour}
