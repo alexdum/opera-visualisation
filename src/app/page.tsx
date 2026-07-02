@@ -6,7 +6,7 @@ import { WeatherMap } from "@/components/Map";
 import { DashboardCharts } from "@/components/DashboardCharts";
 import { WeatherTable } from "@/components/Table";
 import { ColumnDef } from "@tanstack/react-table";
-import { Map, List, BarChart3, AlertCircle, Info, Calendar, Thermometer, Wind, Database, Download, Maximize, Minimize, MapPin, Mountain, Loader2 } from "lucide-react";
+import { Map as MapIcon, List, BarChart3, AlertCircle, Info, Calendar, Thermometer, Wind, Database, Download, Maximize, Minimize, MapPin, Mountain, Loader2 } from "lucide-react";
 import { downloadCSV, downloadExcel } from "@/utils/export";
 import { countryMatches, resolveCountryName } from "@/utils/country";
 
@@ -115,6 +115,16 @@ function NoStationDataMessage() {
     </div>
   );
 }
+
+interface ClientStationCacheEntry {
+  data: HourlyRow[];
+  units: Record<string, string>;
+  sampling: StationSampling | null;
+  effectiveRange: any;
+  timestamp: number;
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const stationDetailsCache = new Map() as Map<string, ClientStationCacheEntry>;
 
 function EuroMeteoApp() {
   // --- Sidebar & General Filters State ---
@@ -366,6 +376,41 @@ function EuroMeteoApp() {
     const abortController = new AbortController();
 
     const fetchDetailedLogs = async () => {
+      const cacheKey = `${selectedStation}|${startDate}|${endDate}`;
+      const cached = stationDetailsCache.get(cacheKey);
+      
+      if (cached && Date.now() - cached.timestamp < 5 * 60 * 1000) {
+        setStationLogs(cached.data);
+        setStationUnits(cached.units);
+        setStationSampling(cached.sampling);
+        setIsLoadingLogs(false);
+
+        // Restore autoRange state so sub-hourly stations don't trigger a
+        // date range mismatch re-fetch when navigating back.
+        const effectiveRange = cached.effectiveRange;
+        const sampling = cached.sampling;
+        if (effectiveRange?.adjusted && typeof effectiveRange.start === "string") {
+          const rangeLimitDays =
+            typeof sampling?.rangeLimitDays === "number"
+              ? sampling.rangeLimitDays
+              : typeof effectiveRange?.limitDays === "number"
+                ? effectiveRange.limitDays
+                : null;
+          if (rangeLimitDays !== null) {
+            dateRangeModeRef.current = "auto";
+            autoRangeWindowRef.current = {
+              startDate: effectiveRange.start,
+              endDate,
+              limitDays: rangeLimitDays,
+              stationId: selectedStation,
+              locked: true,
+              sampling,
+            };
+          }
+        }
+        return;
+      }
+
       setIsLoadingLogs(true);
       setLoadingMessage("Connecting to API...");
       
@@ -508,6 +553,14 @@ function EuroMeteoApp() {
                     }
                   }
                 }
+                
+                stationDetailsCache.set(cacheKey, {
+                  data: parsed.data || [],
+                  units: parsed.units || {},
+                  sampling: parsed.sampling || null,
+                  effectiveRange: parsed.effectiveRange,
+                  timestamp: Date.now()
+                });
               } catch (e) {}
             } else if (event === "error" && data) {
               try {
@@ -895,7 +948,7 @@ function EuroMeteoApp() {
           <div className="flex items-center gap-4 shrink-0">
             <div className="flex items-center gap-1 shrink-0">
               {[
-                { id: "map", label: "Map View", icon: Map },
+                { id: "map", label: "Map View", icon: MapIcon },
                 { id: "stations", label: "Stations Info", icon: List },
                 { id: "dashboard", label: "Dashboard", icon: BarChart3 },
               ].map((tab) => {

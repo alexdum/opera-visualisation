@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { fetchBypassSSL } from "@/utils/http";
 import { queryArchiveBatch } from "@/utils/duckdb";
+import NodeCache from "node-cache";
 
 // Build date strings (YYYY-MM-DD) for each day in the range
 function buildDateRange(startDate: Date, endDate: Date): string[] {
@@ -675,6 +676,9 @@ async function fetchArchiveDetails(
   };
 }
 
+const liveDataCache = new NodeCache({ stdTTL: 300, checkperiod: 120, useClones: false });
+const liveInFlight = new Map<string, Promise<{ rows: any[]; units: Record<string, string> }>>();
+
 // ---------------------------------------------------------------------------
 // Live fetch: MeteoGate CoverageJSON REST API
 // ---------------------------------------------------------------------------
@@ -686,82 +690,109 @@ async function fetchLiveDetails(
 ): Promise<{ rows: any[]; units: Record<string, string> }> {
   const startIso = startDate.toISOString();
   const endIso = endDate.toISOString();
+  const cacheKey = `live:${stationId}:${startIso}:${endIso}`;
 
-  const url = `https://observations.meteogate.eu/collections/observations/locations/${stationId}?datetime=${startIso}/${endIso}&f=CoverageJSON`;
+  const cached = liveDataCache.get<{ rows: any[]; units: Record<string, string> }>(cacheKey);
+  if (cached) {
+    onProgress(`Loaded live data from cache...`);
+    return cached;
+  }
 
-  onProgress(`Fetching live recent data from MeteoGate API...`);
-  
-  try {
-    const rawData = await fetchBypassSSL(url);
-    onProgress(`Parsing live data response...`);
-    const json = JSON.parse(rawData);
+  const inFlight = liveInFlight.get(cacheKey);
+  if (inFlight) {
+    onProgress(`Waiting for in-flight live data request...`);
+    return inFlight;
+  }
 
-    const coverages =
-      json.type === "Coverage" ? [json] : json.coverages || [];
-    if (coverages.length === 0) return { rows: [], units: {} };
+  const fetchAndCache = async (): Promise<{ rows: any[]; units: Record<string, string> }> => {
+    const url = `https://observations.meteogate.eu/collections/observations/locations/${stationId}?datetime=${startIso}/${endIso}&f=CoverageJSON`;
 
-    const parsedRows: any[] = [];
-    const unitMap: Record<string, string> = {};
+    onProgress(`Fetching live recent data from MeteoGate API...`);
+    
+    try {
+      const rawData = await fetchBypassSSL(url);
+      onProgress(`Parsing live data response...`);
+      const json = JSON.parse(rawData);
 
-    coverages.forEach((coverage: any) => {
-      const timestamps = coverage.domain?.axes?.t?.values || [];
-      const ranges = coverage.ranges || {};
+      const coverages =
+        json.type === "Coverage" ? [json] : json.coverages || [];
+      if (coverages.length === 0) return { rows: [], units: {} };
 
-      if (timestamps.length === 0) return;
+      const parsedRows: any[] = [];
+      const unitMap: Record<string, string> = {};
 
-      // Extract units from CoverageJSON ranges metadata
-      Object.keys(ranges).forEach((paramName) => {
-        const observedProperty = ranges[paramName]?.observedProperty;
-        const unitSymbol = observedProperty?.unit?.symbol?.value
-          || observedProperty?.unit?.symbol
-          || ranges[paramName]?.unit?.symbol?.value
-          || ranges[paramName]?.unit?.symbol;
-        if (unitSymbol && typeof unitSymbol === "string") {
-          // Map the paramName to a known field key
-          const testRow: any = {};
-          mapParamToRow(testRow, paramName, 0);
-          const mappedKey = Object.keys(testRow)[0];
-          if (mappedKey) {
-            // Sunshine values are always converted to minutes internally,
-            // so force the display unit to "min" regardless of the raw API unit
-            if (mappedKey.startsWith("sunshineDuration")) {
-              unitMap[mappedKey] = "min";
-            } else {
-              unitMap[mappedKey] = unitSymbol;
-            }
-          }
-        }
-      });
+      coverages.forEach((coverage: any) => {
+        const timestamps = coverage.domain?.axes?.t?.values || [];
+        const ranges = coverage.ranges || {};
 
-      timestamps.forEach((ts: string, index: number) => {
-        const row: any = { datetime: ts };
+        if (timestamps.length === 0) return;
 
+        // Extract units from CoverageJSON ranges metadata
         Object.keys(ranges).forEach((paramName) => {
-          const values = ranges[paramName]?.values || [];
-          const val = values[index];
-          
           const observedProperty = ranges[paramName]?.observedProperty;
           const unitSymbol = observedProperty?.unit?.symbol?.value
             || observedProperty?.unit?.symbol
             || ranges[paramName]?.unit?.symbol?.value
             || ranges[paramName]?.unit?.symbol;
-
-          if (val !== null && val !== undefined && !isBadValue(val)) {
-            mapParamToRow(row, paramName, val, unitSymbol);
+          if (unitSymbol && typeof unitSymbol === "string") {
+            // Map the paramName to a known field key
+            const testRow: any = {};
+            mapParamToRow(testRow, paramName, 0);
+            const mappedKey = Object.keys(testRow)[0];
+            if (mappedKey) {
+              // Sunshine values are always converted to minutes internally,
+              // so force the display unit to "min" regardless of the raw API unit
+              if (mappedKey.startsWith("sunshineDuration")) {
+                unitMap[mappedKey] = "min";
+              } else {
+                unitMap[mappedKey] = unitSymbol;
+              }
+            }
           }
         });
 
-        parsedRows.push(row);
-      });
-    });
+        timestamps.forEach((ts: string, index: number) => {
+          const row: any = { datetime: ts };
 
-    return { rows: parsedRows, units: unitMap };
-  } catch (error) {
-    console.error(
-      "[api/observations/station-details] Live REST API fetch error:",
-      error
-    );
-    return { rows: [], units: {} };
+          Object.keys(ranges).forEach((paramName) => {
+            const values = ranges[paramName]?.values || [];
+            const val = values[index];
+            
+            const observedProperty = ranges[paramName]?.observedProperty;
+            const unitSymbol = observedProperty?.unit?.symbol?.value
+              || observedProperty?.unit?.symbol
+              || ranges[paramName]?.unit?.symbol?.value
+              || ranges[paramName]?.unit?.symbol;
+
+            if (val !== null && val !== undefined && !isBadValue(val)) {
+              mapParamToRow(row, paramName, val, unitSymbol);
+            }
+          });
+
+          parsedRows.push(row);
+        });
+      });
+
+      const result = { rows: parsedRows, units: unitMap };
+      liveDataCache.set(cacheKey, result);
+      return result;
+    } catch (error) {
+      console.error(
+        "[api/observations/station-details] Live REST API fetch error:",
+        error
+      );
+      return { rows: [], units: {} };
+    }
+  };
+
+  // Register the in-flight promise BEFORE starting execution to prevent
+  // concurrent requests from firing duplicate HTTP calls.
+  const promise = fetchAndCache();
+  liveInFlight.set(cacheKey, promise);
+  try {
+    return await promise;
+  } finally {
+    liveInFlight.delete(cacheKey);
   }
 }
 
