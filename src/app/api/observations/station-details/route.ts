@@ -420,6 +420,16 @@ function cleanWeatherData(rows: any[]): any[] {
       const val = row[key];
       if (val === undefined || val === null || typeof val !== "number") continue;
 
+      const k = key.toLowerCase();
+      if (
+        (k.includes("precipitation") || k.includes("rain") || k.includes("speed") || k.includes("gust") || 
+         k.includes("humidity") || k.includes("radiation") || k.includes("sunshine")) && 
+        val < 0
+      ) {
+        delete row[key];
+        continue;
+      }
+
       const limit = bounds[key] || inferBounds(key);
       if (limit && (val < limit[0] || val > limit[1])) {
         delete row[key];

@@ -78,7 +78,17 @@ function getErrorMessage(error: unknown): string {
 
 function isValidObservationValue(value: number, parameter: string): boolean {
   if (!Number.isFinite(value)) return false;
-  if (parameter.includes("temperature") && (value < -60 || value > 60)) return false;
+  const p = parameter.toLowerCase();
+  if (p.includes("temperature") && (value < -60 || value > 60)) return false;
+  
+  if (
+    (p.includes("precipitation") || p.includes("rain") || p.includes("speed") || p.includes("gust") || 
+     p.includes("humidity") || p.includes("radiation") || p.includes("sunshine")) && 
+    value < 0
+  ) {
+    return false;
+  }
+  
   return true;
 }
 

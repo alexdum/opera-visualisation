@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { Layers, ShieldAlert, Home } from "lucide-react";
+import { Layers, ShieldAlert, Home, Info } from "lucide-react";
 import { getColorFromPalette, getUnitForParam } from "@/utils/colors";
 import { countryMatches } from "@/utils/country";
 import { MapLegend } from "./MapLegend";
@@ -125,6 +125,7 @@ export const WeatherMap: React.FC<MapProps> = ({
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isStyleSelectorOpen, setIsStyleSelectorOpen] = useState<boolean>(false);
+  const [visibleBounds, setVisibleBounds] = useState<maplibregl.LngLatBounds | null>(null);
 
   // Calculate maximum allowed hour (prevent future selections for today)
   const maxAllowedHour = useMemo(() => {
@@ -340,6 +341,54 @@ export const WeatherMap: React.FC<MapProps> = ({
     parameter
   ]);
 
+  // ── Calculate statistics for stations currently visible on screen ──
+  const visibleStats = useMemo(() => {
+    if (!visibleBounds || activeObservationKey !== observationRequestKey) return null;
+
+    let minVal = Infinity;
+    let maxVal = -Infinity;
+    let minStation: Station | null = null;
+    let maxStation: Station | null = null;
+    let sum = 0;
+    let count = 0;
+
+    // To properly handle map wrapping/globe projections, MapLibre's bounds can be tricky, 
+    // but a simple lng/lat bounds check works for most zoom levels.
+    for (const st of stations) {
+      if (
+        st.longitude >= visibleBounds.getWest() &&
+        st.longitude <= visibleBounds.getEast() &&
+        st.latitude >= visibleBounds.getSouth() &&
+        st.latitude <= visibleBounds.getNorth()
+      ) {
+        const val = observations[st.id]?.[selectedHour];
+        if (val !== undefined && val !== null && !isNaN(val)) {
+          sum += val;
+          count++;
+          if (val < minVal) {
+            minVal = val;
+            minStation = st;
+          }
+          if (val > maxVal) {
+            maxVal = val;
+            maxStation = st;
+          }
+        }
+      }
+    }
+
+    if (count === 0) return null;
+
+    return {
+      count,
+      avg: sum / count,
+      min: minVal,
+      max: maxVal,
+      minStation,
+      maxStation
+    };
+  }, [visibleBounds, activeObservationKey, observationRequestKey, stations, observations, selectedHour]);
+
   // ── Add source and layers to the map ──
   const addSourceAndLayers = useCallback(() => {
     const m = map.current;
@@ -467,6 +516,15 @@ export const WeatherMap: React.FC<MapProps> = ({
 
     map.current.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-left");
     map.current.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
+
+    const updateBounds = () => {
+      if (map.current) {
+        setVisibleBounds(map.current.getBounds());
+      }
+    };
+    map.current.on('moveend', updateBounds);
+    map.current.on('zoomend', updateBounds);
+    map.current.on('load', updateBounds);
 
     // Create a reusable popup
     popupRef.current = new maplibregl.Popup({
@@ -757,6 +815,67 @@ export const WeatherMap: React.FC<MapProps> = ({
 
       {/* Map Legend */}
       <MapLegend parameter={parameter} values={currentValues} />
+
+      {/* Visible Extent Summary Cards */}
+      {visibleStats && (
+        <div className="absolute top-2.5 right-2.5 z-10 flex flex-col gap-2 max-w-[280px]">
+          <div className="bg-white/95 backdrop-blur-md border border-slate-200 rounded-xl p-3 shadow-lg flex flex-col gap-1.5">
+            <h4 className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-start justify-between border-b border-slate-100 pb-1.5 gap-2">
+              <div className="flex flex-col leading-tight gap-0.5">
+                <span className="truncate" title={parameter}>
+                  {({
+                    air_temperature: "Air Temperature",
+                    precipitation_amount: "Precipitation",
+                    air_pressure_at_mean_sea_level: "Sea Level Pressure",
+                    wind_speed: "Wind Speed",
+                  }[parameter] || parameter.replace(/_/g, ' ').replace(/([A-Z])/g, ' $1').trim())}
+                </span>
+                <span className="text-[9px] text-slate-400 tracking-normal normal-case font-medium flex items-center gap-1 cursor-help" title="These aggregated statistics dynamically update to only include the stations currently visible within the map boundaries.">
+                  Screen Extent
+                  <Info size={10} className="text-slate-400" />
+                </span>
+              </div>
+              <span className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded text-[9px] shrink-0 mt-0.5">{visibleStats.count} stations</span>
+            </h4>
+            <div className="flex justify-between items-center mt-1">
+              <span className="text-[10px] font-semibold text-slate-500 uppercase">Average</span>
+              <span className="text-sm font-bold text-slate-800">
+                {visibleStats.avg.toFixed(1)} {getUnitForParam(parameter)}
+              </span>
+            </div>
+            <div className="flex flex-col gap-0.5 mt-1 pt-1.5 border-t border-slate-50">
+              <div className="flex justify-between items-start gap-3">
+                <span className="text-[10px] font-semibold text-red-500/80 uppercase">Max</span>
+                <div className="flex flex-col items-end">
+                  <span className="text-sm font-bold text-slate-800">
+                    {visibleStats.max.toFixed(1)} {getUnitForParam(parameter)}
+                  </span>
+                  {visibleStats.maxStation && (
+                    <span className="text-[9px] font-medium text-slate-500 text-right truncate w-full max-w-[180px]">
+                      {visibleStats.maxStation.name}, {visibleStats.maxStation.country}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-col gap-0.5 mt-1 pt-1.5 border-t border-slate-50">
+              <div className="flex justify-between items-start gap-3">
+                <span className="text-[10px] font-semibold text-blue-500/80 uppercase">Min</span>
+                <div className="flex flex-col items-end">
+                  <span className="text-sm font-bold text-slate-800">
+                    {visibleStats.min.toFixed(1)} {getUnitForParam(parameter)}
+                  </span>
+                  {visibleStats.minStation && (
+                    <span className="text-[9px] font-medium text-slate-500 text-right truncate w-full max-w-[180px]">
+                      {visibleStats.minStation.name}, {visibleStats.minStation.country}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Map Styles Layer selector - Collapsed by default, positioned below Home button */}
       <div className="absolute top-[130px] left-2.5 z-10 flex flex-col gap-1">
