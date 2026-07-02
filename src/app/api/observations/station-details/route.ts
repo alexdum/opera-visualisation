@@ -92,7 +92,7 @@ function mapParamToRow(row: any, paramName: string, val: number, unit?: string):
   }
 }
 
-const BAD_VALUES = new Set([9999, -9999, -999.9, -999, 999.9]);
+const BAD_VALUES = new Set([9999, -9999, -999.9, -999, 999.9, 32767, -32767, -32768, -32766, 65535, 9999.9, -9999.9]);
 const SUB_HOURLY_TIMESTAMP_THRESHOLD = 26;
 const MAX_HOURLY_WINDOW_DAYS = 31;
 const MIN_RECURRING_INTERVAL_COUNT = 2;
@@ -426,6 +426,31 @@ function cleanWeatherData(rows: any[]): any[] {
       }
     }
   }
+
+  // Despike temperature: drop values that deviate by more than 25°C from the 24-hour moving median or simply the dataset median if it's small.
+  // For simplicity and performance, we'll use a local window median to detect massive sensor dropouts.
+  const tempKeys = ["temperature", "tempMin", "tempMax"];
+  for (const tKey of tempKeys) {
+    const validRows = rows.filter(r => typeof r[tKey] === "number");
+    if (validRows.length < 5) continue; // Not enough data to despike
+
+    for (let i = 0; i < validRows.length; i++) {
+      // Get a local window of up to 5 points (roughly 5 hours if hourly)
+      const window = [];
+      for (let j = Math.max(0, i - 2); j <= Math.min(validRows.length - 1, i + 2); j++) {
+        window.push(validRows[j][tKey]);
+      }
+      window.sort((a, b) => a - b);
+      const median = window[Math.floor(window.length / 2)];
+      
+      // If the current point deviates by > 20°C from its local median, it's a sensor glitch.
+      // (Even extreme weather fronts rarely drop temperature by 20°C instantly without a gradual slope)
+      if (Math.abs(validRows[i][tKey] - median) > 20) {
+        delete validRows[i][tKey];
+      }
+    }
+  }
+
   return rows;
 }
 

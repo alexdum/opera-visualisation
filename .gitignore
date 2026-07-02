@@ -42,3 +42,5 @@ next-env.d.ts
 
 # parquet cache (downloaded daily shards from Hugging Face)
 /data/parquet_cache/
+
+/misc/
