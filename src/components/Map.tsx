@@ -830,9 +830,12 @@ export const WeatherMap: React.FC<MapProps> = ({
                     wind_speed: "Wind Speed",
                   }[parameter] || parameter.replace(/_/g, ' ').replace(/([A-Z])/g, ' $1').trim())}
                 </span>
-                <span className="text-[9px] text-slate-400 tracking-normal normal-case font-medium flex items-center gap-1 cursor-help" title="These aggregated statistics dynamically update to only include the stations currently visible within the map boundaries.">
+                <span className="text-[9px] text-slate-400 tracking-normal normal-case font-medium flex items-center gap-1 cursor-help relative group/tip">
                   Screen Extent
                   <Info size={10} className="text-slate-400" />
+                  <span className="pointer-events-none opacity-0 group-hover/tip:opacity-100 group-hover/tip:pointer-events-auto transition-opacity duration-200 absolute right-0 top-full mt-1 z-50 w-52 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-medium leading-relaxed text-slate-600 shadow-lg normal-case tracking-normal">
+                    These aggregated statistics dynamically update to only include the stations currently visible within the map boundaries.
+                  </span>
                 </span>
               </div>
               <span className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded text-[9px] shrink-0 mt-0.5">{visibleStats.count} stations</span>
