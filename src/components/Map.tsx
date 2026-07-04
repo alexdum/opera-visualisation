@@ -885,7 +885,6 @@ export const WeatherMap: React.FC<MapProps> = ({
           >
             <summary className="p-3 text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-start justify-between gap-2 cursor-pointer border-slate-100 group-open:border-b group-open:pb-1.5 list-none [&::-webkit-details-marker]:hidden">
               <div className="flex flex-col leading-tight gap-0.5">
-                <Tooltip content={parameter} position="left">
                   <span className="truncate inline-block max-w-[120px]">
                     {({
                       air_temperature: "Air Temperature",
@@ -894,7 +893,6 @@ export const WeatherMap: React.FC<MapProps> = ({
                       wind_speed: "Wind Speed",
                     }[parameter] || parameter.replace(/_/g, ' ').replace(/([A-Z])/g, ' $1').trim())}
                   </span>
-                </Tooltip>
                 <span className="text-[9px] text-slate-400 tracking-normal normal-case font-medium flex items-center gap-1 cursor-help relative group/tip">
                   Screen Extent
                   <Info size={10} className="text-slate-400" />
