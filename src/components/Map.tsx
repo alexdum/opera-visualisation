@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { Layers, ShieldAlert, Home, Info } from "lucide-react";
+import { Layers, ShieldAlert, Home, Info, ChevronUp, ChevronDown } from "lucide-react";
 import { getColorFromPalette, getUnitForParam } from "@/utils/colors";
 import { countryMatches } from "@/utils/country";
 import { MapLegend } from "./MapLegend";
@@ -126,8 +126,13 @@ export const WeatherMap: React.FC<MapProps> = ({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isStyleSelectorOpen, setIsStyleSelectorOpen] = useState<boolean>(false);
   const [visibleBounds, setVisibleBounds] = useState<maplibregl.LngLatBounds | null>(null);
+  const [isStatsExpanded, setIsStatsExpanded] = useState<boolean>(true);
 
-  // Calculate maximum allowed hour (prevent future selections for today)
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.innerWidth < 768) {
+      setIsStatsExpanded(false);
+    }
+  }, []);  // Calculate maximum allowed hour (prevent future selections for today)
   const maxAllowedHour = useMemo(() => {
     const todayStr = new Date().toISOString().split("T")[0];
     if (endDate === todayStr) {
@@ -819,8 +824,11 @@ export const WeatherMap: React.FC<MapProps> = ({
       {/* Visible Extent Summary Cards */}
       {visibleStats && (
         <div className="absolute top-2.5 right-2.5 z-10 flex flex-col gap-2 max-w-[280px]">
-          <div className="bg-white/95 backdrop-blur-md border border-slate-200 rounded-xl p-3 shadow-lg flex flex-col gap-1.5">
-            <h4 className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-start justify-between border-b border-slate-100 pb-1.5 gap-2">
+          <div className="bg-white/95 backdrop-blur-md border border-slate-200 rounded-xl p-3 shadow-lg flex flex-col gap-1.5 transition-all duration-200">
+            <h4 
+              className={`text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-start justify-between gap-2 cursor-pointer ${isStatsExpanded ? 'border-b border-slate-100 pb-1.5' : ''}`}
+              onClick={() => setIsStatsExpanded(!isStatsExpanded)}
+            >
               <div className="flex flex-col leading-tight gap-0.5">
                 <span className="truncate" title={parameter}>
                   {({
@@ -838,44 +846,54 @@ export const WeatherMap: React.FC<MapProps> = ({
                   </span>
                 </span>
               </div>
-              <span className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded text-[9px] shrink-0 mt-0.5">{visibleStats.count} stations</span>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <span className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded text-[9px] shrink-0">{visibleStats.count} stn</span>
+                <div className="text-slate-400 bg-slate-50 rounded-md p-0.5 hover:bg-slate-100 hover:text-slate-600 transition-colors">
+                  {isStatsExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                </div>
+              </div>
             </h4>
-            <div className="flex justify-between items-center mt-1">
-              <span className="text-[10px] font-semibold text-slate-500 uppercase">Average</span>
-              <span className="text-sm font-bold text-slate-800">
-                {visibleStats.avg.toFixed(1)} {getUnitForParam(parameter)}
-              </span>
-            </div>
-            <div className="flex flex-col gap-0.5 mt-1 pt-1.5 border-t border-slate-50">
-              <div className="flex justify-between items-start gap-3">
-                <span className="text-[10px] font-semibold text-red-500/80 uppercase">Max</span>
-                <div className="flex flex-col items-end">
+            
+            {isStatsExpanded && (
+              <div className="flex flex-col animate-in slide-in-from-top-1 fade-in duration-200">
+                <div className="flex justify-between items-center mt-1">
+                  <span className="text-[10px] font-semibold text-slate-500 uppercase">Average</span>
                   <span className="text-sm font-bold text-slate-800">
-                    {visibleStats.max.toFixed(1)} {getUnitForParam(parameter)}
+                    {visibleStats.avg.toFixed(1)} {getUnitForParam(parameter)}
                   </span>
-                  {visibleStats.maxStation && (
-                    <span className="text-[9px] font-medium text-slate-500 text-right truncate w-full max-w-[180px]">
-                      {visibleStats.maxStation.name}, {visibleStats.maxStation.country}
-                    </span>
-                  )}
+                </div>
+                <div className="flex flex-col gap-0.5 mt-1 pt-1.5 border-t border-slate-50">
+                  <div className="flex justify-between items-start gap-3">
+                    <span className="text-[10px] font-semibold text-red-500/80 uppercase">Max</span>
+                    <div className="flex flex-col items-end">
+                      <span className="text-sm font-bold text-slate-800">
+                        {visibleStats.max.toFixed(1)} {getUnitForParam(parameter)}
+                      </span>
+                      {visibleStats.maxStation && (
+                        <span className="text-[9px] font-medium text-slate-500 text-right truncate w-full max-w-[180px]">
+                          {visibleStats.maxStation.name}, {visibleStats.maxStation.country}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-0.5 mt-1 pt-1.5 border-t border-slate-50">
+                  <div className="flex justify-between items-start gap-3">
+                    <span className="text-[10px] font-semibold text-blue-500/80 uppercase">Min</span>
+                    <div className="flex flex-col items-end">
+                      <span className="text-sm font-bold text-slate-800">
+                        {visibleStats.min.toFixed(1)} {getUnitForParam(parameter)}
+                      </span>
+                      {visibleStats.minStation && (
+                        <span className="text-[9px] font-medium text-slate-500 text-right truncate w-full max-w-[180px]">
+                          {visibleStats.minStation.name}, {visibleStats.minStation.country}
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-            <div className="flex flex-col gap-0.5 mt-1 pt-1.5 border-t border-slate-50">
-              <div className="flex justify-between items-start gap-3">
-                <span className="text-[10px] font-semibold text-blue-500/80 uppercase">Min</span>
-                <div className="flex flex-col items-end">
-                  <span className="text-sm font-bold text-slate-800">
-                    {visibleStats.min.toFixed(1)} {getUnitForParam(parameter)}
-                  </span>
-                  {visibleStats.minStation && (
-                    <span className="text-[9px] font-medium text-slate-500 text-right truncate w-full max-w-[180px]">
-                      {visibleStats.minStation.name}, {visibleStats.minStation.country}
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
+            )}
           </div>
         </div>
       )}
