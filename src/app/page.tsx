@@ -1,10 +1,12 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useRef, Suspense } from "react";
+import { flushSync } from "react-dom";
 import { Sidebar } from "@/components/Sidebar";
 import { WeatherMap } from "@/components/Map";
 import { DashboardCharts } from "@/components/DashboardCharts";
 import { WeatherTable } from "@/components/Table";
+import { Tooltip } from "@/components/Tooltip";
 import { ColumnDef } from "@tanstack/react-table";
 import { Map as MapIcon, List, BarChart3, AlertCircle, Info, Calendar, Thermometer, Wind, Database, Download, Maximize, Minimize, MapPin, Mountain, Loader2 } from "lucide-react";
 import { downloadCSV, downloadExcel } from "@/utils/export";
@@ -146,6 +148,19 @@ function EuroMeteoApp() {
 
   // --- UI Elements State ---
   const [activeTab, setActiveTab] = useState<string>("map");
+
+  const switchTab = (newTab: string) => {
+    if (newTab === activeTab) return;
+    if (!document.startViewTransition) {
+      setActiveTab(newTab);
+      return;
+    }
+    document.startViewTransition(() => {
+      flushSync(() => {
+        setActiveTab(newTab);
+      });
+    });
+  };
   const [dashboardSubTab, setDashboardSubTab] = useState<string>("plots");
   const [dashboardDataTab, setDashboardDataTab] = useState<string>("land");
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
@@ -891,7 +906,7 @@ function EuroMeteoApp() {
 
   const handleStationDoubleClick = (station: Station) => {
     handleStationSelection(station.id);
-    setActiveTab("dashboard");
+    switchTab("dashboard");
   };
 
   const handleManualStartDateChange = (date: string) => {
@@ -916,7 +931,7 @@ function EuroMeteoApp() {
       setPendingStationSlug("");
       setSelectedCountry("");
     }
-    setActiveTab("map");
+    switchTab("map");
     setSidebarOpen(false);
   };
 
@@ -957,7 +972,7 @@ function EuroMeteoApp() {
                 return (
                   <button
                     key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
+                    onClick={() => switchTab(tab.id)}
                     className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all btn-premium cursor-pointer ${
                       isActive
                         ? "bg-blue-500 text-white shadow-md shadow-blue-500/10"
@@ -973,13 +988,14 @@ function EuroMeteoApp() {
           </div>
 
           <div className="flex items-center gap-4">
-            <button
-              onClick={toggleFullscreen}
-              className="text-slate-400 hover:text-slate-700 transition-colors cursor-pointer min-w-[44px] min-h-[44px] flex items-center justify-center"
-              title="Toggle Fullscreen"
-            >
-              {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
-            </button>
+            <Tooltip content="Toggle Fullscreen" position="bottom">
+              <button
+                onClick={toggleFullscreen}
+                className="text-slate-400 hover:text-slate-700 transition-colors cursor-pointer min-w-[44px] min-h-[44px] flex items-center justify-center"
+              >
+                {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
+              </button>
+            </Tooltip>
           </div>
         </header>
 
@@ -1045,7 +1061,7 @@ function EuroMeteoApp() {
               </div>
 
               {/* Tab: Dashboard charts & raw logs — always mounted, hidden when inactive */}
-              <div className="w-full h-full overflow-y-auto custom-scrollbar flex flex-col gap-6 pr-1 pb-6 p-1 md:p-6" style={{ display: activeTab === "dashboard" ? "flex" : "none" }}>
+              <div className="w-full h-full overflow-y-auto custom-scrollbar snap-y snap-proximity scroll-smooth flex flex-col gap-6 pr-1 pb-6 p-1 md:p-6" style={{ display: activeTab === "dashboard" ? "flex" : "none" }}>
                   {isLoadingStations ? (
                     <div className="flex-grow flex flex-col items-center justify-center gap-3">
                       <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
@@ -1065,7 +1081,7 @@ function EuroMeteoApp() {
                     <>
                       {/* Station details banner card */}
                       {activeStationDetails && (
-                        <div className="glass-card rounded-2xl p-6 border border-slate-100/50 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div className="glass-card rounded-2xl p-6 border border-slate-100/50 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4 snap-start scroll-mt-2">
                           <div className="flex flex-col gap-1">
                             <h2 className="text-lg font-bold text-slate-800 tracking-tight">
                               {activeStationDetails.name}

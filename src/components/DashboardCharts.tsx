@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import { AreaChartCard, BarChartCard, ComposedChartCard, DivergingBarChartCard, DualAxisChartCard } from "./ChartCards";
 import { WindRose } from "./Charts";
+import { Tooltip } from "./Tooltip";
 import { Thermometer, CloudRain, Wind, Droplets, Gauge, Snowflake, Sun, Waves, Cloud, Eye } from "lucide-react";
 
 interface HourlyRow {
@@ -421,7 +422,7 @@ export const DashboardCharts: React.FC<{ data: HourlyRow[]; units?: Record<strin
   return (
     <div className="flex flex-col gap-6 w-full">
       {statCards.length > 0 && (
-        <div className="w-full flex flex-col gap-3">
+        <div className="w-full flex flex-col gap-3 snap-start scroll-mt-2">
           <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider pl-1">
             Station Observations Summary {dateRangeString && `(${dateRangeString})`}
           </h3>
@@ -444,9 +445,11 @@ export const DashboardCharts: React.FC<{ data: HourlyRow[]; units?: Record<strin
                   >
                     {card.value}
                   </div>
-                  <div className="text-[10px] font-medium text-slate-500 dark:text-slate-400 mt-1" title={card.subtext}>
-                    {card.subtext}
-                  </div>
+                  <Tooltip content={card.subtext} position="bottom" className="mt-1">
+                    <div className="text-[10px] font-medium text-slate-500 dark:text-slate-400 truncate cursor-help max-w-[120px]">
+                      {card.subtext}
+                    </div>
+                  </Tooltip>
                 </div>
               </div>
             ))}

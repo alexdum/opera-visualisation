@@ -5,6 +5,7 @@ import { Layers, ShieldAlert, Home, Info, ChevronUp, ChevronDown } from "lucide-
 import { getColorFromPalette, getUnitForParam } from "@/utils/colors";
 import { countryMatches } from "@/utils/country";
 import { MapLegend } from "./MapLegend";
+import { Tooltip } from "./Tooltip";
 
 interface Station {
   id: string;
@@ -124,7 +125,6 @@ export const WeatherMap: React.FC<MapProps> = ({
   const [showLabels, setShowLabels] = useState<boolean>(true);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [isStyleSelectorOpen, setIsStyleSelectorOpen] = useState<boolean>(false);
   const [visibleBounds, setVisibleBounds] = useState<maplibregl.LngLatBounds | null>(null);
   const [isStatsExpanded, setIsStatsExpanded] = useState<boolean>(true);
 
@@ -296,7 +296,7 @@ export const WeatherMap: React.FC<MapProps> = ({
   }, [stations, parameter, endDate, selectedHour, observationRequestKey, setObservations]);
 
   // ── Build GeoJSON from current refs (always reads latest values) ──
-  const buildGeoJSON = useCallback((): GeoJSON.FeatureCollection => {
+  const buildGeoJSON = useCallback(async (): Promise<GeoJSON.FeatureCollection> => {
     const features: GeoJSON.Feature[] = [];
     if (activeObservationKey !== observationRequestKey) {
       return {
@@ -305,31 +305,36 @@ export const WeatherMap: React.FC<MapProps> = ({
       };
     }
 
-    for (const st of stations) {
-      const hourlyVals = observations[st.id] || [];
-      const hourVal = hourlyVals[selectedHour] ?? NaN;
-      if (!Number.isFinite(hourVal)) continue;
+    const CHUNK_SIZE = 500;
+    for (let i = 0; i < stations.length; i += CHUNK_SIZE) {
+      const chunk = stations.slice(i, i + CHUNK_SIZE);
+      for (const st of chunk) {
+        const hourlyVals = observations[st.id] || [];
+        const hourVal = hourlyVals[selectedHour] ?? NaN;
+        if (!Number.isFinite(hourVal)) continue;
 
-      const value = Math.round(hourVal * 10) / 10;
-      const isSelected = st.id === selectedStation;
+        const value = Math.round(hourVal * 10) / 10;
+        const isSelected = st.id === selectedStation;
 
-      features.push({
-        type: "Feature" as const,
-        geometry: {
-          type: "Point" as const,
-          coordinates: [st.longitude, st.latitude]
-        },
-        properties: {
-          id: st.id,
-          name: st.name,
-          country: st.country,
-          elevation: st.elevation,
-          color: getColorFromPalette(hourVal, parameter),
-          label: `${value}`,
-          value,
-          selected: isSelected ? 1 : 0
-        }
-      });
+        features.push({
+          type: "Feature" as const,
+          geometry: {
+            type: "Point" as const,
+            coordinates: [st.longitude, st.latitude]
+          },
+          properties: {
+            id: st.id,
+            name: st.name,
+            country: st.country,
+            elevation: st.elevation,
+            color: getColorFromPalette(hourVal, parameter),
+            label: `${value}`,
+            value,
+            selected: isSelected ? 1 : 0
+          }
+        });
+      }
+      await new Promise(r => setTimeout(r, 0));
     }
 
     return {
@@ -347,55 +352,84 @@ export const WeatherMap: React.FC<MapProps> = ({
   ]);
 
   // ── Calculate statistics for stations currently visible on screen ──
-  const visibleStats = useMemo(() => {
-    if (!visibleBounds || activeObservationKey !== observationRequestKey) return null;
+  const [visibleStats, setVisibleStats] = useState<{
+    avg: number;
+    max: number;
+    maxStation: Station | null;
+    min: number;
+    minStation: Station | null;
+    count: number;
+  } | null>(null);
 
-    let minVal = Infinity;
-    let maxVal = -Infinity;
-    let minStation: Station | null = null;
-    let maxStation: Station | null = null;
-    let sum = 0;
-    let count = 0;
-
-    // To properly handle map wrapping/globe projections, MapLibre's bounds can be tricky, 
-    // but a simple lng/lat bounds check works for most zoom levels.
-    for (const st of stations) {
-      if (
-        st.longitude >= visibleBounds.getWest() &&
-        st.longitude <= visibleBounds.getEast() &&
-        st.latitude >= visibleBounds.getSouth() &&
-        st.latitude <= visibleBounds.getNorth()
-      ) {
-        const val = observations[st.id]?.[selectedHour];
-        if (val !== undefined && val !== null && !isNaN(val)) {
-          sum += val;
-          count++;
-          if (val < minVal) {
-            minVal = val;
-            minStation = st;
-          }
-          if (val > maxVal) {
-            maxVal = val;
-            maxStation = st;
-          }
-        }
-      }
+  useEffect(() => {
+    let isCancelled = false;
+    
+    if (!visibleBounds || activeObservationKey !== observationRequestKey) {
+      setVisibleStats(null);
+      return;
     }
 
-    if (count === 0) return null;
+    const computeStats = async () => {
+      let minVal = Infinity;
+      let maxVal = -Infinity;
+      let minStation: Station | null = null;
+      let maxStation: Station | null = null;
+      let sum = 0;
+      let count = 0;
 
-    return {
-      count,
-      avg: sum / count,
-      min: minVal,
-      max: maxVal,
-      minStation,
-      maxStation
+      const CHUNK_SIZE = 500;
+      for (let i = 0; i < stations.length; i += CHUNK_SIZE) {
+        if (isCancelled) return;
+        const chunk = stations.slice(i, i + CHUNK_SIZE);
+
+        for (const st of chunk) {
+          if (
+            st.longitude >= visibleBounds.getWest() &&
+            st.longitude <= visibleBounds.getEast() &&
+            st.latitude >= visibleBounds.getSouth() &&
+            st.latitude <= visibleBounds.getNorth()
+          ) {
+            const val = observations[st.id]?.[selectedHour];
+            if (val !== undefined && val !== null && !isNaN(val)) {
+              sum += val;
+              count++;
+              if (val < minVal) {
+                minVal = val;
+                minStation = st;
+              }
+              if (val > maxVal) {
+                maxVal = val;
+                maxStation = st;
+              }
+            }
+          }
+        }
+        await new Promise(r => setTimeout(r, 0));
+      }
+
+      if (isCancelled) return;
+
+      if (count === 0) {
+        setVisibleStats(null);
+      } else {
+        setVisibleStats({
+          count,
+          avg: sum / count,
+          min: minVal,
+          max: maxVal,
+          minStation,
+          maxStation
+        });
+      }
     };
+
+    computeStats();
+
+    return () => { isCancelled = true; };
   }, [visibleBounds, activeObservationKey, observationRequestKey, stations, observations, selectedHour]);
 
   // ── Add source and layers to the map ──
-  const addSourceAndLayers = useCallback(() => {
+  const addSourceAndLayers = useCallback(async () => {
     const m = map.current;
     if (!m) return;
 
@@ -405,7 +439,7 @@ export const WeatherMap: React.FC<MapProps> = ({
     try { if (m.getLayer(CIRCLE_LAYER)) m.removeLayer(CIRCLE_LAYER); } catch {}
     try { if (m.getSource(SOURCE_ID)) m.removeSource(SOURCE_ID); } catch {}
 
-    const geojson = buildGeoJSON();
+    const geojson = await buildGeoJSON();
 
     m.addSource(SOURCE_ID, {
       type: "geojson",
@@ -706,13 +740,28 @@ export const WeatherMap: React.FC<MapProps> = ({
 
   // ── 3b. Sync Label Visibility without full style reload ──
   useEffect(() => {
-    if (!map.current || !map.current.isStyleLoaded()) return;
-    const labelLayers = ["place_label_city", "place_label_town", "place_label_village", "poi_label", "road_label", "water_label"];
-    labelLayers.forEach(layer => {
-      if (map.current?.getLayer(layer)) {
-        map.current.setLayoutProperty(layer, 'visibility', showLabels ? 'visible' : 'none');
+    if (!map.current) return;
+    
+    const applyLabelVisibility = () => {
+      if (!map.current || !map.current.isStyleLoaded()) return;
+      const style = map.current.getStyle();
+      if (style && style.layers) {
+        style.layers.forEach(layer => {
+          if (layer.id.includes('label') && layer.id !== TEXT_LAYER) {
+            map.current?.setLayoutProperty(layer.id, 'visibility', showLabels ? 'visible' : 'none');
+          }
+        });
       }
-    });
+    };
+
+    if (map.current.isStyleLoaded()) {
+      applyLabelVisibility();
+    }
+    
+    map.current.on('style.load', applyLabelVisibility);
+    return () => {
+      map.current?.off('style.load', applyLabelVisibility);
+    };
   }, [showLabels]);
 
   // ── 4. Update GeoJSON source data reactively ──
@@ -720,7 +769,7 @@ export const WeatherMap: React.FC<MapProps> = ({
     const m = map.current;
     if (!m) return;
 
-    const tryUpdate = () => {
+    const tryUpdate = async () => {
       if (!sourceReadyRef.current) {
         return false;
       }
@@ -728,13 +777,13 @@ export const WeatherMap: React.FC<MapProps> = ({
       if (!source) {
         return false;
       }
-      const geojson = buildGeoJSON();
+      const geojson = await buildGeoJSON();
       source.setData(geojson);
       return true;
     };
 
     // Try immediately
-    if (tryUpdate()) return;
+    tryUpdate();
 
     // If source isn't ready yet (style still loading), wait for style.load then update
     const onStyleLoad = () => {
@@ -744,8 +793,10 @@ export const WeatherMap: React.FC<MapProps> = ({
       }, 100);
     };
     m.on('style.load', onStyleLoad);
+    
     // Also retry after a short delay in case style was already loaded but source wasn't added yet
     const timer = setTimeout(() => tryUpdate(), 300);
+    
     return () => {
       m.off('style.load', onStyleLoad);
       clearTimeout(timer);
@@ -810,13 +861,16 @@ export const WeatherMap: React.FC<MapProps> = ({
       <div ref={mapContainer} className="flex-1 w-full h-full min-h-0 bg-slate-50" />
 
       {/* Home Button */}
-      <button
-        onClick={handleHomeClick}
-        className="absolute top-[80px] left-2.5 z-10 p-1.5 min-w-[44px] min-h-[44px] flex items-center justify-center bg-white shadow-sm border border-slate-200 rounded-md text-slate-600 hover:bg-slate-50 transition-colors"
-        title="Zoom to All Stations"
-      >
-        <Home size={20} />
-      </button>
+      <div className="absolute top-[80px] left-2.5 z-10">
+        <Tooltip content="Zoom to All Stations" position="right">
+          <button
+            onClick={handleHomeClick}
+            className="p-1.5 min-w-[44px] min-h-[44px] flex items-center justify-center bg-white shadow-sm border border-slate-200 rounded-md text-slate-600 hover:bg-slate-50 transition-colors"
+          >
+            <Home size={20} />
+          </button>
+        </Tooltip>
+      </div>
 
       {/* Map Legend */}
       <MapLegend parameter={parameter} values={currentValues} />
@@ -824,20 +878,23 @@ export const WeatherMap: React.FC<MapProps> = ({
       {/* Visible Extent Summary Cards */}
       {visibleStats && (
         <div className="absolute top-2.5 right-2.5 z-10 flex flex-col gap-2 max-w-[280px]">
-          <div className="bg-white/95 backdrop-blur-md border border-slate-200 rounded-xl p-3 shadow-lg flex flex-col gap-1.5 transition-all duration-200">
-            <h4 
-              className={`text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-start justify-between gap-2 cursor-pointer ${isStatsExpanded ? 'border-b border-slate-100 pb-1.5' : ''}`}
-              onClick={() => setIsStatsExpanded(!isStatsExpanded)}
-            >
+          <details 
+            className="group bg-white/95 backdrop-blur-md border border-slate-200 rounded-xl shadow-lg flex flex-col transition-all duration-200 marker:content-['']"
+            open={isStatsExpanded}
+            onToggle={(e) => setIsStatsExpanded(e.currentTarget.open)}
+          >
+            <summary className="p-3 text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-start justify-between gap-2 cursor-pointer border-slate-100 group-open:border-b group-open:pb-1.5 list-none [&::-webkit-details-marker]:hidden">
               <div className="flex flex-col leading-tight gap-0.5">
-                <span className="truncate" title={parameter}>
-                  {({
-                    air_temperature: "Air Temperature",
-                    precipitation_amount: "Precipitation",
-                    air_pressure_at_mean_sea_level: "Sea Level Pressure",
-                    wind_speed: "Wind Speed",
-                  }[parameter] || parameter.replace(/_/g, ' ').replace(/([A-Z])/g, ' $1').trim())}
-                </span>
+                <Tooltip content={parameter} position="left">
+                  <span className="truncate inline-block max-w-[120px]">
+                    {({
+                      air_temperature: "Air Temperature",
+                      precipitation_amount: "Precipitation",
+                      air_pressure_at_mean_sea_level: "Sea Level Pressure",
+                      wind_speed: "Wind Speed",
+                    }[parameter] || parameter.replace(/_/g, ' ').replace(/([A-Z])/g, ' $1').trim())}
+                  </span>
+                </Tooltip>
                 <span className="text-[9px] text-slate-400 tracking-normal normal-case font-medium flex items-center gap-1 cursor-help relative group/tip">
                   Screen Extent
                   <Info size={10} className="text-slate-400" />
@@ -849,14 +906,13 @@ export const WeatherMap: React.FC<MapProps> = ({
               <div className="flex items-center gap-1.5 mt-0.5">
                 <span className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded text-[9px] shrink-0">{visibleStats.count} stn</span>
                 <div className="text-slate-400 bg-slate-50 rounded-md p-0.5 hover:bg-slate-100 hover:text-slate-600 transition-colors">
-                  {isStatsExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  <ChevronDown size={14} className="group-open:rotate-180 transition-transform" />
                 </div>
               </div>
-            </h4>
+            </summary>
             
-            {isStatsExpanded && (
-              <div className="flex flex-col animate-in slide-in-from-top-1 fade-in duration-200">
-                <div className="flex justify-between items-center mt-1">
+            <div className="p-3 pt-1.5 flex flex-col animate-in fade-in duration-200">
+              <div className="flex justify-between items-center">
                   <span className="text-[10px] font-semibold text-slate-500 uppercase">Average</span>
                   <span className="text-sm font-bold text-slate-800">
                     {visibleStats.avg.toFixed(1)} {getUnitForParam(parameter)}
@@ -892,30 +948,25 @@ export const WeatherMap: React.FC<MapProps> = ({
                     </div>
                   </div>
                 </div>
-              </div>
-            )}
-          </div>
+            </div>
+          </details>
         </div>
       )}
 
-      {/* Map Styles Layer selector - Collapsed by default, positioned below Home button */}
+      {/* Map Styles Layer selector */}
       <div className="absolute top-[130px] left-2.5 z-10 flex flex-col gap-1">
-        <button
-          onClick={() => setIsStyleSelectorOpen(!isStyleSelectorOpen)}
-          className={`p-1.5 min-w-[44px] min-h-[44px] flex items-center justify-center shadow-sm border rounded-md transition-colors ${
-            isStyleSelectorOpen 
-              ? 'bg-blue-50 border-blue-200 text-blue-600' 
-              : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-          }`}
-          title="Map Styles"
-        >
-          <Layers size={20} />
-        </button>
+        <Tooltip content="Map Styles" position="right">
+          <button
+            popoverTarget="map-styles-menu"
+            className="p-1.5 min-w-[44px] min-h-[44px] flex items-center justify-center bg-white shadow-sm border border-slate-200 rounded-md text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer"
+          >
+            <Layers size={20} />
+          </button>
+        </Tooltip>
 
-        {isStyleSelectorOpen && (
-          <div className="bg-white/95 backdrop-blur-md border border-slate-200 rounded-xl p-3.5 shadow-lg flex flex-col gap-2.5 w-[200px]">
-            <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5 border-b border-slate-100 pb-1.5">
-              <Layers size={14} className="text-slate-500" />
+        <div id="map-styles-menu" popover="auto" className="bg-white/95 backdrop-blur-md border border-slate-200 rounded-xl p-3.5 shadow-lg flex-col gap-2.5 w-[200px] m-0 fixed top-[130px] left-[64px]">
+          <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5 border-b border-slate-100 pb-1.5">
+            <Layers size={14} className="text-slate-500" />
               Map Styles
             </h4>
             <div className="flex flex-col gap-2">
@@ -929,7 +980,11 @@ export const WeatherMap: React.FC<MapProps> = ({
                     type="radio"
                     name="basemap"
                     checked={basemap === item.id}
-                    onChange={() => setBasemap(item.id)}
+                    onChange={() => {
+                      setBasemap(item.id);
+                      // Automatically close the popover when a new base style is chosen
+                      document.getElementById("map-styles-menu")?.hidePopover();
+                    }}
                     className="text-blue-500 focus:ring-blue-400"
                   />
                   {item.label}
@@ -946,9 +1001,8 @@ export const WeatherMap: React.FC<MapProps> = ({
                   Show Labels
                 </label>
               </div>
-            </div>
           </div>
-        )}
+        </div>
       </div>
 
       {/* Error/Bypass Alert Banner */}

@@ -40,10 +40,9 @@ body {
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.02);
 }
 
-/* Defer rendering for heavy off-screen charts */
+/* Contain rendering for heavy charts without causing Recharts SVG size bugs */
 .heavy-chart {
-  content-visibility: auto;
-  contain-intrinsic-size: auto none auto 360px;
+  contain: layout style paint;
 }
 
 /* Fast tab switching: caches rendering state instead of destroying it */
