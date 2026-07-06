@@ -61,3 +61,11 @@ Always ensure the following CSS override is present in `globals.css` when using 
 .maplibregl-ctrl-icon { display: block !important; opacity: 1 !important; }
 ```
 <!-- END:tailwind-maplibre-conflict-rule -->
+
+<!-- BEGIN:ui-ux-summary-cards-rule -->
+## UI/UX: Dashboard Summary Cards
+
+When implementing metric or summary cards for dashboards:
+1. **Never hide information behind hover states or tooltips**: Do not use CSS tooltips, hover effects, or interactive reveals to display secondary text (e.g., subtext, definitions, or descriptions) on summary cards.
+2. **Display all information visibly**: Ensure all relevant text is permanently visible on the card. Use proper text wrapping (`break-words`, `leading-tight`) instead of truncating text (`truncate`) so users can read the full context at a glance without interaction.
+<!-- END:ui-ux-summary-cards-rule -->
