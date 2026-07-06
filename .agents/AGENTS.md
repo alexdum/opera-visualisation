@@ -14,6 +14,7 @@ When implementing tooltips, help text, or informational popovers for small icons
 1. **Never rely solely on the native HTML `title` attribute** (e.g., `<span title="...">`). Native titles have a ~1-second hover delay, disappear quickly, and do not work at all on touch devices (mobile/tablet).
 2. **Use custom, CSS-driven tooltips** instead. Implement instant-hover tooltips using CSS/Tailwind (e.g., the `group` and `group-hover` pattern) or a dedicated React Tooltip component to ensure instant feedback and style control.
 3. **Ensure sufficient hover targets**. Small icons (e.g., 10px or 12px) should be wrapped in an element with adequate padding or have the tooltip trigger area expanded to increase the hoverable/clickable surface.
+4. **Beware of Mobile "Sticky Hover"**: Mobile browsers treat a "tap" as a "hover". Do not wrap entire cards or primary touch targets in CSS tooltips if the tooltip content is redundant. If a tooltip is needed on desktop but obscures content on mobile, disable it for touch devices using `@media (hover: hover)`.
 <!-- END:ui-ux-tooltips-rule -->
 
 <!-- BEGIN:nextjs-agent-rules -->
@@ -47,3 +48,16 @@ When implementing CSS scroll snapping (`snap-y` / `snap-x`) for tactile scrollin
 1. **Prefer `snap-proximity` over `snap-mandatory`**: Use `snap-proximity` on the scroll container unless strictly building a full-screen carousel. `snap-mandatory` can aggressively pull users past content if item heights vary.
 2. **Assign snap points to ALL major content blocks**: Do not only add `snap-center` or `snap-start` to the main repeatable items (e.g., charts). You MUST also add a snap point (e.g., `snap-start scroll-mt-2`) to metadata headers, summary grids, and banners at the top/bottom of the container. If you leave top-level content without a snap point, the browser will skip over it when the user scrolls, hiding it from view.
 <!-- END:ui-ux-scroll-snapping-rule -->
+
+<!-- BEGIN:tailwind-maplibre-conflict-rule -->
+## Tailwind CSS + MapLibre GL JS Conflict
+
+When combining Tailwind CSS with MapLibre GL JS, Tailwind's base preflight for `button` elements (`background-image: none; background-color: transparent;`) strips the SVG icons from MapLibre's zoom/navigation controls, rendering them as blank white boxes on mobile WebKit.
+
+Always ensure the following CSS override is present in `globals.css` when using MapLibre with Tailwind:
+```css
+/* Force MapLibre UI controls over Tailwind resets */
+.maplibregl-ctrl-group button { background-color: #ffffff !important; display: block !important; }
+.maplibregl-ctrl-icon { display: block !important; opacity: 1 !important; }
+```
+<!-- END:tailwind-maplibre-conflict-rule -->

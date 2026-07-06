@@ -430,7 +430,7 @@ export const DashboardCharts: React.FC<{ data: HourlyRow[]; units?: Record<strin
             {statCards.map((card, i) => (
               <div 
                 key={i} 
-                className={`glass-card flex items-start gap-3 p-4 rounded-2xl shadow-xs border ${card.bgClass} hover:translate-y-[-2px] transition-transform duration-200`}
+                className={`glass-card flex items-start gap-3 p-4 rounded-2xl shadow-xs border ${card.bgClass} [@media(hover:hover)]:hover:translate-y-[-2px] transition-transform duration-200`}
               >
                 <div className="p-2 rounded-xl bg-white/40 dark:bg-slate-900/20 border border-white/40 dark:border-slate-800/30">
                   {card.icon}
