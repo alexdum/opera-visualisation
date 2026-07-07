@@ -186,6 +186,7 @@ export const ClimateChart: React.FC<ChartsProps> = ({ data, parameter }) => {
 
 // Hand-crafted high-fidelity SVG Wind Rose Component
 export const WindRose: React.FC<{ data: HourlyRow[] }> = ({ data }) => {
+  const [tooltip, setTooltip] = React.useState<{ x: number; y: number; item: any } | null>(null);
   const directions = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
   
   // Calculate frequencies by direction & speed classes
@@ -280,7 +281,7 @@ export const WindRose: React.FC<{ data: HourlyRow[] }> = ({ data }) => {
   };
 
   return (
-    <div className="w-full h-[360px] glass-card heavy-chart rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4">
+    <div className="w-full h-[360px] glass-card heavy-chart rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4 relative">
       <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">Wind Rose Distribution</h3>
       <div className="flex-1 flex flex-col sm:flex-row items-center justify-center gap-6 pr-2">
         {/* SVG Circle Canvas */}
@@ -342,7 +343,22 @@ export const WindRose: React.FC<{ data: HourlyRow[] }> = ({ data }) => {
             const r5 = getRadius(item.c1 + item.c2 + item.c3 + item.c4 + item.c5);
 
             return (
-              <g key={item.dir} className="hover:opacity-90 transition-opacity">
+              <g 
+                key={item.dir} 
+                className="hover:opacity-80 transition-opacity cursor-pointer"
+                onMouseMove={(e) => {
+                  const container = e.currentTarget.closest(".relative");
+                  if (container) {
+                    const rect = container.getBoundingClientRect();
+                    setTooltip({
+                      x: e.clientX - rect.left,
+                      y: e.clientY - rect.top,
+                      item
+                    });
+                  }
+                }}
+                onMouseLeave={() => setTooltip(null)}
+              >
                 {/* 0-1 m/s: Emerald */}
                 {item.c1 > 0 && (
                   <path
@@ -402,6 +418,24 @@ export const WindRose: React.FC<{ data: HourlyRow[] }> = ({ data }) => {
           </div>
         </div>
       </div>
+
+      {/* Tooltip Overlay */}
+      {tooltip && (
+        <div 
+          className="absolute z-50 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200/60 dark:border-slate-700/60 shadow-xl text-slate-800 dark:text-slate-200 text-xs py-2 px-3 rounded-xl font-medium pointer-events-none transform -translate-x-1/2 -translate-y-[calc(100%+12px)] flex flex-col gap-1 min-w-[140px]"
+          style={{ left: tooltip.x, top: tooltip.y }}
+        >
+          <div className="font-bold border-b border-slate-100 dark:border-slate-800 pb-1 mb-1">{tooltip.item.dir} - Direction Frequencies</div>
+          {tooltip.item.c5 > 0 && <div className="text-[10px] flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-fuchsia-500"></span>&gt;15 m/s: {tooltip.item.c5.toFixed(1)}%</div>}
+          {tooltip.item.c4 > 0 && <div className="text-[10px] flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-rose-400"></span>10-15 m/s: {tooltip.item.c4.toFixed(1)}%</div>}
+          {tooltip.item.c3 > 0 && <div className="text-[10px] flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-orange-400"></span>5-10 m/s: {tooltip.item.c3.toFixed(1)}%</div>}
+          {tooltip.item.c2 > 0 && <div className="text-[10px] flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-amber-400"></span>1-5 m/s: {tooltip.item.c2.toFixed(1)}%</div>}
+          {tooltip.item.c1 > 0 && <div className="text-[10px] flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-400"></span>&lt;1 m/s: {tooltip.item.c1.toFixed(1)}%</div>}
+          <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 mt-1 pt-1 border-t border-slate-100 dark:border-slate-800">
+            Total: {(tooltip.item.c1 + tooltip.item.c2 + tooltip.item.c3 + tooltip.item.c4 + tooltip.item.c5).toFixed(1)}%
+          </div>
+        </div>
+      )}
     </div>
   );
 };
