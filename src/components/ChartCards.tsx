@@ -62,8 +62,9 @@ export const AreaChartCard = ({ data, title, unit, config }: { data: HourlyRow[]
   if (!hasData) return null;
 
   return (
-    <div className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4">
+    <div className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
       <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title}</h3>
+      <span className="sr-only">Data visualization for {title}. Contains {chartData.length} observation points.</span>
       <div className="flex-1 w-full min-h-0">
         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
           <AreaChart data={chartData}>
@@ -111,8 +112,9 @@ export const BarChartCard = ({ data, title, unit, config, stacked = false }: { d
   if (!hasData) return null;
 
   return (
-    <div className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4">
+    <div className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
       <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title}</h3>
+      <span className="sr-only">Data visualization for {title}. Contains {chartData.length} observation points.</span>
       <div className="flex-1 w-full min-h-0">
         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
           <BarChart data={chartData}>
@@ -146,8 +148,9 @@ export const ComposedChartCard = ({ data, title, unit, areaConfig, lineConfig }:
   if (!hasAreaData && !hasLineData) return null;
 
   return (
-    <div className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4">
+    <div className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
       <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title}</h3>
+      <span className="sr-only">Data visualization for {title}. Contains {chartData.length} observation points.</span>
       <div className="flex-1 w-full min-h-0">
         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
           <ComposedChart data={chartData}>
@@ -188,8 +191,9 @@ export const DivergingBarChartCard = ({ data, title, unit, dataKey, name, posCol
   if (!hasData) return null;
 
   return (
-    <div className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4">
+    <div className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
       <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title}</h3>
+      <span className="sr-only">Data visualization for {title}. Contains {chartData.length} observation points.</span>
       <div className="flex-1 w-full min-h-0">
         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
           <BarChart data={chartData}>
@@ -254,8 +258,9 @@ export const DualAxisChartCard = ({ data, title, leftConfig, rightConfig }: {
   };
 
   return (
-    <div className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4">
+    <div className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
       <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title}</h3>
+      <span className="sr-only">Data visualization for {title}. Contains {chartData.length} observation points.</span>
       <div className="flex-1 w-full min-h-0">
         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
           <ComposedChart data={chartData}>

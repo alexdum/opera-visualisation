@@ -115,8 +115,9 @@ export const ClimateChart: React.FC<ChartsProps> = ({ data, parameter }) => {
   const isPrecip = parameter === "precipitation_amount";
 
   return (
-    <div className="w-full h-[360px] glass-card heavy-chart rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4">
+    <div className="w-full h-[360px] glass-card heavy-chart rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${config.title} chart`}>
       <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{config.title}</h3>
+      <span className="sr-only">Data visualization for {config.title}. Contains {chartData.length} observation points.</span>
       <div className="flex-1 w-full min-h-0">
         <ResponsiveContainer width="100%" height="100%">
           {isPrecip ? (
@@ -281,8 +282,9 @@ export const WindRose: React.FC<{ data: HourlyRow[] }> = ({ data }) => {
   };
 
   return (
-    <div className="w-full h-[360px] glass-card heavy-chart rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4 relative">
+    <div className="w-full h-[360px] glass-card heavy-chart rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4 relative" role="figure" aria-label="Wind Rose Distribution chart">
       <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">Wind Rose Distribution</h3>
+      <span className="sr-only">Data visualization for Wind Rose Distribution. Contains {roseData.totalValid} observation points.</span>
       <div className="flex-1 flex flex-col sm:flex-row items-center justify-center gap-6 pr-2">
         {/* SVG Circle Canvas */}
         <svg width="260" height="260" viewBox="0 0 300 300" className="drop-shadow-sm">
@@ -345,7 +347,10 @@ export const WindRose: React.FC<{ data: HourlyRow[] }> = ({ data }) => {
             return (
               <g 
                 key={item.dir} 
-                className="hover:opacity-80 transition-opacity cursor-pointer"
+                className="hover:opacity-80 transition-opacity cursor-pointer outline-none focus-visible:outline-2 focus-visible:outline-blue-500 focus-visible:outline-offset-2"
+                tabIndex={0}
+                role="graphics-symbol"
+                aria-label={`${item.dir} direction wind distribution`}
                 onMouseMove={(e) => {
                   const container = e.currentTarget.closest(".relative");
                   if (container) {
@@ -357,7 +362,20 @@ export const WindRose: React.FC<{ data: HourlyRow[] }> = ({ data }) => {
                     });
                   }
                 }}
+                onFocus={(e) => {
+                  const container = e.currentTarget.closest(".relative");
+                  if (container) {
+                    const rect = container.getBoundingClientRect();
+                    const wedgeRect = e.currentTarget.getBoundingClientRect();
+                    setTooltip({
+                      x: wedgeRect.left - rect.left + wedgeRect.width / 2,
+                      y: wedgeRect.top - rect.top,
+                      item
+                    });
+                  }
+                }}
                 onMouseLeave={() => setTooltip(null)}
+                onBlur={() => setTooltip(null)}
               >
                 {/* 0-1 m/s: Emerald */}
                 {item.c1 > 0 && (
