@@ -445,7 +445,7 @@ export const DashboardCharts: React.FC<{ data: HourlyRow[]; units?: Record<strin
                   >
                     {card.value}
                   </div>
-                  <div className="text-[10px] font-medium text-slate-500 dark:text-slate-400 mt-1 leading-tight break-words">
+                  <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mt-1 leading-tight break-words">
                     {card.subtext}
                   </div>
                 </div>
