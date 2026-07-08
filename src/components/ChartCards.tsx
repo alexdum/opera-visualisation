@@ -1,6 +1,7 @@
-import React, { useMemo, useRef } from "react";
-import { Download } from "lucide-react";
+import React, { useMemo, useRef, useState } from "react";
+import { Download, Maximize2 } from "lucide-react";
 import { exportChartAsPng } from "@/utils/chartExport";
+import { ChartModal } from "./ChartModal";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -54,6 +55,7 @@ const CustomTooltip = ({ active, payload, label, unit }: any) => {
 // Generic Area Chart Card
 export const AreaChartCard = ({ data, title, unit, config, stationName, country }: { data: HourlyRow[], title: string, unit: string, config: { key: string, name: string, color: string }[], stationName?: string, country?: string }) => {
   const chartRef = useRef<HTMLDivElement>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
   const chartData = useMemo(() => data.map(d => {
     const row: any = { time: formatDate(d.datetime) };
     config.forEach(c => row[c.key] = (d as any)[c.key]);
@@ -64,49 +66,68 @@ export const AreaChartCard = ({ data, title, unit, config, stationName, country 
 
   if (!hasData) return null;
 
+  const chartContent = (
+    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+      <AreaChart data={chartData}>
+        <defs>
+          {config.map((c, i) => (
+            <linearGradient key={`grad-${i}`} id={`grad-${c.key}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor={c.color} stopOpacity={0.4} />
+              <stop offset="95%" stopColor={c.color} stopOpacity={0.0} />
+            </linearGradient>
+          ))}
+        </defs>
+        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+        <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
+        <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} unit={` ${unit}`} domain={["auto", "auto"]} />
+        <Tooltip content={<CustomTooltip unit={unit} />} />
+        {config.map((c, i) => {
+          const hasKeyData = chartData.some(d => d[c.key] !== undefined && d[c.key] !== null);
+          if (!hasKeyData) return null;
+          return <Area key={`area-${i}`} type="monotone" dataKey={c.key} name={c.name} stroke={c.color} strokeWidth={2} fill={`url(#grad-${c.key})`} connectNulls />;
+        })}
+      </AreaChart>
+    </ResponsiveContainer>
+  );
+
   return (
-    <div ref={chartRef} className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title}</h3>
-        <button
-          className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-          aria-label={`Download ${title} as image`}
-          onClick={() => { if (chartRef.current) exportChartAsPng(chartRef.current, { title, stationName, country }); }}
-        >
-          <Download size={16} />
-        </button>
+    <>
+      <div ref={chartRef} className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title}</h3>
+          <div className="flex items-center gap-1">
+            <button
+              className="hidden md:flex p-2 min-w-[44px] min-h-[44px] items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+              aria-label={`Expand ${title}`}
+              onClick={() => setIsExpanded(true)}
+            >
+              <Maximize2 size={16} />
+            </button>
+            <button
+              className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+              aria-label={`Download ${title} as image`}
+              onClick={() => { if (chartRef.current) exportChartAsPng(chartRef.current, { title, stationName, country }); }}
+            >
+              <Download size={16} />
+            </button>
+          </div>
+        </div>
+        <span className="sr-only">Data visualization for {title}. Contains {chartData.length} observation points.</span>
+        <div className="flex-1 w-full min-h-0">
+          {chartContent}
+        </div>
       </div>
-      <span className="sr-only">Data visualization for {title}. Contains {chartData.length} observation points.</span>
-      <div className="flex-1 w-full min-h-0">
-        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-          <AreaChart data={chartData}>
-            <defs>
-              {config.map((c, i) => (
-                <linearGradient key={`grad-${i}`} id={`grad-${c.key}`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={c.color} stopOpacity={0.4} />
-                  <stop offset="95%" stopColor={c.color} stopOpacity={0.0} />
-                </linearGradient>
-              ))}
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-            <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
-            <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} unit={` ${unit}`} domain={["auto", "auto"]} />
-            <Tooltip content={<CustomTooltip unit={unit} />} />
-            {config.map((c, i) => {
-              const hasKeyData = chartData.some(d => d[c.key] !== undefined && d[c.key] !== null);
-              if (!hasKeyData) return null;
-              return <Area key={`area-${i}`} type="monotone" dataKey={c.key} name={c.name} stroke={c.color} strokeWidth={2} fill={`url(#grad-${c.key})`} connectNulls />;
-            })}
-          </AreaChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
+      <ChartModal title={title} isOpen={isExpanded} onClose={() => setIsExpanded(false)} stationName={stationName} country={country}>
+        {chartContent}
+      </ChartModal>
+    </>
   );
 };
 
 // Generic Bar Chart Card
 export const BarChartCard = ({ data, title, unit, config, stacked = false, stationName, country }: { data: HourlyRow[], title: string, unit: string, config: { key: string, name: string, color: string }[], stacked?: boolean, stationName?: string, country?: string }) => {
   const chartRef = useRef<HTMLDivElement>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
   const chartData = useMemo(() => data.map(d => {
     const row: any = { time: formatDate(d.datetime) };
     config.forEach(c => {
@@ -124,41 +145,60 @@ export const BarChartCard = ({ data, title, unit, config, stacked = false, stati
 
   if (!hasData) return null;
 
+  const chartContent = (
+    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+      <BarChart data={chartData}>
+        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+        <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
+        <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} unit={` ${unit}`} domain={[0, 'auto']} />
+        <Tooltip content={<CustomTooltip unit={unit} />} />
+        {config.map((c, i) => {
+          const hasKeyData = chartData.some(d => d[c.key] !== undefined && d[c.key] !== null);
+          if (!hasKeyData) return null;
+          return <Bar key={`bar-${i}`} dataKey={c.key} name={c.name} fill={c.color} stackId={stacked ? "a" : undefined} radius={stacked ? 0 : [4, 4, 0, 0]} />;
+        })}
+      </BarChart>
+    </ResponsiveContainer>
+  );
+
   return (
-    <div ref={chartRef} className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title}</h3>
-        <button
-          className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-          aria-label={`Download ${title} as image`}
-          onClick={() => { if (chartRef.current) exportChartAsPng(chartRef.current, { title, stationName, country }); }}
-        >
-          <Download size={16} />
-        </button>
+    <>
+      <div ref={chartRef} className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title}</h3>
+          <div className="flex items-center gap-1">
+            <button
+              className="hidden md:flex p-2 min-w-[44px] min-h-[44px] items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+              aria-label={`Expand ${title}`}
+              onClick={() => setIsExpanded(true)}
+            >
+              <Maximize2 size={16} />
+            </button>
+            <button
+              className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+              aria-label={`Download ${title} as image`}
+              onClick={() => { if (chartRef.current) exportChartAsPng(chartRef.current, { title, stationName, country }); }}
+            >
+              <Download size={16} />
+            </button>
+          </div>
+        </div>
+        <span className="sr-only">Data visualization for {title}. Contains {chartData.length} observation points.</span>
+        <div className="flex-1 w-full min-h-0">
+          {chartContent}
+        </div>
       </div>
-      <span className="sr-only">Data visualization for {title}. Contains {chartData.length} observation points.</span>
-      <div className="flex-1 w-full min-h-0">
-        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-          <BarChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-            <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
-            <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} unit={` ${unit}`} domain={[0, 'auto']} />
-            <Tooltip content={<CustomTooltip unit={unit} />} />
-            {config.map((c, i) => {
-              const hasKeyData = chartData.some(d => d[c.key] !== undefined && d[c.key] !== null);
-              if (!hasKeyData) return null;
-              return <Bar key={`bar-${i}`} dataKey={c.key} name={c.name} fill={c.color} stackId={stacked ? "a" : undefined} radius={stacked ? 0 : [4, 4, 0, 0]} />;
-            })}
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
+      <ChartModal title={title} isOpen={isExpanded} onClose={() => setIsExpanded(false)} stationName={stationName} country={country}>
+        {chartContent}
+      </ChartModal>
+    </>
   );
 };
 
 // Generic Composed Chart Card (Area + Line)
 export const ComposedChartCard = ({ data, title, unit, areaConfig, lineConfig, stationName, country }: { data: HourlyRow[], title: string, unit: string, areaConfig: { key: string, name: string, color: string }, lineConfig: { key: string, name: string, color: string }, stationName?: string, country?: string }) => {
   const chartRef = useRef<HTMLDivElement>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
   const chartData = useMemo(() => data.map(d => ({
     time: formatDate(d.datetime),
     [areaConfig.key]: (d as any)[areaConfig.key],
@@ -170,42 +210,60 @@ export const ComposedChartCard = ({ data, title, unit, areaConfig, lineConfig, s
 
   if (!hasAreaData && !hasLineData) return null;
 
+  const chartContent = (
+    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+      <ComposedChart data={chartData}>
+        <defs>
+          <linearGradient id={`grad-${areaConfig.key}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor={areaConfig.color} stopOpacity={0.4} />
+            <stop offset="95%" stopColor={areaConfig.color} stopOpacity={0.0} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+        <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
+        <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} unit={` ${unit}`} />
+        <Tooltip content={<CustomTooltip unit={unit} />} />
+        {hasAreaData && (
+          <Area type="monotone" dataKey={areaConfig.key} name={areaConfig.name} stroke={areaConfig.color} strokeWidth={2} fill={`url(#grad-${areaConfig.key})`} connectNulls />
+        )}
+        {hasLineData && (
+          <Line type="monotone" dataKey={lineConfig.key} name={lineConfig.name} stroke={lineConfig.color} strokeWidth={0} dot={{ r: 3, fill: lineConfig.color, strokeWidth: 0 }} activeDot={{ r: 5 }} connectNulls={false} />
+        )}
+      </ComposedChart>
+    </ResponsiveContainer>
+  );
+
   return (
-    <div ref={chartRef} className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title}</h3>
-        <button
-          className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-          aria-label={`Download ${title} as image`}
-          onClick={() => { if (chartRef.current) exportChartAsPng(chartRef.current, { title, stationName, country }); }}
-        >
-          <Download size={16} />
-        </button>
+    <>
+      <div ref={chartRef} className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title}</h3>
+          <div className="flex items-center gap-1">
+            <button
+              className="hidden md:flex p-2 min-w-[44px] min-h-[44px] items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+              aria-label={`Expand ${title}`}
+              onClick={() => setIsExpanded(true)}
+            >
+              <Maximize2 size={16} />
+            </button>
+            <button
+              className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+              aria-label={`Download ${title} as image`}
+              onClick={() => { if (chartRef.current) exportChartAsPng(chartRef.current, { title, stationName, country }); }}
+            >
+              <Download size={16} />
+            </button>
+          </div>
+        </div>
+        <span className="sr-only">Data visualization for {title}. Contains {chartData.length} observation points.</span>
+        <div className="flex-1 w-full min-h-0">
+          {chartContent}
+        </div>
       </div>
-      <span className="sr-only">Data visualization for {title}. Contains {chartData.length} observation points.</span>
-      <div className="flex-1 w-full min-h-0">
-        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-          <ComposedChart data={chartData}>
-            <defs>
-              <linearGradient id={`grad-${areaConfig.key}`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor={areaConfig.color} stopOpacity={0.4} />
-                <stop offset="95%" stopColor={areaConfig.color} stopOpacity={0.0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-            <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
-            <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} unit={` ${unit}`} />
-            <Tooltip content={<CustomTooltip unit={unit} />} />
-            {hasAreaData && (
-              <Area type="monotone" dataKey={areaConfig.key} name={areaConfig.name} stroke={areaConfig.color} strokeWidth={2} fill={`url(#grad-${areaConfig.key})`} connectNulls />
-            )}
-            {hasLineData && (
-              <Line type="monotone" dataKey={lineConfig.key} name={lineConfig.name} stroke={lineConfig.color} strokeWidth={0} dot={{ r: 3, fill: lineConfig.color, strokeWidth: 0 }} activeDot={{ r: 5 }} connectNulls={false} />
-            )}
-          </ComposedChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
+      <ChartModal title={title} isOpen={isExpanded} onClose={() => setIsExpanded(false)} stationName={stationName} country={country}>
+        {chartContent}
+      </ChartModal>
+    </>
   );
 };
 
@@ -214,6 +272,7 @@ export const DivergingBarChartCard = ({ data, title, unit, dataKey, name, posCol
   data: HourlyRow[], title: string, unit: string, dataKey: string, name: string, posColor?: string, negColor?: string, stationName?: string, country?: string
 }) => {
   const chartRef = useRef<HTMLDivElement>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
   const chartData = useMemo(() => data.map(d => ({
     time: formatDate(d.datetime),
     [dataKey]: (d as any)[dataKey],
@@ -223,37 +282,55 @@ export const DivergingBarChartCard = ({ data, title, unit, dataKey, name, posCol
 
   if (!hasData) return null;
 
+  const chartContent = (
+    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+      <BarChart data={chartData}>
+        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+        <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
+        <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} unit={` ${unit}`} domain={['auto', 'auto']} />
+        <Tooltip content={<CustomTooltip unit={unit} />} />
+        <ReferenceLine y={0} stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="4 2" />
+        <Bar dataKey={dataKey} name={name} radius={[3, 3, 0, 0]}>
+          {chartData.map((entry, index) => {
+            const val = entry[dataKey] as number | undefined;
+            return <Cell key={`cell-${index}`} fill={val !== undefined && val !== null && val >= 0 ? posColor : negColor} />;
+          })}
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  );
+
   return (
-    <div ref={chartRef} className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title}</h3>
-        <button
-          className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-          aria-label={`Download ${title} as image`}
-          onClick={() => { if (chartRef.current) exportChartAsPng(chartRef.current, { title, stationName, country }); }}
-        >
-          <Download size={16} />
-        </button>
+    <>
+      <div ref={chartRef} className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title}</h3>
+          <div className="flex items-center gap-1">
+            <button
+              className="hidden md:flex p-2 min-w-[44px] min-h-[44px] items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+              aria-label={`Expand ${title}`}
+              onClick={() => setIsExpanded(true)}
+            >
+              <Maximize2 size={16} />
+            </button>
+            <button
+              className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+              aria-label={`Download ${title} as image`}
+              onClick={() => { if (chartRef.current) exportChartAsPng(chartRef.current, { title, stationName, country }); }}
+            >
+              <Download size={16} />
+            </button>
+          </div>
+        </div>
+        <span className="sr-only">Data visualization for {title}. Contains {chartData.length} observation points.</span>
+        <div className="flex-1 w-full min-h-0">
+          {chartContent}
+        </div>
       </div>
-      <span className="sr-only">Data visualization for {title}. Contains {chartData.length} observation points.</span>
-      <div className="flex-1 w-full min-h-0">
-        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-          <BarChart data={chartData}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-            <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
-            <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} unit={` ${unit}`} domain={['auto', 'auto']} />
-            <Tooltip content={<CustomTooltip unit={unit} />} />
-            <ReferenceLine y={0} stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="4 2" />
-            <Bar dataKey={dataKey} name={name} radius={[3, 3, 0, 0]}>
-              {chartData.map((entry, index) => {
-                const val = entry[dataKey] as number | undefined;
-                return <Cell key={`cell-${index}`} fill={val !== undefined && val !== null && val >= 0 ? posColor : negColor} />;
-              })}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
+      <ChartModal title={title} isOpen={isExpanded} onClose={() => setIsExpanded(false)} stationName={stationName} country={country}>
+        {chartContent}
+      </ChartModal>
+    </>
   );
 };
 
@@ -267,6 +344,7 @@ export const DualAxisChartCard = ({ data, title, leftConfig, rightConfig, statio
   country?: string,
 }) => {
   const chartRef = useRef<HTMLDivElement>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
   const chartData = useMemo(() => data.map(d => ({
     time: formatDate(d.datetime),
     [leftConfig.key]: (d as any)[leftConfig.key],
@@ -302,79 +380,97 @@ export const DualAxisChartCard = ({ data, title, leftConfig, rightConfig, statio
     return null;
   };
 
+  const chartContent = (
+    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+      <ComposedChart data={chartData}>
+        <defs>
+          <linearGradient id={`grad-dual-${leftConfig.key}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor={leftConfig.color} stopOpacity={0.4} />
+            <stop offset="95%" stopColor={leftConfig.color} stopOpacity={0.0} />
+          </linearGradient>
+          <linearGradient id={`grad-dual-${rightConfig.key}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor={rightConfig.color} stopOpacity={0.3} />
+            <stop offset="95%" stopColor={rightConfig.color} stopOpacity={0.0} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+        <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
+        <YAxis
+          yAxisId="left"
+          stroke={leftConfig.color}
+          fontSize={11}
+          tickLine={false}
+          unit={` ${leftConfig.unit}`}
+          domain={[0, 100]}
+        />
+        <YAxis
+          yAxisId="right"
+          orientation="right"
+          stroke={rightConfig.color}
+          fontSize={11}
+          tickLine={false}
+          unit={` ${rightConfig.unit}`}
+          domain={["auto", "auto"]}
+        />
+        <Tooltip content={<DualTooltip />} />
+        {hasLeftData && (
+          <Area
+            yAxisId="left"
+            type="monotone"
+            dataKey={leftConfig.key}
+            name={leftConfig.name}
+            stroke={leftConfig.color}
+            strokeWidth={2}
+            fill={`url(#grad-dual-${leftConfig.key})`}
+            connectNulls
+          />
+        )}
+        {hasRightData && (
+          <Line
+            yAxisId="right"
+            type="monotone"
+            dataKey={rightConfig.key}
+            name={rightConfig.name}
+            stroke={rightConfig.color}
+            strokeWidth={2}
+            dot={false}
+            connectNulls
+          />
+        )}
+      </ComposedChart>
+    </ResponsiveContainer>
+  );
+
   return (
-    <div ref={chartRef} className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title}</h3>
-        <button
-          className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-          aria-label={`Download ${title} as image`}
-          onClick={() => { if (chartRef.current) exportChartAsPng(chartRef.current, { title, stationName, country }); }}
-        >
-          <Download size={16} />
-        </button>
+    <>
+      <div ref={chartRef} className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title}</h3>
+          <div className="flex items-center gap-1">
+            <button
+              className="hidden md:flex p-2 min-w-[44px] min-h-[44px] items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+              aria-label={`Expand ${title}`}
+              onClick={() => setIsExpanded(true)}
+            >
+              <Maximize2 size={16} />
+            </button>
+            <button
+              className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+              aria-label={`Download ${title} as image`}
+              onClick={() => { if (chartRef.current) exportChartAsPng(chartRef.current, { title, stationName, country }); }}
+            >
+              <Download size={16} />
+            </button>
+          </div>
+        </div>
+        <span className="sr-only">Data visualization for {title}. Contains {chartData.length} observation points.</span>
+        <div className="flex-1 w-full min-h-0">
+          {chartContent}
+        </div>
       </div>
-      <span className="sr-only">Data visualization for {title}. Contains {chartData.length} observation points.</span>
-      <div className="flex-1 w-full min-h-0">
-        <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-          <ComposedChart data={chartData}>
-            <defs>
-              <linearGradient id={`grad-dual-${leftConfig.key}`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor={leftConfig.color} stopOpacity={0.4} />
-                <stop offset="95%" stopColor={leftConfig.color} stopOpacity={0.0} />
-              </linearGradient>
-              <linearGradient id={`grad-dual-${rightConfig.key}`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor={rightConfig.color} stopOpacity={0.3} />
-                <stop offset="95%" stopColor={rightConfig.color} stopOpacity={0.0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-            <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
-            <YAxis
-              yAxisId="left"
-              stroke={leftConfig.color}
-              fontSize={11}
-              tickLine={false}
-              unit={` ${leftConfig.unit}`}
-              domain={[0, 100]}
-            />
-            <YAxis
-              yAxisId="right"
-              orientation="right"
-              stroke={rightConfig.color}
-              fontSize={11}
-              tickLine={false}
-              unit={` ${rightConfig.unit}`}
-              domain={["auto", "auto"]}
-            />
-            <Tooltip content={<DualTooltip />} />
-            {hasLeftData && (
-              <Area
-                yAxisId="left"
-                type="monotone"
-                dataKey={leftConfig.key}
-                name={leftConfig.name}
-                stroke={leftConfig.color}
-                strokeWidth={2}
-                fill={`url(#grad-dual-${leftConfig.key})`}
-                connectNulls
-              />
-            )}
-            {hasRightData && (
-              <Line
-                yAxisId="right"
-                type="monotone"
-                dataKey={rightConfig.key}
-                name={rightConfig.name}
-                stroke={rightConfig.color}
-                strokeWidth={2}
-                dot={false}
-                connectNulls
-              />
-            )}
-          </ComposedChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
+      <ChartModal title={title} isOpen={isExpanded} onClose={() => setIsExpanded(false)} stationName={stationName} country={country}>
+        {chartContent}
+      </ChartModal>
+    </>
   );
 };

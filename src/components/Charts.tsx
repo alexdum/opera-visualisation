@@ -1,6 +1,7 @@
-import React, { useMemo, useRef } from "react";
-import { Download } from "lucide-react";
+import React, { useMemo, useRef, useState } from "react";
+import { Download, Maximize2 } from "lucide-react";
 import { exportChartAsPng } from "@/utils/chartExport";
+import { ChartModal } from "./ChartModal";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -118,84 +119,103 @@ export const ClimateChart: React.FC<ChartsProps> = ({ data, parameter, stationNa
   }
 
   const isPrecip = parameter === "precipitation_amount";
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  const chartContent = (
+    <ResponsiveContainer width="100%" height="100%">
+      {isPrecip ? (
+        <BarChart data={chartData}>
+          <defs>
+            <linearGradient id="precipGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8} />
+              <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.2} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+          <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
+          <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} unit={` ${config.unit}`} domain={[0, 'auto']} />
+          <Tooltip
+            contentStyle={{
+              background: "rgba(255, 255, 255, 0.95)",
+              borderRadius: "12px",
+              border: "1px solid #e2e8f0",
+              boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.05)",
+              fontFamily: "Inter, sans-serif",
+            }}
+          />
+          <Bar dataKey="value" fill={config.fill} radius={[4, 4, 0, 0]} />
+        </BarChart>
+      ) : (
+        <AreaChart data={chartData}>
+          <defs>
+            <linearGradient id="tempGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.4} />
+              <stop offset="95%" stopColor="#f43f5e" stopOpacity={0.0} />
+            </linearGradient>
+            <linearGradient id="windGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.4} />
+              <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.0} />
+            </linearGradient>
+            <linearGradient id="pressGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
+              <stop offset="95%" stopColor="#10b981" stopOpacity={0.0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+          <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
+          <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} unit={` ${config.unit}`} domain={["auto", "auto"]} />
+          <Tooltip
+            contentStyle={{
+              background: "rgba(255, 255, 255, 0.95)",
+              borderRadius: "12px",
+              border: "1px solid #e2e8f0",
+              boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.05)",
+              fontFamily: "Inter, sans-serif",
+            }}
+          />
+          <Area
+            type="monotone"
+            dataKey="value"
+            stroke={config.color}
+            strokeWidth={2.5}
+            fill={config.fill}
+          />
+        </AreaChart>
+      )}
+    </ResponsiveContainer>
+  );
 
   return (
-    <div ref={chartRef} className="w-full h-[360px] glass-card heavy-chart rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${config.title} chart`}>
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{config.title}</h3>
-        <button
-          className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-          aria-label={`Download ${config.title} as image`}
-          onClick={() => { if (chartRef.current) exportChartAsPng(chartRef.current, { title: config.title, stationName, country }); }}
-        >
-          <Download size={16} />
-        </button>
+    <>
+      <div ref={chartRef} className="w-full h-[360px] glass-card heavy-chart rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${config.title} chart`}>
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{config.title}</h3>
+          <div className="flex items-center gap-1">
+            <button
+              className="hidden md:flex p-2 min-w-[44px] min-h-[44px] items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+              aria-label={`Expand ${config.title}`}
+              onClick={() => setIsExpanded(true)}
+            >
+              <Maximize2 size={16} />
+            </button>
+            <button
+              className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+              aria-label={`Download ${config.title} as image`}
+              onClick={() => { if (chartRef.current) exportChartAsPng(chartRef.current, { title: config.title, stationName, country }); }}
+            >
+              <Download size={16} />
+            </button>
+          </div>
+        </div>
+        <span className="sr-only">Data visualization for {config.title}. Contains {chartData.length} observation points.</span>
+        <div className="flex-1 w-full min-h-0">
+          {chartContent}
+        </div>
       </div>
-      <span className="sr-only">Data visualization for {config.title}. Contains {chartData.length} observation points.</span>
-      <div className="flex-1 w-full min-h-0">
-        <ResponsiveContainer width="100%" height="100%">
-          {isPrecip ? (
-            <BarChart data={chartData}>
-              <defs>
-                <linearGradient id="precipGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8} />
-                  <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.2} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-              <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
-              <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} unit={` ${config.unit}`} domain={[0, 'auto']} />
-              <Tooltip
-                contentStyle={{
-                  background: "rgba(255, 255, 255, 0.95)",
-                  borderRadius: "12px",
-                  border: "1px solid #e2e8f0",
-                  boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.05)",
-                  fontFamily: "Inter, sans-serif",
-                }}
-              />
-              <Bar dataKey="value" fill={config.fill} radius={[4, 4, 0, 0]} />
-            </BarChart>
-          ) : (
-            <AreaChart data={chartData}>
-              <defs>
-                <linearGradient id="tempGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.4} />
-                  <stop offset="95%" stopColor="#f43f5e" stopOpacity={0.0} />
-                </linearGradient>
-                <linearGradient id="windGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.4} />
-                  <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.0} />
-                </linearGradient>
-                <linearGradient id="pressGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
-                  <stop offset="95%" stopColor="#10b981" stopOpacity={0.0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-              <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
-              <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} unit={` ${config.unit}`} domain={["auto", "auto"]} />
-              <Tooltip
-                contentStyle={{
-                  background: "rgba(255, 255, 255, 0.95)",
-                  borderRadius: "12px",
-                  border: "1px solid #e2e8f0",
-                  boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.05)",
-                  fontFamily: "Inter, sans-serif",
-                }}
-              />
-              <Area
-                type="monotone"
-                dataKey="value"
-                stroke={config.color}
-                strokeWidth={2.5}
-                fill={config.fill}
-              />
-            </AreaChart>
-          )}
-        </ResponsiveContainer>
-      </div>
-    </div>
+      <ChartModal title={config.title} isOpen={isExpanded} onClose={() => setIsExpanded(false)} stationName={stationName} country={country}>
+        {chartContent}
+      </ChartModal>
+    </>
   );
 };
 
@@ -203,6 +223,7 @@ export const ClimateChart: React.FC<ChartsProps> = ({ data, parameter, stationNa
 export const WindRose: React.FC<{ data: HourlyRow[]; stationName?: string; country?: string }> = ({ data, stationName, country }) => {
   const chartRef = useRef<HTMLDivElement>(null);
   const [tooltip, setTooltip] = React.useState<{ x: number; y: number; item: any } | null>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
   const directions = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
   
   // Calculate frequencies by direction & speed classes
@@ -297,16 +318,26 @@ export const WindRose: React.FC<{ data: HourlyRow[]; stationName?: string; count
   };
 
   return (
+    <>
     <div ref={chartRef} className="w-full h-[360px] glass-card heavy-chart rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4 relative" role="figure" aria-label="Wind Rose Distribution chart">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">Wind Rose Distribution</h3>
-        <button
-          className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-          aria-label="Download Wind Rose Distribution as image"
-          onClick={() => { if (chartRef.current) exportChartAsPng(chartRef.current, { title: "Wind Rose Distribution", stationName, country }); }}
-        >
-          <Download size={16} />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            className="hidden md:flex p-2 min-w-[44px] min-h-[44px] items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+            aria-label="Expand Wind Rose Distribution"
+            onClick={() => setIsExpanded(true)}
+          >
+            <Maximize2 size={16} />
+          </button>
+          <button
+            className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+            aria-label="Download Wind Rose Distribution as image"
+            onClick={() => { if (chartRef.current) exportChartAsPng(chartRef.current, { title: "Wind Rose Distribution", stationName, country }); }}
+          >
+            <Download size={16} />
+          </button>
+        </div>
       </div>
       <span className="sr-only">Data visualization for Wind Rose Distribution. Contains {roseData.totalValid} observation points.</span>
       <div className="flex-1 flex flex-col sm:flex-row items-center justify-center gap-6 pr-2">
@@ -481,5 +512,60 @@ export const WindRose: React.FC<{ data: HourlyRow[]; stationName?: string; count
         </div>
       )}
     </div>
+    <ChartModal title="Wind Rose Distribution" isOpen={isExpanded} onClose={() => setIsExpanded(false)} stationName={stationName} country={country}>
+      <div className="flex items-center justify-center w-full h-full">
+        <svg width="100%" height="100%" viewBox="0 0 300 300" className="drop-shadow-sm max-w-[600px] max-h-[600px]">
+          <rect x="0" y="0" width="300" height="300" fill="white" rx="8" />
+          {[0.25, 0.5, 0.75, 1.0].map((ratio) => (
+            <circle key={ratio} cx={cx} cy={cy} r={maxRadius * ratio} fill="none" stroke="#e2e8f0" strokeWidth={1} />
+          ))}
+          {directions.map((d, i) => {
+            const angle = (i * 45 - 90) * (Math.PI / 180);
+            const x2 = cx + maxRadius * Math.cos(angle);
+            const y2 = cy + maxRadius * Math.sin(angle);
+            const labelR = maxRadius + 16;
+            const lx = cx + labelR * Math.cos(angle);
+            const ly = cy + labelR * Math.sin(angle);
+            return (
+              <g key={d}>
+                <line x1={cx} y1={cy} x2={x2} y2={y2} stroke="#e2e8f0" strokeWidth={1} />
+                <text x={lx} y={ly} textAnchor="middle" dominantBaseline="central" fontSize={11} fontWeight="bold" fill="#64748b">{d}</text>
+              </g>
+            );
+          })}
+          {roseData.dataPoints.map((item: { dir: string; c1: number; c2: number; c3: number; c4: number; c5: number }) => {
+            const angleIndex = directions.indexOf(item.dir);
+            const angle = (angleIndex * 45 - 90) * (Math.PI / 180);
+            const classes = ["c1", "c2", "c3", "c4", "c5"] as const;
+            const colors = ["#34d399", "#fbbf24", "#fb923c", "#fb7185", "#d946ef"];
+            let cumulative = 0;
+            return (
+              <g key={item.dir}>
+                {classes.map((cls, ci) => {
+                  const val = item[cls];
+                  if (val <= 0) return null;
+                  const innerR = getRadius(cumulative);
+                  const outerR = getRadius(cumulative + val);
+                  cumulative += val;
+                  const halfAngle = 20 * (Math.PI / 180);
+                  const x1 = cx + innerR * Math.cos(angle - halfAngle);
+                  const y1 = cy + innerR * Math.sin(angle - halfAngle);
+                  const x2 = cx + outerR * Math.cos(angle - halfAngle);
+                  const y2t = cy + outerR * Math.sin(angle - halfAngle);
+                  const x3 = cx + outerR * Math.cos(angle + halfAngle);
+                  const y3 = cy + outerR * Math.sin(angle + halfAngle);
+                  const x4 = cx + innerR * Math.cos(angle + halfAngle);
+                  const y4 = cy + innerR * Math.sin(angle + halfAngle);
+                  return (
+                    <path key={cls} d={`M${x1},${y1} L${x2},${y2t} A${outerR},${outerR} 0 0,1 ${x3},${y3} L${x4},${y4} A${innerR},${innerR} 0 0,0 ${x1},${y1} Z`} fill={colors[ci]} fillOpacity={0.85} stroke="white" strokeWidth={1} />
+                  );
+                })}
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    </ChartModal>
+    </>
   );
 };
