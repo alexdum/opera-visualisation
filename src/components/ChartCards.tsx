@@ -1,4 +1,6 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useRef } from "react";
+import { Download } from "lucide-react";
+import { exportChartAsPng } from "@/utils/chartExport";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -50,7 +52,8 @@ const CustomTooltip = ({ active, payload, label, unit }: any) => {
 };
 
 // Generic Area Chart Card
-export const AreaChartCard = ({ data, title, unit, config }: { data: HourlyRow[], title: string, unit: string, config: { key: string, name: string, color: string }[] }) => {
+export const AreaChartCard = ({ data, title, unit, config, stationName, country }: { data: HourlyRow[], title: string, unit: string, config: { key: string, name: string, color: string }[], stationName?: string, country?: string }) => {
+  const chartRef = useRef<HTMLDivElement>(null);
   const chartData = useMemo(() => data.map(d => {
     const row: any = { time: formatDate(d.datetime) };
     config.forEach(c => row[c.key] = (d as any)[c.key]);
@@ -62,8 +65,17 @@ export const AreaChartCard = ({ data, title, unit, config }: { data: HourlyRow[]
   if (!hasData) return null;
 
   return (
-    <div className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
-      <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title}</h3>
+    <div ref={chartRef} className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title}</h3>
+        <button
+          className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+          aria-label={`Download ${title} as image`}
+          onClick={() => { if (chartRef.current) exportChartAsPng(chartRef.current, { title, stationName, country }); }}
+        >
+          <Download size={16} />
+        </button>
+      </div>
       <span className="sr-only">Data visualization for {title}. Contains {chartData.length} observation points.</span>
       <div className="flex-1 w-full min-h-0">
         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
@@ -93,7 +105,8 @@ export const AreaChartCard = ({ data, title, unit, config }: { data: HourlyRow[]
 };
 
 // Generic Bar Chart Card
-export const BarChartCard = ({ data, title, unit, config, stacked = false }: { data: HourlyRow[], title: string, unit: string, config: { key: string, name: string, color: string }[], stacked?: boolean }) => {
+export const BarChartCard = ({ data, title, unit, config, stacked = false, stationName, country }: { data: HourlyRow[], title: string, unit: string, config: { key: string, name: string, color: string }[], stacked?: boolean, stationName?: string, country?: string }) => {
+  const chartRef = useRef<HTMLDivElement>(null);
   const chartData = useMemo(() => data.map(d => {
     const row: any = { time: formatDate(d.datetime) };
     config.forEach(c => {
@@ -112,8 +125,17 @@ export const BarChartCard = ({ data, title, unit, config, stacked = false }: { d
   if (!hasData) return null;
 
   return (
-    <div className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
-      <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title}</h3>
+    <div ref={chartRef} className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title}</h3>
+        <button
+          className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+          aria-label={`Download ${title} as image`}
+          onClick={() => { if (chartRef.current) exportChartAsPng(chartRef.current, { title, stationName, country }); }}
+        >
+          <Download size={16} />
+        </button>
+      </div>
       <span className="sr-only">Data visualization for {title}. Contains {chartData.length} observation points.</span>
       <div className="flex-1 w-full min-h-0">
         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
@@ -135,7 +157,8 @@ export const BarChartCard = ({ data, title, unit, config, stacked = false }: { d
 };
 
 // Generic Composed Chart Card (Area + Line)
-export const ComposedChartCard = ({ data, title, unit, areaConfig, lineConfig }: { data: HourlyRow[], title: string, unit: string, areaConfig: { key: string, name: string, color: string }, lineConfig: { key: string, name: string, color: string } }) => {
+export const ComposedChartCard = ({ data, title, unit, areaConfig, lineConfig, stationName, country }: { data: HourlyRow[], title: string, unit: string, areaConfig: { key: string, name: string, color: string }, lineConfig: { key: string, name: string, color: string }, stationName?: string, country?: string }) => {
+  const chartRef = useRef<HTMLDivElement>(null);
   const chartData = useMemo(() => data.map(d => ({
     time: formatDate(d.datetime),
     [areaConfig.key]: (d as any)[areaConfig.key],
@@ -148,8 +171,17 @@ export const ComposedChartCard = ({ data, title, unit, areaConfig, lineConfig }:
   if (!hasAreaData && !hasLineData) return null;
 
   return (
-    <div className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
-      <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title}</h3>
+    <div ref={chartRef} className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title}</h3>
+        <button
+          className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+          aria-label={`Download ${title} as image`}
+          onClick={() => { if (chartRef.current) exportChartAsPng(chartRef.current, { title, stationName, country }); }}
+        >
+          <Download size={16} />
+        </button>
+      </div>
       <span className="sr-only">Data visualization for {title}. Contains {chartData.length} observation points.</span>
       <div className="flex-1 w-full min-h-0">
         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
@@ -178,9 +210,10 @@ export const ComposedChartCard = ({ data, title, unit, areaConfig, lineConfig }:
 };
 
 // Diverging Bar Chart Card (bars above/below zero, dual-colored)
-export const DivergingBarChartCard = ({ data, title, unit, dataKey, name, posColor = "#43a047", negColor = "#e53935" }: {
-  data: HourlyRow[], title: string, unit: string, dataKey: string, name: string, posColor?: string, negColor?: string
+export const DivergingBarChartCard = ({ data, title, unit, dataKey, name, posColor = "#43a047", negColor = "#e53935", stationName, country }: {
+  data: HourlyRow[], title: string, unit: string, dataKey: string, name: string, posColor?: string, negColor?: string, stationName?: string, country?: string
 }) => {
+  const chartRef = useRef<HTMLDivElement>(null);
   const chartData = useMemo(() => data.map(d => ({
     time: formatDate(d.datetime),
     [dataKey]: (d as any)[dataKey],
@@ -191,8 +224,17 @@ export const DivergingBarChartCard = ({ data, title, unit, dataKey, name, posCol
   if (!hasData) return null;
 
   return (
-    <div className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
-      <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title}</h3>
+    <div ref={chartRef} className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title}</h3>
+        <button
+          className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+          aria-label={`Download ${title} as image`}
+          onClick={() => { if (chartRef.current) exportChartAsPng(chartRef.current, { title, stationName, country }); }}
+        >
+          <Download size={16} />
+        </button>
+      </div>
       <span className="sr-only">Data visualization for {title}. Contains {chartData.length} observation points.</span>
       <div className="flex-1 w-full min-h-0">
         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
@@ -216,12 +258,15 @@ export const DivergingBarChartCard = ({ data, title, unit, dataKey, name, posCol
 };
 
 // Dual-Axis Chart Card (left Y-axis + right Y-axis with different units)
-export const DualAxisChartCard = ({ data, title, leftConfig, rightConfig }: {
+export const DualAxisChartCard = ({ data, title, leftConfig, rightConfig, stationName, country }: {
   data: HourlyRow[],
   title: string,
   leftConfig: { key: string, name: string, color: string, unit: string },
   rightConfig: { key: string, name: string, color: string, unit: string },
+  stationName?: string,
+  country?: string,
 }) => {
+  const chartRef = useRef<HTMLDivElement>(null);
   const chartData = useMemo(() => data.map(d => ({
     time: formatDate(d.datetime),
     [leftConfig.key]: (d as any)[leftConfig.key],
@@ -258,8 +303,17 @@ export const DualAxisChartCard = ({ data, title, leftConfig, rightConfig }: {
   };
 
   return (
-    <div className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
-      <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title}</h3>
+    <div ref={chartRef} className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title}</h3>
+        <button
+          className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+          aria-label={`Download ${title} as image`}
+          onClick={() => { if (chartRef.current) exportChartAsPng(chartRef.current, { title, stationName, country }); }}
+        >
+          <Download size={16} />
+        </button>
+      </div>
       <span className="sr-only">Data visualization for {title}. Contains {chartData.length} observation points.</span>
       <div className="flex-1 w-full min-h-0">
         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>

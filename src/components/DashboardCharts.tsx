@@ -53,7 +53,7 @@ function u(units: Record<string, string>, key: string, fallback: string): string
   return units[key] || fallback;
 }
 
-export const DashboardCharts: React.FC<{ data: HourlyRow[]; units?: Record<string, string> }> = ({ data, units = {} }) => {
+export const DashboardCharts: React.FC<{ data: HourlyRow[]; units?: Record<string, string>; stationName?: string; country?: string }> = ({ data, units = {}, stationName, country }) => {
   // Determine which precipitation columns have actual non-zero data
   const precipCharts = PRECIP_KEYS.filter(({ key }) => hasNonZeroData(data, key));
   const sunshineCharts = SUNSHINE_KEYS.filter(({ key }) => hasNonZeroData(data, key));
@@ -467,6 +467,8 @@ export const DashboardCharts: React.FC<{ data: HourlyRow[]; units?: Record<strin
             { key: "temperature", name: "Temperature", color: "#b71c1c" },
             { key: "tempMin", name: "Min Temp", color: "#1976d2" }
           ]} 
+          stationName={stationName}
+          country={country}
         />
       )}
       {hasHumidityDewPoint && (
@@ -475,6 +477,8 @@ export const DashboardCharts: React.FC<{ data: HourlyRow[]; units?: Record<strin
           title="Humidity & Dew Point" 
           leftConfig={{ key: "humidity", name: "Relative Humidity", color: "#43a047", unit: u(units, "humidity", "%") }}
           rightConfig={{ key: "dewPoint", name: "Dew Point", color: "#1e88e5", unit: u(units, "dewPoint", "°C") }}
+          stationName={stationName}
+          country={country}
         />
       )}
 
@@ -488,6 +492,8 @@ export const DashboardCharts: React.FC<{ data: HourlyRow[]; units?: Record<strin
           config={[
             { key, name: label, color: "#0277bd" }
           ]} 
+          stationName={stationName}
+          country={country}
         />
       ))}
 
@@ -505,6 +511,8 @@ export const DashboardCharts: React.FC<{ data: HourlyRow[]; units?: Record<strin
               ? [{ key: "rainfallRate", name: "Rainfall Rate", color: "#4FC3F7" }]
               : []),
           ]}
+          stationName={stationName}
+          country={country}
         />
       )}
 
@@ -518,6 +526,8 @@ export const DashboardCharts: React.FC<{ data: HourlyRow[]; units?: Record<strin
             { key: "snowDepth", name: "Snow Depth", color: "#90CAF9" },
             { key: "snowFresh", name: "Fresh Snow", color: "#B0BEC5" }
           ]} 
+          stationName={stationName}
+          country={country}
         />
       )}
       {hasGroundTemp && (
@@ -529,6 +539,8 @@ export const DashboardCharts: React.FC<{ data: HourlyRow[]; units?: Record<strin
             { key: "tempMinGround", name: "Min Ground Temp", color: "#388E3C" },
             { key: "tempMin50cm", name: "Min Temp at 50cm", color: "#795548" }
           ]} 
+          stationName={stationName}
+          country={country}
         />
       )}
       {hasSoilTemp && (
@@ -541,6 +553,8 @@ export const DashboardCharts: React.FC<{ data: HourlyRow[]; units?: Record<strin
             { key: "soilTemp20cm", name: "20cm Depth", color: "#A1887F" },
             { key: "soilTemp50cm", name: "50cm Depth", color: "#795548" }
           ]} 
+          stationName={stationName}
+          country={country}
         />
       )}
       {hasPressure && (
@@ -552,6 +566,8 @@ export const DashboardCharts: React.FC<{ data: HourlyRow[]; units?: Record<strin
             { key: "pressure", name: "Sea Level Pressure", color: "#AB47BC" },
             { key: "pressureStation", name: "Station Pressure", color: "#7B1FA2" }
           ]} 
+          stationName={stationName}
+          country={country}
         />
       )}
 
@@ -565,6 +581,8 @@ export const DashboardCharts: React.FC<{ data: HourlyRow[]; units?: Record<strin
           name="Pressure Tendency"
           posColor="#43a047"
           negColor="#e53935"
+          stationName={stationName}
+          country={country}
         />
       )}
 
@@ -577,6 +595,8 @@ export const DashboardCharts: React.FC<{ data: HourlyRow[]; units?: Record<strin
             { key: "cloudCover", name: "Cloud Cover", color: "#78909C" },
             { key: "cloudCoverLow", name: "Low Cloud", color: "#B0BEC5" }
           ]} 
+          stationName={stationName}
+          country={country}
         />
       )}
       {hasWindSpeed && (
@@ -586,6 +606,8 @@ export const DashboardCharts: React.FC<{ data: HourlyRow[]; units?: Record<strin
           unit={u(units, "windSpeed", "m/s")} 
           areaConfig={{ key: "windSpeed", name: "Wind Speed", color: "#43a047" }}
           lineConfig={{ key: "windGust", name: "Wind Gust", color: "#2e7d32" }}
+          stationName={stationName}
+          country={country}
         />
       )}
       {hasWind2m && (
@@ -595,6 +617,8 @@ export const DashboardCharts: React.FC<{ data: HourlyRow[]; units?: Record<strin
           unit={u(units, "windSpeed2m", "m/s")} 
           areaConfig={{ key: "windSpeed2m", name: "Wind Speed (2m)", color: "#81C784" }}
           lineConfig={{ key: "windGustInst", name: "Instant Gust", color: "#D32F2F" }}
+          stationName={stationName}
+          country={country}
         />
       )}
       {hasVisibility && (
@@ -605,6 +629,8 @@ export const DashboardCharts: React.FC<{ data: HourlyRow[]; units?: Record<strin
           config={[
             { key: "visibility", name: "Visibility", color: "#5D4037" }
           ]} 
+          stationName={stationName}
+          country={country}
         />
       )}
       {hasSolarRadiation && (
@@ -615,6 +641,8 @@ export const DashboardCharts: React.FC<{ data: HourlyRow[]; units?: Record<strin
           config={[
             { key: "solarRadiation", name: "Global Solar Radiation", color: "#FFB300" }
           ]} 
+          stationName={stationName}
+          country={country}
         />
       )}
       {sunshineCharts.map(({ key, label }) => (
@@ -626,6 +654,8 @@ export const DashboardCharts: React.FC<{ data: HourlyRow[]; units?: Record<strin
           config={[
             { key, name: label, color: "#FFD700" }
           ]} 
+          stationName={stationName}
+          country={country}
         />
       ))} 
       {/* ─── UV Index ─── */}
@@ -637,6 +667,8 @@ export const DashboardCharts: React.FC<{ data: HourlyRow[]; units?: Record<strin
           config={[
             { key: "ultravioletIndex", name: "UV Index", color: "#9C27B0" }
           ]}
+          stationName={stationName}
+          country={country}
         />
       )}
 
@@ -648,10 +680,12 @@ export const DashboardCharts: React.FC<{ data: HourlyRow[]; units?: Record<strin
           config={[
             { key: "etp", name: "ETP", color: "#795548" }
           ]} 
+          stationName={stationName}
+          country={country}
         />
       )}
       {hasWindRose && (
-        <WindRose data={data as any} />
+        <WindRose data={data as any} stationName={stationName} country={country} />
       )}
 
       {/* ─── Marine / Ocean Charts (only render for coastal/buoy stations) ─── */}
@@ -662,6 +696,8 @@ export const DashboardCharts: React.FC<{ data: HourlyRow[]; units?: Record<strin
           unit={u(units, "seaSurfaceTemperature", "°C")}
           areaConfig={{ key: "seaSurfaceTemperature", name: "SST", color: "#0097A7" }}
           lineConfig={{ key: "temperature", name: "Air Temp", color: "#FF7043" }}
+          stationName={stationName}
+          country={country}
         />
       )}
 
@@ -672,6 +708,8 @@ export const DashboardCharts: React.FC<{ data: HourlyRow[]; units?: Record<strin
           unit={u(units, "seaSurfaceWaveSignificantHeight", "m")}
           areaConfig={{ key: "seaSurfaceWaveSignificantHeight", name: "Sig. Wave Ht", color: "#0277BD" }}
           lineConfig={{ key: "seaSurfaceWaveMaximumHeight", name: "Max Wave Ht", color: "#E53935" }}
+          stationName={stationName}
+          country={country}
         />
       )}
 
@@ -684,6 +722,8 @@ export const DashboardCharts: React.FC<{ data: HourlyRow[]; units?: Record<strin
             { key: "seaSurfaceWaveMeanPeriod", name: "Mean Period", color: "#00838F" },
             { key: "seaSurfaceWaveSignificantPeriod", name: "Sig. Period", color: "#4DB6AC" },
           ]}
+          stationName={stationName}
+          country={country}
         />
       )}
     </div>

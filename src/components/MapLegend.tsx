@@ -26,7 +26,7 @@ export const MapLegend: React.FC<MapLegendProps> = ({ parameter, values }) => {
   }
 
   return (
-    <div className="hidden md:flex absolute bottom-[140px] left-6 bg-white/90 backdrop-blur-md p-3 rounded-xl shadow-lg border border-slate-200 z-10 font-sans text-xs flex-col">
+    <div className="hidden md:flex absolute bottom-[140px] right-6 bg-white/90 backdrop-blur-md p-3 rounded-xl shadow-lg border border-slate-200 z-10 font-sans text-xs flex-col">
       <div className="font-bold text-slate-700 text-center border-b border-slate-200 pb-2 mb-2">
         {unit}
       </div>

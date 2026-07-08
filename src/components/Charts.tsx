@@ -1,4 +1,6 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useRef } from "react";
+import { Download } from "lucide-react";
+import { exportChartAsPng } from "@/utils/chartExport";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -43,6 +45,8 @@ interface HourlyRow {
 interface ChartsProps {
   data: HourlyRow[];
   parameter: string;
+  stationName?: string;
+  country?: string;
 }
 
 // Helper to format date label
@@ -55,7 +59,8 @@ const formatDate = (isoString: string) => {
   }
 };
 
-export const ClimateChart: React.FC<ChartsProps> = ({ data, parameter }) => {
+export const ClimateChart: React.FC<ChartsProps> = ({ data, parameter, stationName, country }) => {
+  const chartRef = useRef<HTMLDivElement>(null);
   const chartData = useMemo(() => {
     return data.map((row) => {
       let value = 0;
@@ -115,8 +120,17 @@ export const ClimateChart: React.FC<ChartsProps> = ({ data, parameter }) => {
   const isPrecip = parameter === "precipitation_amount";
 
   return (
-    <div className="w-full h-[360px] glass-card heavy-chart rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${config.title} chart`}>
-      <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{config.title}</h3>
+    <div ref={chartRef} className="w-full h-[360px] glass-card heavy-chart rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${config.title} chart`}>
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{config.title}</h3>
+        <button
+          className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+          aria-label={`Download ${config.title} as image`}
+          onClick={() => { if (chartRef.current) exportChartAsPng(chartRef.current, { title: config.title, stationName, country }); }}
+        >
+          <Download size={16} />
+        </button>
+      </div>
       <span className="sr-only">Data visualization for {config.title}. Contains {chartData.length} observation points.</span>
       <div className="flex-1 w-full min-h-0">
         <ResponsiveContainer width="100%" height="100%">
@@ -186,7 +200,8 @@ export const ClimateChart: React.FC<ChartsProps> = ({ data, parameter }) => {
 };
 
 // Hand-crafted high-fidelity SVG Wind Rose Component
-export const WindRose: React.FC<{ data: HourlyRow[] }> = ({ data }) => {
+export const WindRose: React.FC<{ data: HourlyRow[]; stationName?: string; country?: string }> = ({ data, stationName, country }) => {
+  const chartRef = useRef<HTMLDivElement>(null);
   const [tooltip, setTooltip] = React.useState<{ x: number; y: number; item: any } | null>(null);
   const directions = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
   
@@ -282,12 +297,23 @@ export const WindRose: React.FC<{ data: HourlyRow[] }> = ({ data }) => {
   };
 
   return (
-    <div className="w-full h-[360px] glass-card heavy-chart rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4 relative" role="figure" aria-label="Wind Rose Distribution chart">
-      <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">Wind Rose Distribution</h3>
+    <div ref={chartRef} className="w-full h-[360px] glass-card heavy-chart rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4 relative" role="figure" aria-label="Wind Rose Distribution chart">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">Wind Rose Distribution</h3>
+        <button
+          className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+          aria-label="Download Wind Rose Distribution as image"
+          onClick={() => { if (chartRef.current) exportChartAsPng(chartRef.current, { title: "Wind Rose Distribution", stationName, country }); }}
+        >
+          <Download size={16} />
+        </button>
+      </div>
       <span className="sr-only">Data visualization for Wind Rose Distribution. Contains {roseData.totalValid} observation points.</span>
       <div className="flex-1 flex flex-col sm:flex-row items-center justify-center gap-6 pr-2">
         {/* SVG Circle Canvas */}
         <svg width="260" height="260" viewBox="0 0 300 300" className="drop-shadow-sm">
+          {/* White background to match other chart cards */}
+          <rect x="0" y="0" width="300" height="300" fill="white" rx="8" />
           {/* Background grid concentric circles */}
           {[0.25, 0.5, 0.75, 1.0].map((ratio) => (
             <circle

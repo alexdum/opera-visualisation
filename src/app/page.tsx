@@ -1166,7 +1166,7 @@ function EuroMeteoApp() {
 
 	                          {/* Sub-tab: Plots (always mounted, cached when inactive) */}
 	                          <div className={`cached-view ${dashboardSubTab === "plots" ? "is-active" : ""}`}>
-	                            <DashboardCharts data={stationLogs} units={stationUnits} />
+	                            <DashboardCharts data={stationLogs} units={stationUnits} stationName={activeStationDetails?.name} country={activeStationDetails?.country} />
 	                          </div>
 
                           {/* Sub-tab: Data Table (always mounted, cached when inactive) */}
