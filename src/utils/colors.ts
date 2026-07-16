@@ -30,41 +30,41 @@ export const ECMWF_PRECIP_PALETTE = [
   { val: 50, color: "#221b38" }
 ];
 
-// Cividis (17-stop sequential, dark-to-light for pressure)
+// Original ECMWF Sea Level Pressure palette
 export const ECMWF_PRESSURE_PALETTE = [
-  { val: 960, color: "#00224e" },
-  { val: 965, color: "#002e6a" },
-  { val: 970, color: "#1a386f" },
-  { val: 975, color: "#32436d" },
-  { val: 980, color: "#434e6c" },
-  { val: 985, color: "#535a6d" },
-  { val: 990, color: "#61656f" },
-  { val: 995, color: "#6f7073" },
-  { val: 1000, color: "#7d7c78" },
-  { val: 1005, color: "#8c8878" },
-  { val: 1010, color: "#9b9476" },
-  { val: 1015, color: "#aba072" },
-  { val: 1020, color: "#bcae6c" },
-  { val: 1025, color: "#cdbb63" },
-  { val: 1030, color: "#dec958" },
-  { val: 1035, color: "#f0d846" },
-  { val: 1040, color: "#fee838" }
+  { val: 960, color: "#ff00ff" },
+  { val: 965, color: "#ac00e6" },
+  { val: 970, color: "#5a00cd" },
+  { val: 975, color: "#0800b3" },
+  { val: 980, color: "#0047b3" },
+  { val: 985, color: "#008edd" },
+  { val: 990, color: "#00cdff" },
+  { val: 995, color: "#00e695" },
+  { val: 1000, color: "#00d900" },
+  { val: 1005, color: "#7fde00" },
+  { val: 1010, color: "#ccff00" },
+  { val: 1015, color: "#ffea00" },
+  { val: 1020, color: "#ffaa00" },
+  { val: 1025, color: "#ff6600" },
+  { val: 1030, color: "#ff3300" },
+  { val: 1035, color: "#de0000" },
+  { val: 1040, color: "#aa0000" }
 ];
 
-// Reversed Crameri Batlow (12-stop sequential, light-to-dark for wind speed)
+// Standard Crameri Batlow (12-stop sequential, dark-to-light for wind speed)
 export const ECMWF_WIND_PALETTE = [
-  { val: 0, color: "#faccfa" },
-  { val: 0.5, color: "#fdbac7" },
-  { val: 2, color: "#fca995" },
-  { val: 4, color: "#eb9a60" },
-  { val: 6, color: "#c49138" },
-  { val: 10, color: "#97882c" },
-  { val: 15, color: "#6d7c3b" },
-  { val: 20, color: "#48714f" },
-  { val: 25, color: "#27635f" },
-  { val: 30, color: "#165062" },
-  { val: 40, color: "#0f395f" },
-  { val: 50, color: "#011959" }
+  { val: 0, color: "#011959" },
+  { val: 0.5, color: "#0f395f" },
+  { val: 2, color: "#165062" },
+  { val: 4, color: "#27635f" },
+  { val: 6, color: "#48714f" },
+  { val: 10, color: "#6d7c3b" },
+  { val: 15, color: "#97882c" },
+  { val: 20, color: "#c49138" },
+  { val: 25, color: "#eb9a60" },
+  { val: 30, color: "#fca995" },
+  { val: 40, color: "#fdbac7" },
+  { val: 50, color: "#faccfa" }
 ];
 
 const getPaletteForParam = (parameter: string) => {
