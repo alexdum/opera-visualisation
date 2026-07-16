@@ -51,20 +51,20 @@ export const ECMWF_PRESSURE_PALETTE = [
   { val: 1040, color: "#aa0000" }
 ];
 
-// Standard Crameri Batlow (12-stop sequential, dark-to-light for wind speed)
+// Original ECMWF Wind Speed palette
 export const ECMWF_WIND_PALETTE = [
-  { val: 0, color: "#011959" },
-  { val: 0.5, color: "#0f395f" },
-  { val: 2, color: "#165062" },
-  { val: 4, color: "#27635f" },
-  { val: 6, color: "#48714f" },
-  { val: 10, color: "#6d7c3b" },
-  { val: 15, color: "#97882c" },
-  { val: 20, color: "#c49138" },
-  { val: 25, color: "#eb9a60" },
-  { val: 30, color: "#fca995" },
-  { val: 40, color: "#fdbac7" },
-  { val: 50, color: "#faccfa" }
+  { val: 0, color: "#ffffff" },
+  { val: 0.5, color: "#e5f5f9" },
+  { val: 2, color: "#ccece6" },
+  { val: 4, color: "#99d8c9" },
+  { val: 6, color: "#66c2a4" },
+  { val: 10, color: "#41ae76" },
+  { val: 15, color: "#ffeda0" },
+  { val: 20, color: "#feb24c" },
+  { val: 25, color: "#f03b20" },
+  { val: 30, color: "#bd0026" },
+  { val: 40, color: "#7a0177" },
+  { val: 50, color: "#4a004a" }
 ];
 
 const getPaletteForParam = (parameter: string) => {
