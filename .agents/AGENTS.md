@@ -69,3 +69,12 @@ When implementing metric or summary cards for dashboards:
 1. **Never hide information behind hover states or tooltips**: Do not use CSS tooltips, hover effects, or interactive reveals to display secondary text (e.g., subtext, definitions, or descriptions) on summary cards.
 2. **Display all information visibly**: Ensure all relevant text is permanently visible on the card. Use proper text wrapping (`break-words`, `leading-tight`) instead of truncating text (`truncate`) so users can read the full context at a glance without interaction.
 <!-- END:ui-ux-summary-cards-rule -->
+
+<!-- BEGIN:ui-ux-legend-alignment-rule -->
+## UI/UX: Step-based Map Legend Alignment
+
+When implementing or modifying map legends for continuous fields that are binned into intervals (step functions/thresholds):
+1. **Align labels to boundaries**: The text labels represent the boundaries between color intervals (e.g., `-40` marks the boundary for the interval `[-40, -38)`). They MUST be aligned exactly on the border lines separating the color blocks.
+2. **Avoid vertical centering**: Do not vertically center the labels inside the color blocks.
+3. **Implementation**: Use absolute positioning (e.g., `bottom: 0, transform: 'translateY(50%)'`) to position the text label precisely across the dividing border line between intervals.
+<!-- END:ui-ux-legend-alignment-rule -->
