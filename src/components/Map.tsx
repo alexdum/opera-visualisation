@@ -873,7 +873,7 @@ export const WeatherMap: React.FC<MapProps> = ({
       </div>
 
       {/* Map Legend */}
-      <MapLegend parameter={parameter} values={currentValues} />
+      <MapLegend parameter={parameter} values={visibleStats ? [visibleStats.min, visibleStats.max] : currentValues} />
 
       {/* Visible Extent Summary Cards */}
       {visibleStats && (
