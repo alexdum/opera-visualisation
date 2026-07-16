@@ -77,4 +77,6 @@ When implementing or modifying map legends for continuous fields that are binned
 1. **Align labels to boundaries**: The text labels represent the boundaries between color intervals (e.g., `-40` marks the boundary for the interval `[-40, -38)`). They MUST be aligned exactly on the border lines separating the color blocks.
 2. **Avoid vertical centering**: Do not vertically center the labels inside the color blocks.
 3. **Implementation**: Use absolute positioning (e.g., `bottom: 0, transform: 'translateY(50%)'`) to position the text label precisely across the dividing border line between intervals.
+4. **Ensure Container Padding**: Because absolute positioning takes labels out of the flex/block layout flow, you must apply sufficient padding (e.g., `pr-10`) or minimum width to the legend background card to prevent labels from overflowing or clipping.
+5. **Cohesive Overlay Alignment**: Ensure the legend card coordinates match alignment offsets (e.g., `right-2.5` / `right-10px`) of sibling map widgets (like summary cards) so the UI appears visually aligned on the edges.
 <!-- END:ui-ux-legend-alignment-rule -->
