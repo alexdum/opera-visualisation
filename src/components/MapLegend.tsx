@@ -32,9 +32,9 @@ export const MapLegend: React.FC<MapLegendProps> = ({ parameter, values }) => {
       </div>
       <div className="flex flex-col">
         {stops.map((stop: any, i: number) => (
-          <div key={i} className="flex items-center">
+          <div key={i} className="relative flex items-center h-3">
             <div 
-              className="w-5 h-3 border-x border-black/20" 
+              className="w-5 h-full border-x border-black/20" 
               style={{ 
                 backgroundColor: stop.color, 
                 opacity: 0.9,
@@ -42,9 +42,14 @@ export const MapLegend: React.FC<MapLegendProps> = ({ parameter, values }) => {
                 borderBottom: i === stops.length - 1 ? '1px solid rgba(0,0,0,0.2)' : 'none',
               }} 
             />
-            <span className="text-slate-600 font-semibold ml-2 text-[10px] leading-none min-w-[20px]">
-              {stop.showLabel ? stop.val : ""}
-            </span>
+            {stop.showLabel && (
+              <span 
+                className="absolute left-7 text-slate-600 font-semibold text-[10px] leading-none min-w-[20px] z-10"
+                style={{ bottom: 0, transform: 'translateY(50%)' }}
+              >
+                {stop.val}
+              </span>
+            )}
           </div>
         ))}
       </div>
