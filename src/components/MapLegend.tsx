@@ -15,7 +15,11 @@ export const MapLegend: React.FC<MapLegendProps> = ({ parameter, values }) => {
     const maxVal = Math.max(...values);
 
     let startIndex = stops.findIndex((s: any) => s.val <= maxVal);
-    if (startIndex === -1) startIndex = 0;
+    if (startIndex > 0) {
+      startIndex -= 1;
+    } else if (startIndex === -1) {
+      startIndex = 0;
+    }
     
     let endIndex = stops.findIndex((s: any) => s.val <= minVal);
     if (endIndex === -1) endIndex = stops.length - 1;
