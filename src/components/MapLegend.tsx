@@ -54,6 +54,8 @@ export const MapLegend: React.FC<MapLegendProps> = ({ parameter, values }) => {
     return allStops;
   }, [allStops, values, parameter]);
 
+  const isTemperature = parameter.includes("temperature");
+
   return (
     <div className="hidden md:flex absolute bottom-[140px] right-2.5 bg-white/90 backdrop-blur-md p-3.5 pr-12 rounded-xl shadow-lg border border-slate-200 z-10 font-sans text-xs flex-col">
       <div className="font-bold text-slate-700 text-center text-sm border-b border-slate-200 pb-2 mb-2">
@@ -61,7 +63,7 @@ export const MapLegend: React.FC<MapLegendProps> = ({ parameter, values }) => {
       </div>
       <div className="flex flex-col">
         {stops.map((stop: any, i: number) => (
-          <div key={`${stop.val}`} className="relative flex items-center h-4">
+          <div key={`${stop.val}`} className="relative flex items-center" style={{ height: isTemperature ? '11px' : '16px' }}>
             <div 
               className="w-7 h-full border-x border-black/20" 
               style={{ 
