@@ -11,6 +11,7 @@ import { ColumnDef } from "@tanstack/react-table";
 import { Map as MapIcon, List, BarChart3, AlertCircle, Info, Calendar, Thermometer, Wind, Database, Download, Maximize, Minimize, MapPin, Mountain, Loader2 } from "lucide-react";
 import { downloadCSV, downloadExcel } from "@/utils/export";
 import { countryMatches, resolveCountryName } from "@/utils/country";
+import { applyQualityControl } from "@/utils/qc";
 
 interface Station {
   id: string;
@@ -24,7 +25,7 @@ interface Station {
 
 interface HourlyRow {
   datetime: string;
-  [key: string]: string | number | undefined;
+  [key: string]: string | number | undefined | null;
 }
 
 interface StationSampling {
@@ -472,7 +473,8 @@ function EuroMeteoApp() {
             } else if (event === "complete" && data) {
               try {
                 const parsed = JSON.parse(data);
-                setStationLogs(parsed.data || []);
+                const qcFilteredData = applyQualityControl(parsed.data || []);
+                setStationLogs(qcFilteredData);
                 setStationUnits(parsed.units || {});
                 const sampling = parsed.sampling || null;
                 const effectiveRange = parsed.effectiveRange;
@@ -570,7 +572,7 @@ function EuroMeteoApp() {
                 }
                 
                 stationDetailsCache.set(cacheKey, {
-                  data: parsed.data || [],
+                  data: qcFilteredData,
                   units: parsed.units || {},
                   sampling: parsed.sampling || null,
                   effectiveRange: parsed.effectiveRange,
