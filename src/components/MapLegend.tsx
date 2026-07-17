@@ -26,15 +26,15 @@ export const MapLegend: React.FC<MapLegendProps> = ({ parameter, values }) => {
   }
 
   return (
-    <div className="hidden md:flex absolute bottom-[140px] right-2.5 bg-white/90 backdrop-blur-md p-3 pr-10 rounded-xl shadow-lg border border-slate-200 z-10 font-sans text-xs flex-col">
-      <div className="font-bold text-slate-700 text-center border-b border-slate-200 pb-2 mb-2">
+    <div className="hidden md:flex absolute bottom-[140px] right-2.5 bg-white/90 backdrop-blur-md p-3.5 pr-12 rounded-xl shadow-lg border border-slate-200 z-10 font-sans text-xs flex-col">
+      <div className="font-bold text-slate-700 text-center text-sm border-b border-slate-200 pb-2 mb-2">
         {unit}
       </div>
       <div className="flex flex-col">
         {stops.map((stop: any, i: number) => (
-          <div key={i} className="relative flex items-center h-3">
+          <div key={i} className="relative flex items-center h-4">
             <div 
-              className="w-5 h-full border-x border-black/20" 
+              className="w-7 h-full border-x border-black/20" 
               style={{ 
                 backgroundColor: stop.color, 
                 opacity: 0.9,
@@ -44,7 +44,7 @@ export const MapLegend: React.FC<MapLegendProps> = ({ parameter, values }) => {
             />
             {stop.showLabel && (
               <span 
-                className="absolute left-7 text-slate-600 font-semibold text-[10px] leading-none min-w-[20px] z-10"
+                className="absolute left-9 text-slate-600 font-semibold text-[11px] leading-none min-w-[24px] z-10"
                 style={{ bottom: 0, transform: 'translateY(50%)' }}
               >
                 {stop.val}
