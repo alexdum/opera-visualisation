@@ -4,7 +4,7 @@ export interface HourlyRow {
 }
 
 // Parameters that must be >= 0
-const NON_NEGATIVE_PARAMS = [
+export const NON_NEGATIVE_PARAMS = [
   "precipitation", "precipitation1h", "precipitation3h", "precipitation6h",
   "precipitation12h", "precipitation24h", "lwePrecipitationRate", "rainfallRate",
   "windSpeed", "windSpeed2m", "windGust", "windGustInst",
@@ -19,7 +19,7 @@ const NON_NEGATIVE_PARAMS = [
 ];
 
 // Parameters that must be bounded
-const BOUNDED_PARAMS: Record<string, { min: number, max: number }> = {
+export const BOUNDED_PARAMS: Record<string, { min: number, max: number }> = {
   "temperature": { min: -95, max: 60 },
   "tempMin": { min: -95, max: 60 },
   "tempMax": { min: -95, max: 60 },
@@ -37,6 +37,68 @@ const BOUNDED_PARAMS: Record<string, { min: number, max: number }> = {
   "cloudCoverLow": { min: 0, max: 100 },
   "visibility": { min: 0, max: 100000 }
 };
+
+/**
+ * Quick single-value bounds check for a given MeteoGate parameter key.
+ * Returns true if the value is within the physical bounds.
+ * Used by the Map component for area observation filtering where
+ * we don't have a full time series for spike detection.
+ */
+export function isValueInBounds(parameterKey: string, value: number): boolean {
+  // Match the parameter key against bounded params
+  // The API parameter names (e.g. "air_temperature") differ from the
+  // row keys (e.g. "temperature"), so we also match by substring.
+  for (const [key, bounds] of Object.entries(BOUNDED_PARAMS)) {
+    if (parameterKey === key || parameterKey.includes(key)) {
+      return value >= bounds.min && value <= bounds.max;
+    }
+  }
+
+  // Check non-negative params
+  for (const key of NON_NEGATIVE_PARAMS) {
+    if (parameterKey === key || parameterKey.includes(key)) {
+      return value >= 0;
+    }
+  }
+
+  return true; // No bounds defined for this parameter
+}
+
+/**
+ * Filters map area observations using physical bounds only.
+ * For the map, we only have one value per station per hour, so we can't use
+ * the time-series spike filter. We apply only absolute physical bounds here
+ * (location-agnostic). Statistical spatial filters (e.g. IQR) are intentionally
+ * avoided because the map may show stations across vastly different climate
+ * zones (e.g. Europe + Arctic) simultaneously.
+ *
+ * Sensor glitches that fall within physical bounds but are still anomalous
+ * (e.g. -59.7°C at an Italian station) will be caught by the time-series
+ * spike filter when the user opens the station detail view.
+ *
+ * @param observations Record of stationId -> hourlyValues array
+ * @param selectedHour The currently displayed hour index
+ * @param parameter The MeteoGate parameter key (e.g. "air_temperature")
+ * @returns A new observations record with out-of-bounds values set to NaN
+ */
+export function filterMapObservations(
+  observations: Record<string, number[]>,
+  selectedHour: number,
+  parameter: string
+): Record<string, number[]> {
+  const result: Record<string, number[]> = {};
+
+  for (const [id, hourly] of Object.entries(observations)) {
+    const copy = [...hourly];
+    const val = copy[selectedHour];
+    if (Number.isFinite(val) && !isValueInBounds(parameter, val)) {
+      copy[selectedHour] = NaN;
+    }
+    result[id] = copy;
+  }
+
+  return result;
+}
 
 export function applyQualityControl(data: HourlyRow[]): HourlyRow[] {
   if (!data || data.length === 0) return [];

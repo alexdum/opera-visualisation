@@ -4,6 +4,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { Layers, ShieldAlert, Home, Info, ChevronUp, ChevronDown } from "lucide-react";
 import { getColorFromPalette, getUnitForParam } from "@/utils/colors";
 import { countryMatches } from "@/utils/country";
+import { filterMapObservations } from "@/utils/qc";
 import { MapLegend } from "./MapLegend";
 import { Tooltip } from "./Tooltip";
 
@@ -222,7 +223,7 @@ export const WeatherMap: React.FC<MapProps> = ({
             const stationId = observation.stationId;
             const numVal = Number(observation.value);
             if (!stationId || !Number.isFinite(numVal)) return;
-            if (parameter.includes("temperature") && (numVal < -60 || numVal > 60)) return;
+
 
             const hourlyVals = new Array(24).fill(NaN);
             hourlyVals[selectedHour] = numVal;
@@ -259,7 +260,7 @@ export const WeatherMap: React.FC<MapProps> = ({
                     const hour = date.getUTCHours();
                     if (hour >= 0 && hour < 24) {
                       const numVal = Number(val);
-                      if (parameter.includes("temperature") && (numVal < -60 || numVal > 60)) continue;
+
                       hourlyVals[hour] = numVal;
                     }
                   } catch {
@@ -273,7 +274,10 @@ export const WeatherMap: React.FC<MapProps> = ({
         }
 
         if (abortController.signal.aborted) return;
-        setObservations(newObs);
+
+        // Apply QC: physical bounds + IQR-based spatial outlier detection
+        const filteredObs = filterMapObservations(newObs, selectedHour, parameter);
+        setObservations(filteredObs);
         setActiveObservationKey(requestKey);
       } catch (error: unknown) {
         if (getErrorName(error) === "AbortError") return;

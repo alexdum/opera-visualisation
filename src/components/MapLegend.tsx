@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { getLegendStops, getUnitForParam } from "@/utils/colors";
 
 interface MapLegendProps {
@@ -7,27 +7,52 @@ interface MapLegendProps {
 }
 
 export const MapLegend: React.FC<MapLegendProps> = ({ parameter, values }) => {
-  let stops = getLegendStops(parameter);
+  const allStops = useMemo(() => getLegendStops(parameter), [parameter]);
   const unit = getUnitForParam(parameter);
 
-  if (values && values.length > 0) {
+  // Clip legend stops to the value range visible on screen
+  const stops = useMemo(() => {
+    if (!values || values.length === 0) {
+      return allStops;
+    }
+
     const minVal = Math.min(...values);
     const maxVal = Math.max(...values);
 
-    let startIndex = stops.findIndex((s: any) => s.val <= maxVal);
-    if (startIndex > 0) {
-      startIndex -= 1;
-    } else if (startIndex === -1) {
-      startIndex = 0;
+
+    // stops are sorted HIGH → LOW (reversed palette)
+    // Find the range of stops that covers [minVal, maxVal],
+    // plus one extra stop on each end for the boundary color blocks.
+
+    let startIndex = -1;
+    let endIndex = -1;
+
+    for (let i = 0; i < allStops.length; i++) {
+      // First stop whose value is <= maxVal (upper boundary of visible range)
+      if (startIndex === -1 && allStops[i].val <= maxVal) {
+        startIndex = i;
+      }
+      // First stop whose value <= minVal (lower boundary of visible range)
+      if (endIndex === -1 && allStops[i].val <= minVal) {
+        endIndex = i;
+      }
     }
-    
-    let endIndex = stops.findIndex((s: any) => s.val <= minVal);
-    if (endIndex === -1) endIndex = stops.length - 1;
+
+    if (startIndex === -1) startIndex = 0;
+    if (endIndex === -1) endIndex = allStops.length - 1;
+
+    // Add one extra stop above (lower index = higher value) and below
+    startIndex = Math.max(0, startIndex - 1);
+    endIndex = Math.min(allStops.length - 1, endIndex + 1);
+
+
 
     if (startIndex <= endIndex) {
-      stops = stops.slice(startIndex, endIndex + 1);
+      return allStops.slice(startIndex, endIndex + 1);
     }
-  }
+
+    return allStops;
+  }, [allStops, values, parameter]);
 
   return (
     <div className="hidden md:flex absolute bottom-[140px] right-2.5 bg-white/90 backdrop-blur-md p-3.5 pr-12 rounded-xl shadow-lg border border-slate-200 z-10 font-sans text-xs flex-col">
@@ -36,7 +61,7 @@ export const MapLegend: React.FC<MapLegendProps> = ({ parameter, values }) => {
       </div>
       <div className="flex flex-col">
         {stops.map((stop: any, i: number) => (
-          <div key={i} className="relative flex items-center h-4">
+          <div key={`${stop.val}`} className="relative flex items-center h-4">
             <div 
               className="w-7 h-full border-x border-black/20" 
               style={{ 
