@@ -11,7 +11,11 @@ const NON_NEGATIVE_PARAMS = [
   "humidity", "solarRadiation",
   "sunshineDuration10m", "sunshineDuration1h", "sunshineDuration3h",
   "sunshineDuration6h", "sunshineDuration12h", "sunshineDuration24h",
-  "sunshineDuration"
+  "sunshineDuration",
+  "snowDepth", "snowFresh",
+  "visibility",
+  "cloudCover", "cloudCoverLow",
+  "etp"
 ];
 
 // Parameters that must be bounded
@@ -19,11 +23,19 @@ const BOUNDED_PARAMS: Record<string, { min: number, max: number }> = {
   "temperature": { min: -95, max: 60 },
   "tempMin": { min: -95, max: 60 },
   "tempMax": { min: -95, max: 60 },
+  "tempMinGround": { min: -95, max: 60 },
+  "tempMin50cm": { min: -95, max: 60 },
   "dewPoint": { min: -95, max: 60 },
+  "soilTemp10cm": { min: -50, max: 60 },
+  "soilTemp20cm": { min: -50, max: 60 },
+  "soilTemp50cm": { min: -50, max: 60 },
   "pressure": { min: 800, max: 1100 },
-  "pressureStation": { min: 800, max: 1100 },
+  "pressureStation": { min: 500, max: 1100 },
   "windDirection": { min: 0, max: 360 },
-  "windGustDirection": { min: 0, max: 360 }
+  "windGustDirection": { min: 0, max: 360 },
+  "cloudCover": { min: 0, max: 100 },
+  "cloudCoverLow": { min: 0, max: 100 },
+  "visibility": { min: 0, max: 100000 }
 };
 
 export function applyQualityControl(data: HourlyRow[]): HourlyRow[] {
@@ -93,8 +105,12 @@ export function applyQualityControl(data: HourlyRow[]): HourlyRow[] {
 
   const spikeChecks = [
     { key: "temperature", threshold: 10 },
+    { key: "dewPoint", threshold: 10 },
     { key: "pressure", threshold: 15 },
-    { key: "pressureStation", threshold: 15 }
+    { key: "pressureStation", threshold: 15 },
+    { key: "humidity", threshold: 30 },
+    { key: "windSpeed", threshold: 15 },
+    { key: "windSpeed2m", threshold: 15 }
   ];
 
   for (let i = 1; i < qcData.length - 1; i++) {
