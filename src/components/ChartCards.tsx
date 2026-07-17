@@ -20,7 +20,7 @@ import {
 
 interface HourlyRow {
   datetime: string;
-  [key: string]: string | number | undefined;
+  [key: string]: string | number | undefined | null;
 }
 
 const formatDate = (isoString: string) => {

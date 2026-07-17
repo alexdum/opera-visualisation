@@ -6,7 +6,7 @@ import { Thermometer, CloudRain, Wind, Droplets, Gauge, Snowflake, Sun, Waves, C
 
 interface HourlyRow {
   datetime: string;
-  [key: string]: string | number | undefined;
+  [key: string]: string | number | undefined | null;
 }
 
 // Precipitation duration keys in order of preference

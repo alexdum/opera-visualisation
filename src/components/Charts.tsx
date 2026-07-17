@@ -16,31 +16,7 @@ import {
 
 interface HourlyRow {
   datetime: string;
-  temperature?: number;
-  precipitation?: number;
-  pressure?: number;
-  windSpeed?: number;
-  windDirection?: number;
-  tempMin?: number;
-  tempMax?: number;
-  tempMin50cm?: number;
-  tempMinGround?: number;
-  pressureStation?: number;
-  windGust?: number;
-  windGustInst?: number;
-  windSpeed2m?: number;
-  humidity?: number;
-  dewPoint?: number;
-  cloudCover?: number;
-  visibility?: number;
-  solarRadiation?: number;
-  sunshineDuration?: number;
-  snowDepth?: number;
-  snowFresh?: number;
-  soilTemp10cm?: number;
-  soilTemp20cm?: number;
-  soilTemp50cm?: number;
-  etp?: number;
+  [key: string]: string | number | undefined | null;
 }
 
 interface ChartsProps {
@@ -65,10 +41,10 @@ export const ClimateChart: React.FC<ChartsProps> = ({ data, parameter, stationNa
   const chartData = useMemo(() => {
     return data.map((row) => {
       let value = 0;
-      if (parameter === "air_temperature") value = row.temperature ?? 0;
-      else if (parameter === "precipitation_amount") value = Math.max(0, row.precipitation ?? 0);
-      else if (parameter === "air_pressure_at_mean_sea_level") value = row.pressure ?? 0;
-      else if (parameter === "wind_speed") value = row.windSpeed ?? 0;
+      if (parameter === "air_temperature") value = (row.temperature as number) ?? 0;
+      else if (parameter === "precipitation_amount") value = Math.max(0, (row.precipitation as number) ?? 0);
+      else if (parameter === "air_pressure_at_mean_sea_level") value = (row.pressure as number) ?? 0;
+      else if (parameter === "wind_speed") value = (row.windSpeed as number) ?? 0;
 
       return {
         time: formatDate(row.datetime),
@@ -236,9 +212,9 @@ export const WindRose: React.FC<{ data: HourlyRow[]; stationName?: string; count
     let validRowsCount = 0;
 
     data.forEach((row) => {
-      const speed = row.windSpeed;
-      const dir = row.windDirection;
-      if (speed === undefined || dir === undefined || isNaN(speed) || isNaN(dir)) return;
+      const speed = row.windSpeed as number | undefined | null;
+      const dir = row.windDirection as number | undefined | null;
+      if (speed == null || dir == null || isNaN(speed) || isNaN(dir)) return;
 
       validRowsCount++;
 
