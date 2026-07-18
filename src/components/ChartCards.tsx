@@ -17,11 +17,7 @@ import {
   ReferenceLine,
   Cell,
 } from "recharts";
-
-interface HourlyRow {
-  datetime: string;
-  [key: string]: string | number | undefined | null;
-}
+import { HourlyRow, NON_NEGATIVE_PARAMS } from "@/utils/qc";
 
 const formatDate = (isoString: string) => {
   try {
@@ -53,12 +49,18 @@ const CustomTooltip = ({ active, payload, label, unit }: any) => {
 };
 
 // Generic Area Chart Card
-export const AreaChartCard = ({ data, title, unit, config, stationName, country }: { data: HourlyRow[], title: string, unit: string, config: { key: string, name: string, color: string }[], stationName?: string, country?: string }) => {
+export const AreaChartCard = React.memo(({ data, title, unit, config, stationName, country }: { data: HourlyRow[], title: string, unit: string, config: { key: string, name: string, color: string }[], stationName?: string, country?: string }) => {
   const chartRef = useRef<HTMLDivElement>(null);
   const [isExpanded, setIsExpanded] = useState(false);
   const chartData = useMemo(() => data.map(d => {
     const row: any = { time: formatDate(d.datetime) };
-    config.forEach(c => row[c.key] = (d as any)[c.key]);
+    config.forEach(c => {
+      let val = (d as any)[c.key];
+      if (typeof val === "number" && val < 0 && NON_NEGATIVE_PARAMS.some(p => c.key === p || c.key.startsWith(p))) {
+        val = 0;
+      }
+      row[c.key] = val;
+    });
     return row;
   }), [data, config]);
 
@@ -122,18 +124,17 @@ export const AreaChartCard = ({ data, title, unit, config, stationName, country 
       </ChartModal>
     </>
   );
-};
+});
 
 // Generic Bar Chart Card
-export const BarChartCard = ({ data, title, unit, config, stacked = false, stationName, country }: { data: HourlyRow[], title: string, unit: string, config: { key: string, name: string, color: string }[], stacked?: boolean, stationName?: string, country?: string }) => {
+export const BarChartCard = React.memo(({ data, title, unit, config, stacked = false, stationName, country }: { data: HourlyRow[], title: string, unit: string, config: { key: string, name: string, color: string }[], stacked?: boolean, stationName?: string, country?: string }) => {
   const chartRef = useRef<HTMLDivElement>(null);
   const [isExpanded, setIsExpanded] = useState(false);
   const chartData = useMemo(() => data.map(d => {
     const row: any = { time: formatDate(d.datetime) };
     config.forEach(c => {
       let val = (d as any)[c.key];
-      // Clamp negative precipitation values to 0
-      if (c.key.startsWith("precipitation") && typeof val === "number" && val < 0) {
+      if (typeof val === "number" && val < 0 && NON_NEGATIVE_PARAMS.some(p => c.key === p || c.key.startsWith(p))) {
         val = 0;
       }
       row[c.key] = val;
@@ -193,17 +194,27 @@ export const BarChartCard = ({ data, title, unit, config, stacked = false, stati
       </ChartModal>
     </>
   );
-};
+});
 
 // Generic Composed Chart Card (Area + Line)
-export const ComposedChartCard = ({ data, title, unit, areaConfig, lineConfig, stationName, country }: { data: HourlyRow[], title: string, unit: string, areaConfig: { key: string, name: string, color: string }, lineConfig: { key: string, name: string, color: string }, stationName?: string, country?: string }) => {
+export const ComposedChartCard = React.memo(({ data, title, unit, areaConfig, lineConfig, stationName, country }: { data: HourlyRow[], title: string, unit: string, areaConfig: { key: string, name: string, color: string }, lineConfig: { key: string, name: string, color: string }, stationName?: string, country?: string }) => {
   const chartRef = useRef<HTMLDivElement>(null);
   const [isExpanded, setIsExpanded] = useState(false);
-  const chartData = useMemo(() => data.map(d => ({
-    time: formatDate(d.datetime),
-    [areaConfig.key]: (d as any)[areaConfig.key],
-    [lineConfig.key]: (d as any)[lineConfig.key],
-  })), [data, areaConfig, lineConfig]);
+  const chartData = useMemo(() => data.map(d => {
+    let areaVal = (d as any)[areaConfig.key];
+    if (typeof areaVal === "number" && areaVal < 0 && NON_NEGATIVE_PARAMS.some(p => areaConfig.key === p || areaConfig.key.startsWith(p))) {
+      areaVal = 0;
+    }
+    let lineVal = (d as any)[lineConfig.key];
+    if (typeof lineVal === "number" && lineVal < 0 && NON_NEGATIVE_PARAMS.some(p => lineConfig.key === p || lineConfig.key.startsWith(p))) {
+      lineVal = 0;
+    }
+    return {
+      time: formatDate(d.datetime),
+      [areaConfig.key]: areaVal,
+      [lineConfig.key]: lineVal,
+    };
+  }), [data, areaConfig, lineConfig]);
 
   const hasAreaData = useMemo(() => chartData.some(d => d[areaConfig.key] !== undefined && d[areaConfig.key] !== null), [chartData, areaConfig]);
   const hasLineData = useMemo(() => chartData.some(d => d[lineConfig.key] !== undefined && d[lineConfig.key] !== null), [chartData, lineConfig]);
@@ -265,10 +276,10 @@ export const ComposedChartCard = ({ data, title, unit, areaConfig, lineConfig, s
       </ChartModal>
     </>
   );
-};
+});
 
 // Diverging Bar Chart Card (bars above/below zero, dual-colored)
-export const DivergingBarChartCard = ({ data, title, unit, dataKey, name, posColor = "#43a047", negColor = "#e53935", stationName, country }: {
+export const DivergingBarChartCard = React.memo(({ data, title, unit, dataKey, name, posColor = "#43a047", negColor = "#e53935", stationName, country }: {
   data: HourlyRow[], title: string, unit: string, dataKey: string, name: string, posColor?: string, negColor?: string, stationName?: string, country?: string
 }) => {
   const chartRef = useRef<HTMLDivElement>(null);
@@ -332,10 +343,10 @@ export const DivergingBarChartCard = ({ data, title, unit, dataKey, name, posCol
       </ChartModal>
     </>
   );
-};
+});
 
 // Dual-Axis Chart Card (left Y-axis + right Y-axis with different units)
-export const DualAxisChartCard = ({ data, title, leftConfig, rightConfig, stationName, country }: {
+export const DualAxisChartCard = React.memo(({ data, title, leftConfig, rightConfig, stationName, country }: {
   data: HourlyRow[],
   title: string,
   leftConfig: { key: string, name: string, color: string, unit: string },
@@ -345,11 +356,21 @@ export const DualAxisChartCard = ({ data, title, leftConfig, rightConfig, statio
 }) => {
   const chartRef = useRef<HTMLDivElement>(null);
   const [isExpanded, setIsExpanded] = useState(false);
-  const chartData = useMemo(() => data.map(d => ({
-    time: formatDate(d.datetime),
-    [leftConfig.key]: (d as any)[leftConfig.key],
-    [rightConfig.key]: (d as any)[rightConfig.key],
-  })), [data, leftConfig, rightConfig]);
+  const chartData = useMemo(() => data.map(d => {
+    let leftVal = (d as any)[leftConfig.key];
+    if (typeof leftVal === "number" && leftVal < 0 && NON_NEGATIVE_PARAMS.some(p => leftConfig.key === p || leftConfig.key.startsWith(p))) {
+      leftVal = 0;
+    }
+    let rightVal = (d as any)[rightConfig.key];
+    if (typeof rightVal === "number" && rightVal < 0 && NON_NEGATIVE_PARAMS.some(p => rightConfig.key === p || rightConfig.key.startsWith(p))) {
+      rightVal = 0;
+    }
+    return {
+      time: formatDate(d.datetime),
+      [leftConfig.key]: leftVal,
+      [rightConfig.key]: rightVal,
+    };
+  }), [data, leftConfig, rightConfig]);
 
   const hasLeftData = useMemo(() => chartData.some(d => d[leftConfig.key] !== undefined && d[leftConfig.key] !== null), [chartData, leftConfig]);
   const hasRightData = useMemo(() => chartData.some(d => d[rightConfig.key] !== undefined && d[rightConfig.key] !== null), [chartData, rightConfig]);
@@ -473,4 +494,4 @@ export const DualAxisChartCard = ({ data, title, leftConfig, rightConfig, statio
       </ChartModal>
     </>
   );
-};
+});

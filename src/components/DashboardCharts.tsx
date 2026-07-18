@@ -1,13 +1,8 @@
 import React, { useMemo } from "react";
 import { AreaChartCard, BarChartCard, ComposedChartCard, DivergingBarChartCard, DualAxisChartCard } from "./ChartCards";
 import { WindRose } from "./Charts";
-import { Tooltip } from "./Tooltip";
 import { Thermometer, CloudRain, Wind, Droplets, Gauge, Snowflake, Sun, Waves, Cloud, Eye } from "lucide-react";
-
-interface HourlyRow {
-  datetime: string;
-  [key: string]: string | number | undefined | null;
-}
+import { HourlyRow } from "@/utils/qc";
 
 // Precipitation duration keys in order of preference
 const PRECIP_KEYS = [
@@ -53,7 +48,7 @@ function u(units: Record<string, string>, key: string, fallback: string): string
   return units[key] || fallback;
 }
 
-export const DashboardCharts: React.FC<{ data: HourlyRow[]; units?: Record<string, string>; stationName?: string; country?: string }> = ({ data, units = {}, stationName, country }) => {
+const DashboardChartsComponent: React.FC<{ data: HourlyRow[]; units?: Record<string, string>; stationName?: string; country?: string }> = ({ data, units = {}, stationName, country }) => {
   // Determine which precipitation columns have actual non-zero data
   const precipCharts = PRECIP_KEYS.filter(({ key }) => hasNonZeroData(data, key));
   const sunshineCharts = SUNSHINE_KEYS.filter(({ key }) => hasNonZeroData(data, key));
@@ -685,7 +680,7 @@ export const DashboardCharts: React.FC<{ data: HourlyRow[]; units?: Record<strin
         />
       )}
       {hasWindRose && (
-        <WindRose data={data as any} stationName={stationName} country={country} />
+        <WindRose data={data} stationName={stationName} country={country} />
       )}
 
       {/* ─── Marine / Ocean Charts (only render for coastal/buoy stations) ─── */}
@@ -730,3 +725,5 @@ export const DashboardCharts: React.FC<{ data: HourlyRow[]; units?: Record<strin
     </div>
   );
 };
+
+export const DashboardCharts = React.memo(DashboardChartsComponent);

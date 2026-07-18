@@ -13,11 +13,8 @@ import {
   Tooltip,
   CartesianGrid,
 } from "recharts";
+import { HourlyRow } from "@/utils/qc";
 
-interface HourlyRow {
-  datetime: string;
-  [key: string]: string | number | undefined | null;
-}
 
 interface ChartsProps {
   data: HourlyRow[];
@@ -36,7 +33,7 @@ const formatDate = (isoString: string) => {
   }
 };
 
-export const ClimateChart: React.FC<ChartsProps> = ({ data, parameter, stationName, country }) => {
+export const ClimateChart = React.memo(({ data, parameter, stationName, country }: ChartsProps) => {
   const chartRef = useRef<HTMLDivElement>(null);
   const chartData = useMemo(() => {
     return data.map((row) => {
@@ -193,10 +190,10 @@ export const ClimateChart: React.FC<ChartsProps> = ({ data, parameter, stationNa
       </ChartModal>
     </>
   );
-};
+});
 
 // Hand-crafted high-fidelity SVG Wind Rose Component
-export const WindRose: React.FC<{ data: HourlyRow[]; stationName?: string; country?: string }> = ({ data, stationName, country }) => {
+export const WindRose = React.memo(({ data, stationName, country }: { data: HourlyRow[]; stationName?: string; country?: string }) => {
   const chartRef = useRef<HTMLDivElement>(null);
   const [tooltip, setTooltip] = React.useState<{ x: number; y: number; item: any } | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -544,4 +541,4 @@ export const WindRose: React.FC<{ data: HourlyRow[]; stationName?: string; count
     </ChartModal>
     </>
   );
-};
+});

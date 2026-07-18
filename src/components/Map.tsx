@@ -83,7 +83,7 @@ function getPointCoordinates(geometry: GeoJSON.Geometry | null | undefined): [nu
   return [longitude, latitude];
 }
 
-export const WeatherMap: React.FC<MapProps> = ({
+const WeatherMapComponent: React.FC<MapProps> = ({
   stations,
   selectedCountry,
   selectedStation,
@@ -1031,3 +1031,5 @@ export const WeatherMap: React.FC<MapProps> = ({
     </div>
   );
 };
+
+export const WeatherMap = React.memo(WeatherMapComponent);
