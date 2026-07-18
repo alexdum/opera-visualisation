@@ -114,6 +114,15 @@ When implementing or refactoring dashboards, data loaders, and chart visualisati
 2. **Double-Seeding Adjusted Cache Ranges**: When a fetch hook queries data based on user range selections, but the backend adjusts the parameters to fit physical limits (e.g. returning `effectiveRange.adjusted = true` with a shorter date range), updating state variables triggers the fetch hook to re-run. To prevent a duplicate API call and loading flicker, you MUST seed the cache under both the requested parameters and the adjusted parameters, so the subsequent run results in a synchronous cache hit.
 <!-- END:react-dashboard-loading-rules -->
 
+<!-- BEGIN:ui-ux-fullscreen-layout-rule -->
+## UI/UX: Fullscreen Layouts
+
+When implementing fullscreen or immersive modes:
+1. **Preserve Navigation:** Do not couple destructive layout changes to the browser's native fullscreen event. When a user enters fullscreen mode, the expectation is to remove browser chrome, not to lose the application's primary navigation or filters.
+2. **Avoid CSS Overrides:** Never use aggressive CSS layout overrides (like forcing `fixed inset-0 z-50` on a child container) to abruptly hide sidebars or controls during fullscreen.
+3. **Dedicated Presentation Toggles:** If a "presentation" or "immersive" mode is required, implement it via an explicit user-controlled UI toggle (e.g., a collapsible sidebar button) that operates independently of the browser's fullscreen state.
+<!-- END:ui-ux-fullscreen-layout-rule -->
+
 <!-- BEGIN:verification-rules -->
 ## Verification Requirements
 
