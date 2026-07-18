@@ -578,6 +578,17 @@ function EuroMeteoApp() {
                   effectiveRange: parsed.effectiveRange,
                   timestamp: Date.now()
                 });
+
+                if (effectiveRange?.adjusted && typeof effectiveRange.start === "string") {
+                  const adjustedCacheKey = `${selectedStation}|${effectiveRange.start}|${endDate}`;
+                  stationDetailsCache.set(adjustedCacheKey, {
+                    data: qcFilteredData,
+                    units: parsed.units || {},
+                    sampling: parsed.sampling || null,
+                    effectiveRange: parsed.effectiveRange,
+                    timestamp: Date.now()
+                  });
+                }
               } catch (e) {}
             } else if (event === "error" && data) {
               try {
@@ -1140,16 +1151,18 @@ function EuroMeteoApp() {
                         </div>
                       )}
 
-                      {/* Loaders overlay */}
-                      {isLoadingLogs ? (
-                        <div className="w-full h-[200px] flex flex-col items-center justify-center gap-2">
-                          <div className="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                          <p className="text-xs font-bold text-slate-400 tracking-wider uppercase animate-pulse">
-                            {loadingMessage}
-                          </p>
-                        </div>
-                      ) : (
-                        <>
+                      {/* Dashboard content wrapper */}
+                      <div className="relative w-full min-h-[400px]">
+                        {isLoadingLogs && (
+                          <div className="absolute inset-0 z-40 bg-slate-50/70 backdrop-blur-[1px] flex flex-col items-center justify-center gap-2 rounded-2xl">
+                            <div className="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                            <p className="text-xs font-bold text-slate-500 tracking-wider uppercase animate-pulse">
+                              {loadingMessage}
+                            </p>
+                          </div>
+                        )}
+
+                        <div className={isLoadingLogs ? "opacity-25 pointer-events-none transition-opacity duration-200" : "transition-opacity duration-200"}>
                           {/* Dashboard Sub-tabs */}
                           <div className="flex items-center gap-2 mb-2 border-b border-slate-200 pb-2">
                             <button
@@ -1166,10 +1179,10 @@ function EuroMeteoApp() {
                             </button>
                           </div>
 
-	                          {/* Sub-tab: Plots (always mounted, cached when inactive) */}
-	                          <div className={`cached-view ${dashboardSubTab === "plots" ? "is-active" : ""}`}>
-	                            <DashboardCharts data={stationLogs} units={stationUnits} stationName={activeStationDetails?.name} country={activeStationDetails?.country} />
-	                          </div>
+                          {/* Sub-tab: Plots (always mounted, cached when inactive) */}
+                          <div className={`cached-view ${dashboardSubTab === "plots" ? "is-active" : ""}`}>
+                            <DashboardCharts data={stationLogs} units={stationUnits} stationName={activeStationDetails?.name} country={activeStationDetails?.country} />
+                          </div>
 
                           {/* Sub-tab: Data Table (always mounted, cached when inactive) */}
                           <div 
@@ -1200,22 +1213,23 @@ function EuroMeteoApp() {
                                 </button>
                               </div>
                             )}
-	                            <div className="flex-1">
-                                {hasActiveLogData ? (
-                                  <WeatherTable
-                                    data={stationLogs}
-                                    columns={activeLogColumns}
-                                    searchPlaceholder="Filter logs by hour or value..."
-                                    searchKey="datetime"
-                                    defaultSorting={[{ id: "datetime", desc: true }]}
-                                  />
-                                ) : (
-                                  <NoStationDataMessage />
-                                )}
+
+                            <div className="flex-1">
+                              {hasActiveLogData ? (
+                                <WeatherTable
+                                  data={stationLogs}
+                                  columns={activeLogColumns}
+                                  searchPlaceholder="Filter logs by hour or value..."
+                                  searchKey="datetime"
+                                  defaultSorting={[{ id: "datetime", desc: true }]}
+                                />
+                              ) : (
+                                <NoStationDataMessage />
+                              )}
                             </div>
                           </div>
-                        </>
-                      )}
+                        </div>
+                      </div>
                     </>
                   )}
                 </div>

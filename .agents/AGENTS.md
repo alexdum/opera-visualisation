@@ -93,3 +93,12 @@ When implementing or modifying MapLibre GL map components and layer rendering:
 3. **Synchronous Processing for Small Datasets**: Do not slice or chunk datasets containing under 5,000 items (e.g. station lists) using `setTimeout(..., 0)` yielding loops. Constructing small GeoJSON objects and calculating statistics synchronously is extremely fast (<3ms) and avoids the cumulative latency of event loop ticks. MapLibre processes rendering data on a background worker thread.
 4. **Derived Map Statistics**: Calculate map-related statistics (e.g. averages/mins/maxes of visible stations) synchronously using React `useMemo` hooks derived from the current bounds and observations, rather than writing to state variables in a `useEffect` that triggers additional re-renders.
 <!-- END:react-maplibre-sync-rule -->
+
+<!-- BEGIN:react-dashboard-loading-rules -->
+## React Dashboards: Chart Mounting & State-Sync Cache Seeding
+
+When implementing or refactoring dashboards, data loaders, and chart visualisations:
+1. **Persistent Chart Mounting**: Do not conditionally unmount chart components (e.g. components rendering Recharts `<ResponsiveContainer>` or other responsive SVG widgets) when loading observations. Doing so destroys the DOM nodes, forcing them to initialize at size `0x0` and recalculate layout on remount, creating visual double flickering. Keep components mounted and render loading indicators as an absolute-positioned overlay (e.g. `absolute inset-0 z-40 bg-slate-50/70 backdrop-blur-[1px]`) while applying dimming classes (e.g. `opacity-25 pointer-events-none`) to the chart container.
+2. **Double-Seeding Adjusted Cache Ranges**: When a fetch hook queries data based on user range selections, but the backend adjusts the parameters to fit physical limits (e.g. returning `effectiveRange.adjusted = true` with a shorter date range), updating state variables triggers the fetch hook to re-run. To prevent a duplicate API call and loading flicker, you MUST seed the cache under both the requested parameters and the adjusted parameters, so the subsequent run results in a synchronous cache hit.
+<!-- END:react-dashboard-loading-rules -->
+
