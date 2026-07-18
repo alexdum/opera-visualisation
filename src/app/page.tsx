@@ -976,7 +976,7 @@ function EuroMeteoApp({ initialUrlState }: { initialUrlState: InitialUrlState })
       />
 
       {/* Main View Shell Container */}
-      <main className={`flex-1 h-full flex flex-col min-w-0 relative bg-slate-50 transition-all ${isFullscreen ? "fixed inset-0 z-50 pl-0" : "pl-0 lg:pl-[280px]"}`}>
+      <main className="flex-1 h-full flex flex-col min-w-0 relative bg-slate-50 transition-all pl-0 lg:pl-[280px]">
         {/* Top tab switcher header navigation */}
         <header className="h-[70px] border-b border-slate-100/50 bg-white/70 backdrop-blur-md flex items-center justify-between pl-[72px] pr-4 lg:px-6 shrink-0 overflow-x-auto custom-scrollbar">
           <div className="flex items-center gap-4 shrink-0">
