@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { Layers, ShieldAlert, Home, Info, ChevronUp, ChevronDown } from "lucide-react";
+import { Layers, ShieldAlert, Home, Info, ChevronDown } from "lucide-react";
 import { getColorFromPalette, getUnitForParam } from "@/utils/colors";
 import { countryMatches } from "@/utils/country";
 import { filterMapObservations } from "@/utils/qc";
@@ -127,13 +127,12 @@ export const WeatherMap: React.FC<MapProps> = ({
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [visibleBounds, setVisibleBounds] = useState<maplibregl.LngLatBounds | null>(null);
-  const [isStatsExpanded, setIsStatsExpanded] = useState<boolean>(true);
-
-  useEffect(() => {
-    if (typeof window !== "undefined" && window.innerWidth < 768) {
-      setIsStatsExpanded(false);
+  const [isStatsExpanded, setIsStatsExpanded] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      return window.innerWidth >= 768;
     }
-  }, []);  // Calculate maximum allowed hour (prevent future selections for today)
+    return true;
+  });
   const maxAllowedHour = useMemo(() => {
     const todayStr = new Date().toISOString().split("T")[0];
     if (endDate === todayStr) {
@@ -171,6 +170,12 @@ export const WeatherMap: React.FC<MapProps> = ({
 
     const abortController = new AbortController();
     const requestKey = observationRequestKey;
+    let idleListenerActive = false;
+
+    const onMapIdle = () => {
+      setIsLoading(false);
+      idleListenerActive = false;
+    };
 
     const fetchObservations = async () => {
       setIsLoading(true);
@@ -279,16 +284,21 @@ export const WeatherMap: React.FC<MapProps> = ({
         const filteredObs = filterMapObservations(newObs, selectedHour, parameter);
         setObservations(filteredObs);
         setActiveObservationKey(requestKey);
+
+        const m = map.current;
+        if (m) {
+          idleListenerActive = true;
+          m.once('idle', onMapIdle);
+        } else {
+          setIsLoading(false);
+        }
       } catch (error: unknown) {
         if (getErrorName(error) === "AbortError") return;
         console.error("[Map] Fetch observations failed:", error);
         setObservations({});
         setActiveObservationKey("");
         setErrorMsg(getErrorMessage(error) || "MeteoGate observation fetch timed out or returned empty coordinates. Degraded mode active.");
-      } finally {
-        if (!abortController.signal.aborted) {
-          setIsLoading(false);
-        }
+        setIsLoading(false);
       }
     };
 
@@ -296,11 +306,14 @@ export const WeatherMap: React.FC<MapProps> = ({
     return () => {
       abortController.abort();
       window.clearTimeout(timer);
+      if (idleListenerActive && map.current) {
+        map.current.off('idle', onMapIdle);
+      }
     };
   }, [stations, parameter, endDate, selectedHour, observationRequestKey, setObservations]);
 
   // ── Build GeoJSON from current refs (always reads latest values) ──
-  const buildGeoJSON = useCallback(async (): Promise<GeoJSON.FeatureCollection> => {
+  const buildGeoJSON = useCallback((): GeoJSON.FeatureCollection => {
     const features: GeoJSON.Feature[] = [];
     if (activeObservationKey !== observationRequestKey) {
       return {
@@ -309,36 +322,31 @@ export const WeatherMap: React.FC<MapProps> = ({
       };
     }
 
-    const CHUNK_SIZE = 500;
-    for (let i = 0; i < stations.length; i += CHUNK_SIZE) {
-      const chunk = stations.slice(i, i + CHUNK_SIZE);
-      for (const st of chunk) {
-        const hourlyVals = observations[st.id] || [];
-        const hourVal = hourlyVals[selectedHour] ?? NaN;
-        if (!Number.isFinite(hourVal)) continue;
+    for (const st of stations) {
+      const hourlyVals = observations[st.id] || [];
+      const hourVal = hourlyVals[selectedHour] ?? NaN;
+      if (!Number.isFinite(hourVal)) continue;
 
-        const value = Math.round(hourVal * 10) / 10;
-        const isSelected = st.id === selectedStation;
+      const value = Math.round(hourVal * 10) / 10;
+      const isSelected = st.id === selectedStation;
 
-        features.push({
-          type: "Feature" as const,
-          geometry: {
-            type: "Point" as const,
-            coordinates: [st.longitude, st.latitude]
-          },
-          properties: {
-            id: st.id,
-            name: st.name,
-            country: st.country,
-            elevation: st.elevation,
-            color: getColorFromPalette(hourVal, parameter),
-            label: `${value}`,
-            value,
-            selected: isSelected ? 1 : 0
-          }
-        });
-      }
-      await new Promise(r => setTimeout(r, 0));
+      features.push({
+        type: "Feature" as const,
+        geometry: {
+          type: "Point" as const,
+          coordinates: [st.longitude, st.latitude]
+        },
+        properties: {
+          id: st.id,
+          name: st.name,
+          country: st.country,
+          elevation: st.elevation,
+          color: getColorFromPalette(hourVal, parameter),
+          label: `${value}`,
+          value,
+          selected: isSelected ? 1 : 0
+        }
+      });
     }
 
     return {
@@ -356,84 +364,57 @@ export const WeatherMap: React.FC<MapProps> = ({
   ]);
 
   // ── Calculate statistics for stations currently visible on screen ──
-  const [visibleStats, setVisibleStats] = useState<{
-    avg: number;
-    max: number;
-    maxStation: Station | null;
-    min: number;
-    minStation: Station | null;
-    count: number;
-  } | null>(null);
-
-  useEffect(() => {
-    let isCancelled = false;
-    
+  const visibleStats = useMemo(() => {
     if (!visibleBounds || activeObservationKey !== observationRequestKey) {
-      setVisibleStats(null);
-      return;
+      return null;
     }
 
-    const computeStats = async () => {
-      let minVal = Infinity;
-      let maxVal = -Infinity;
-      let minStation: Station | null = null;
-      let maxStation: Station | null = null;
-      let sum = 0;
-      let count = 0;
+    let minVal = Infinity;
+    let maxVal = -Infinity;
+    let minStation: Station | null = null;
+    let maxStation: Station | null = null;
+    let sum = 0;
+    let count = 0;
 
-      const CHUNK_SIZE = 500;
-      for (let i = 0; i < stations.length; i += CHUNK_SIZE) {
-        if (isCancelled) return;
-        const chunk = stations.slice(i, i + CHUNK_SIZE);
-
-        for (const st of chunk) {
-          if (
-            st.longitude >= visibleBounds.getWest() &&
-            st.longitude <= visibleBounds.getEast() &&
-            st.latitude >= visibleBounds.getSouth() &&
-            st.latitude <= visibleBounds.getNorth()
-          ) {
-            const val = observations[st.id]?.[selectedHour];
-            if (val !== undefined && val !== null && !isNaN(val)) {
-              sum += val;
-              count++;
-              if (val < minVal) {
-                minVal = val;
-                minStation = st;
-              }
-              if (val > maxVal) {
-                maxVal = val;
-                maxStation = st;
-              }
-            }
+    for (const st of stations) {
+      if (
+        st.longitude >= visibleBounds.getWest() &&
+        st.longitude <= visibleBounds.getEast() &&
+        st.latitude >= visibleBounds.getSouth() &&
+        st.latitude <= visibleBounds.getNorth()
+      ) {
+        const val = observations[st.id]?.[selectedHour];
+        if (val !== undefined && val !== null && !isNaN(val)) {
+          sum += val;
+          count++;
+          if (val < minVal) {
+            minVal = val;
+            minStation = st;
+          }
+          if (val > maxVal) {
+            maxVal = val;
+            maxStation = st;
           }
         }
-        await new Promise(r => setTimeout(r, 0));
       }
+    }
 
-      if (isCancelled) return;
+    if (count === 0) {
+      return null;
+    }
 
-      if (count === 0) {
-        setVisibleStats(null);
-      } else {
-        setVisibleStats({
-          count,
-          avg: sum / count,
-          min: minVal,
-          max: maxVal,
-          minStation,
-          maxStation
-        });
-      }
+    return {
+      count,
+      avg: sum / count,
+      min: minVal,
+      max: maxVal,
+      minStation,
+      maxStation
     };
-
-    computeStats();
-
-    return () => { isCancelled = true; };
   }, [visibleBounds, activeObservationKey, observationRequestKey, stations, observations, selectedHour]);
 
   // ── Add source and layers to the map ──
-  const addSourceAndLayers = useCallback(async () => {
+  const addSourceAndLayers = useCallback(() => {
     const m = map.current;
     if (!m) return;
 
@@ -443,7 +424,7 @@ export const WeatherMap: React.FC<MapProps> = ({
     try { if (m.getLayer(CIRCLE_LAYER)) m.removeLayer(CIRCLE_LAYER); } catch {}
     try { if (m.getSource(SOURCE_ID)) m.removeSource(SOURCE_ID); } catch {}
 
-    const geojson = await buildGeoJSON();
+    const geojson = buildGeoJSON();
 
     m.addSource(SOURCE_ID, {
       type: "geojson",
@@ -773,7 +754,7 @@ export const WeatherMap: React.FC<MapProps> = ({
     const m = map.current;
     if (!m) return;
 
-    const tryUpdate = async () => {
+    const tryUpdate = () => {
       if (!sourceReadyRef.current) {
         return false;
       }
@@ -781,30 +762,12 @@ export const WeatherMap: React.FC<MapProps> = ({
       if (!source) {
         return false;
       }
-      const geojson = await buildGeoJSON();
+      const geojson = buildGeoJSON();
       source.setData(geojson);
       return true;
     };
 
-    // Try immediately
     tryUpdate();
-
-    // If source isn't ready yet (style still loading), wait for style.load then update
-    const onStyleLoad = () => {
-      // Small delay to let addSourceAndLayers finish
-      setTimeout(() => {
-        tryUpdate();
-      }, 100);
-    };
-    m.on('style.load', onStyleLoad);
-    
-    // Also retry after a short delay in case style was already loaded but source wasn't added yet
-    const timer = setTimeout(() => tryUpdate(), 300);
-    
-    return () => {
-      m.off('style.load', onStyleLoad);
-      clearTimeout(timer);
-    };
   }, [stations, observations, selectedHour, parameter, selectedStation, buildGeoJSON]);
 
   // ── 5. Zoom to Selected Country or Station Centroid ──

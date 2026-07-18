@@ -83,3 +83,13 @@ When implementing or modifying map legends for continuous fields that are binned
 4. **Ensure Container Padding**: Because absolute positioning takes labels out of the flex/block layout flow, you must apply sufficient padding (e.g., `pr-10`) or minimum width to the legend background card to prevent labels from overflowing or clipping.
 5. **Cohesive Overlay Alignment**: Ensure the legend card coordinates match alignment offsets (e.g., `right-2.5` / `right-10px`) of sibling map widgets (like summary cards) so the UI appears visually aligned on the edges.
 <!-- END:ui-ux-legend-alignment-rule -->
+
+<!-- BEGIN:react-maplibre-sync-rule -->
+## React MapLibre GL: Loading and Performance Synchronization
+
+When implementing or modifying MapLibre GL map components and layer rendering:
+1. **Loader Synchronization**: Never dismiss loading overlays or spinners immediately in the `finally` block of a data fetch query. Instead, synchronize loader dismissal with MapLibre's `'idle'` event (using `map.once('idle', ...)` or checking `map.isIdle()`) to guarantee that all new vector tiles, coordinates, and layers have finished rendering. Ensure appropriate cleanup occurs if the fetch is aborted or the component is unmounted.
+2. **Avoid Arbitrary Timers for Style/Source Updates**: Do not use `setTimeout` or other custom timers to coordinate updating a map source after changing the map style (e.g. basemap). Rely on MapLibre's native `'style.load'` event listener to re-add layers and update states.
+3. **Synchronous Processing for Small Datasets**: Do not slice or chunk datasets containing under 5,000 items (e.g. station lists) using `setTimeout(..., 0)` yielding loops. Constructing small GeoJSON objects and calculating statistics synchronously is extremely fast (<3ms) and avoids the cumulative latency of event loop ticks. MapLibre processes rendering data on a background worker thread.
+4. **Derived Map Statistics**: Calculate map-related statistics (e.g. averages/mins/maxes of visible stations) synchronously using React `useMemo` hooks derived from the current bounds and observations, rather than writing to state variables in a `useEffect` that triggers additional re-renders.
+<!-- END:react-maplibre-sync-rule -->
