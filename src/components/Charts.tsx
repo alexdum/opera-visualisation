@@ -83,6 +83,9 @@ export const ClimateChart = React.memo(({ data, parameter, stationName, country 
     }
   }, [parameter]);
 
+  const isPrecip = parameter === "precipitation_amount";
+  const [isExpanded, setIsExpanded] = useState(false);
+
   if (chartData.length === 0) {
     return (
       <div className="w-full h-[320px] glass-card rounded-2xl flex items-center justify-center text-slate-400 font-medium">
@@ -90,9 +93,6 @@ export const ClimateChart = React.memo(({ data, parameter, stationName, country 
       </div>
     );
   }
-
-  const isPrecip = parameter === "precipitation_amount";
-  const [isExpanded, setIsExpanded] = useState(false);
 
   const chartContent = (
     <ResponsiveContainer width="100%" height="100%">
@@ -191,18 +191,29 @@ export const ClimateChart = React.memo(({ data, parameter, stationName, country 
     </>
   );
 });
+ClimateChart.displayName = "ClimateChart";
+
+interface WindRoseTooltipItem {
+  dir: string;
+  c1: number;
+  c2: number;
+  c3: number;
+  c4: number;
+  c5: number;
+}
+
+const WIND_ROSE_DIRECTIONS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
 
 // Hand-crafted high-fidelity SVG Wind Rose Component
 export const WindRose = React.memo(({ data, stationName, country }: { data: HourlyRow[]; stationName?: string; country?: string }) => {
   const chartRef = useRef<HTMLDivElement>(null);
-  const [tooltip, setTooltip] = React.useState<{ x: number; y: number; item: any } | null>(null);
+  const [tooltip, setTooltip] = React.useState<{ x: number; y: number; item: WindRoseTooltipItem } | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
-  const directions = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
-  
+
   // Calculate frequencies by direction & speed classes
   const roseData = useMemo(() => {
-    const counts = directions.reduce((acc, dir) => {
-      acc[dir] = { c1: 0, c2: 0, c3: 0, c4: 0, c5: 0 }; 
+    const counts = WIND_ROSE_DIRECTIONS.reduce((acc, dir) => {
+      acc[dir] = { c1: 0, c2: 0, c3: 0, c4: 0, c5: 0 };
       return acc;
     }, {} as Record<string, { c1: number; c2: number; c3: number; c4: number; c5: number }>);
 
@@ -218,7 +229,7 @@ export const WindRose = React.memo(({ data, stationName, country }: { data: Hour
       // Ensure dir is strictly positive before modulo
       const normalizedDir = ((dir % 360) + 360) % 360;
       const sectorIndex = Math.floor(((normalizedDir + 22.5) % 360) / 45);
-      const sector = directions[sectorIndex];
+      const sector = WIND_ROSE_DIRECTIONS[sectorIndex];
 
       if (!sector || !counts[sector]) return; // Safety check
 
@@ -230,7 +241,7 @@ export const WindRose = React.memo(({ data, stationName, country }: { data: Hour
     });
 
     // Normalize counts to percentages
-    const result = directions.map((dir) => {
+    const result = WIND_ROSE_DIRECTIONS.map((dir) => {
       const item = counts[dir];
       const total = validRowsCount || 1;
       return {
@@ -331,7 +342,7 @@ export const WindRose = React.memo(({ data, stationName, country }: { data: Hour
           ))}
 
           {/* Compass grid axis lines */}
-          {directions.map((_, i) => {
+          {WIND_ROSE_DIRECTIONS.map((_, i) => {
             const angle = i * 45;
             const p = polarToCartesian(cx, cy, maxRadius, angle);
             return (
@@ -347,7 +358,7 @@ export const WindRose = React.memo(({ data, stationName, country }: { data: Hour
           })}
 
           {/* Compass labels */}
-          {directions.map((dir, i) => {
+          {WIND_ROSE_DIRECTIONS.map((dir, i) => {
             const angle = i * 45;
             const p = polarToCartesian(cx, cy, maxRadius + 18, angle);
             return (
@@ -366,7 +377,7 @@ export const WindRose = React.memo(({ data, stationName, country }: { data: Hour
           {/* Stacked Wedges */}
           {roseData.dataPoints.map((item, i) => {
             const angle = i * 45;
-            
+
             // Stack coordinates
             const r1 = getRadius(item.c1);
             const r2 = getRadius(item.c1 + item.c2);
@@ -375,8 +386,8 @@ export const WindRose = React.memo(({ data, stationName, country }: { data: Hour
             const r5 = getRadius(item.c1 + item.c2 + item.c3 + item.c4 + item.c5);
 
             return (
-              <g 
-                key={item.dir} 
+              <g
+                key={item.dir}
                 className="hover:opacity-80 transition-opacity cursor-pointer outline-none focus-visible:outline-2 focus-visible:outline-blue-500 focus-visible:outline-offset-2"
                 tabIndex={0}
                 role="graphics-symbol"
@@ -469,7 +480,7 @@ export const WindRose = React.memo(({ data, stationName, country }: { data: Hour
 
       {/* Tooltip Overlay */}
       {tooltip && (
-        <div 
+        <div
           className="absolute z-50 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200/60 dark:border-slate-700/60 shadow-xl text-slate-800 dark:text-slate-200 text-xs py-2 px-3 rounded-xl font-medium pointer-events-none transform -translate-x-1/2 -translate-y-[calc(100%+12px)] flex flex-col gap-1 min-w-[140px]"
           style={{ left: tooltip.x, top: tooltip.y }}
         >
@@ -492,7 +503,7 @@ export const WindRose = React.memo(({ data, stationName, country }: { data: Hour
           {[0.25, 0.5, 0.75, 1.0].map((ratio) => (
             <circle key={ratio} cx={cx} cy={cy} r={maxRadius * ratio} fill="none" stroke="#e2e8f0" strokeWidth={1} />
           ))}
-          {directions.map((d, i) => {
+          {WIND_ROSE_DIRECTIONS.map((d, i) => {
             const angle = (i * 45 - 90) * (Math.PI / 180);
             const x2 = cx + maxRadius * Math.cos(angle);
             const y2 = cy + maxRadius * Math.sin(angle);
@@ -507,7 +518,7 @@ export const WindRose = React.memo(({ data, stationName, country }: { data: Hour
             );
           })}
           {roseData.dataPoints.map((item: { dir: string; c1: number; c2: number; c3: number; c4: number; c5: number }) => {
-            const angleIndex = directions.indexOf(item.dir);
+            const angleIndex = WIND_ROSE_DIRECTIONS.indexOf(item.dir);
             const angle = (angleIndex * 45 - 90) * (Math.PI / 180);
             const classes = ["c1", "c2", "c3", "c4", "c5"] as const;
             const colors = ["#34d399", "#fbbf24", "#fb923c", "#fb7185", "#d946ef"];
@@ -542,3 +553,4 @@ export const WindRose = React.memo(({ data, stationName, country }: { data: Hour
     </>
   );
 });
+WindRose.displayName = "WindRose";

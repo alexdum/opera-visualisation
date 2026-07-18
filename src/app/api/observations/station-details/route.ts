@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { fetchBypassSSL } from "@/utils/http";
 import { queryArchiveBatch } from "@/utils/duckdb";
 import NodeCache from "node-cache";
+import { applyQualityControl, HourlyRow } from "@/utils/qc";
 
 // Build date strings (YYYY-MM-DD) for each day in the range
 function buildDateRange(startDate: Date, endDate: Date): string[] {
@@ -25,11 +26,19 @@ function buildDateRange(startDate: Date, endDate: Date): string[] {
   return dates;
 }
 
+interface RawArchiveRow {
+  datetime: string | Date;
+  paramName?: string;
+  value?: number | string | null;
+  method?: string;
+  duration?: string;
+}
+
 // Map a standard_name string to a HourlyRow field
-function mapParamToRow(row: any, paramName: string, val: number, unit?: string): void {
+function mapParamToRow(row: HourlyRow, paramName: string, val: number, unit?: string): void {
   // Determine conversion factor for sunshine duration to always store in minutes.
   // WMO CF standard implies seconds (divisor=60), but providers might explicitly send 'min' or 'h'.
-  let sunshineDivisor = 60; 
+  let sunshineDivisor = 60;
   if (unit) {
     const u = unit.toLowerCase();
     if (u === "min" || u === "minutes" || u === "minute") sunshineDivisor = 1;
@@ -277,193 +286,7 @@ function filterRowsFromDate<T extends { datetime?: unknown }>(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Physical sanity bounds — QC limits based on measurement domain
-// Values outside these ranges are set to null (removed from the row).
-// ---------------------------------------------------------------------------
-function cleanWeatherData(rows: any[]): any[] {
-  const bounds: Record<string, [number, number]> = {
-    // ── Temperature (°C) ──
-    // World record cold: −89.2 °C (Vostok), hot: 56.7 °C (Death Valley)
-    temperature:     [-90, 65],
-    tempMin:         [-90, 65],
-    tempMax:         [-90, 65],
-    tempMin50cm:     [-90, 65],
-    tempMinGround:   [-90, 75],   // ground can exceed air by ~10 °C
-    dewPoint:        [-90, 60],
-    virtualTemperature: [-90, 70],
-    surfaceTemperature: [-90, 85], // surface (sand, asphalt) can be very hot
-
-    // ── Humidity (%) ──
-    humidity:        [0, 100],
-
-    // ── Wind (m/s, degrees) ──
-    // Strongest gust: 113.3 m/s (Barrow Island, 1996)
-    windSpeed:       [0, 120],
-    windSpeed2m:     [0, 120],
-    windGust:        [0, 150],
-    windGustInst:    [0, 150],
-    windDirection:   [0, 360],
-    windGustDirection: [0, 360],
-
-    // ── Pressure (hPa) ──
-    // Lowest: ~870 hPa (typhoon eye), highest: ~1084 hPa (Siberia)
-    pressure:        [850, 1090],
-    pressureStation: [450, 1090],  // high-altitude stations can be ~450 hPa
-    pressureTendency:[-50, 50],    // hPa per 3h
-
-    // ── Precipitation (mm) ──
-    precipitation:   [0, 500],
-    precipitation1h: [0, 200],     // world record 1h: ~305 mm (Holt, MO)
-    precipitation3h: [0, 400],
-    precipitation6h: [0, 600],
-    precipitation12h:[0, 800],
-    precipitation24h:[0, 1200],    // world record 24h: ~1825 mm (Cilaos)
-    lwePrecipitationRate: [0, 500], // mm/h
-    rainfallRate:    [0, 500],
-
-    // ── Snow (cm) ──
-    snowDepth:       [0, 2500],    // deepest: ~1182 cm (Tamarack, CA)
-    snowFresh:       [0, 500],
-
-    // ── Cloud & Visibility ──
-    cloudCover:      [0, 100],     // %
-    cloudCoverLow:   [0, 100],     // %
-    cloudBaseAltitude: [0, 20000], // metres
-    visibility:      [0, 200000],  // metres (200 km max)
-
-    // ── Radiation (W/m²) ──
-    // Solar constant ~1361 W/m², ground max ~1400 with reflection
-    solarRadiation:  [0, 1600],
-    surfaceDiffuseDownwellingShortwave:  [0, 1000],
-    surfaceDirectDownwellingShortwave:   [0, 1600],
-    surfaceDownwellingLongwaveFluxInAir: [0, 600],
-    surfaceUpwellingLongwaveFluxInAir:   [0, 800],
-    surfaceUpwellingShortwaveFluxInAir:  [0, 1400],
-    surfaceNetDownwardRadiativeFlux:     [-500, 1600],
-    downwellingLongwaveFluxInAir:        [0, 600],
-    surfaceDownwellingPhotosyntheticPhotonFluxInAir: [0, 3000],  // µmol/m²/s
-    surfaceDownwellingPhotosyntheticRadiativeFluxInAir: [0, 700],
-    // Integral (J/m²) — daily totals can be very large
-    integralWrtTimeOfSurfaceDownwellingLongwaveFluxInAir:  [0, 5e7],
-    integralWrtTimeOfSurfaceDownwellingShortwaveFluxInAir: [0, 5e7],
-
-    // ── Sunshine & UV ──
-    sunshineDuration10m:[0, 10],     // minutes in 10 minutes
-    sunshineDuration1h: [0, 60],     // minutes in 1 hour
-    sunshineDuration3h: [0, 180],    // minutes in 3 hours
-    sunshineDuration6h: [0, 360],
-    sunshineDuration12h:[0, 720],
-    sunshineDuration24h:[0, 1440],
-    sunshineDuration:   [0, 1440],   // fallback
-    ultravioletIndex:   [0, 20],     // extreme UV = 11+, theoretical max ~20
-
-    // ── Soil (°C) ──
-    soilTemp10cm:    [-50, 60],
-    soilTemp20cm:    [-50, 60],
-    soilTemp50cm:    [-50, 60],
-
-    // ── Evapotranspiration (mm) ──
-    etp:             [0, 600],
-
-    // ── Radar ──
-    equivalentReflectivityFactor: [-30, 80],  // dBZ
-
-    // ── Ocean / Marine ──
-    seaSurfaceTemperature:                    [-2, 40],  // sea ice ~ -2 °C
-    seaWaterTemperature:                      [-2, 40],
-    seaWaterSalinity:                         [0, 45],   // PSU
-    seaWaterSpeed:                            [0, 10],   // m/s (currents)
-    seaWaterElectricalConductivity:           [0, 70],   // mS/cm
-    seaSurfaceWaveSignificantHeight:          [0, 25],   // m (record ~23 m)
-    seaSurfaceWaveMaximumHeight:              [0, 40],   // m
-    seaSurfaceWaveMaximumPeriod:              [0, 30],   // seconds
-    seaSurfaceWaveMeanPeriod:                 [0, 30],
-    seaSurfaceWaveSignificantPeriod:          [0, 30],
-    seaSurfaceWaveFromDirection:              [0, 360],
-    seaSurfaceWaveDirectionalSpread:          [0, 360],
-    seaSurfaceWavePeriodOfHighestWave:        [0, 30],
-    seaSurfaceWaveEnergyAtVarianceSpectralDensityMaximum: [0, 200],  // m²/Hz
-    seaSurfaceWaveFromDirectionAtVarianceSpectralDensityMaximum: [0, 360],
-    seaSurfaceWaveMeanPeriodFromVarianceSpectralDensityFirstFrequencyMoment:  [0, 30],
-    seaSurfaceWaveMeanPeriodFromVarianceSpectralDensitySecondFrequencyMoment: [0, 30],
-    seaSurfaceWavePeriodAtVarianceSpectralDensityMaximum: [0, 30],
-    seaSurfaceSwellWaveFromDirection:         [0, 360],
-    seaSurfaceSwellWaveSignificantHeight:     [0, 20],
-    seaSurfaceSwellWaveMeanPeriodFromVarianceSpectralDensitySecondFrequencyMoment: [0, 30],
-    seaSurfaceWindWaveFromDirection:          [0, 360],
-    seaSurfaceWindWaveSignificantHeight:      [0, 20],
-    seaSurfaceWindWaveMeanPeriodFromVarianceSpectralDensitySecondFrequencyMoment: [0, 30],
-  };
-
-  // Fallback heuristic bounds for dynamically-added camelCase keys
-  // that are not in the explicit map above
-  function inferBounds(key: string): [number, number] | null {
-    const k = key.toLowerCase();
-    if (k.includes("temperature") || k.includes("temp"))     return [-90, 75];
-    if (k.includes("direction") || k.includes("spread"))     return [0, 360];
-    if (k.includes("speed") || k.includes("gust"))           return [0, 150];
-    if (k.includes("humidity") || k.includes("fraction") || k.includes("cover")) return [0, 100];
-    if (k.includes("pressure"))                               return [400, 1100];
-    if (k.includes("precipitation") || k.includes("rain"))   return [0, 1200];
-    if (k.includes("salinity"))                               return [0, 50];
-    if (k.includes("period"))                                 return [0, 30];
-    if (k.includes("height") && k.includes("wave"))          return [0, 40];
-    if (k.includes("visibility"))                             return [0, 200000];
-    if (k.includes("radiation") || k.includes("flux"))       return [-500, 5000];
-    if (k.includes("snow"))                                   return [0, 2500];
-    return null; // no heuristic — pass through
-  }
-
-  for (const row of rows) {
-    for (const key of Object.keys(row)) {
-      if (key === "datetime") continue;
-      const val = row[key];
-      if (val === undefined || val === null || typeof val !== "number") continue;
-
-      const k = key.toLowerCase();
-      if (
-        (k.includes("precipitation") || k.includes("rain") || k.includes("speed") || k.includes("gust") || 
-         k.includes("humidity") || k.includes("radiation") || k.includes("sunshine")) && 
-        val < 0
-      ) {
-        delete row[key];
-        continue;
-      }
-
-      const limit = bounds[key] || inferBounds(key);
-      if (limit && (val < limit[0] || val > limit[1])) {
-        delete row[key];
-      }
-    }
-  }
-
-  // Despike temperature: drop values that deviate by more than 25°C from the 24-hour moving median or simply the dataset median if it's small.
-  // For simplicity and performance, we'll use a local window median to detect massive sensor dropouts.
-  const tempKeys = ["temperature", "tempMin", "tempMax"];
-  for (const tKey of tempKeys) {
-    const validRows = rows.filter(r => typeof r[tKey] === "number");
-    if (validRows.length < 5) continue; // Not enough data to despike
-
-    for (let i = 0; i < validRows.length; i++) {
-      // Get a local window of up to 5 points (roughly 5 hours if hourly)
-      const window = [];
-      for (let j = Math.max(0, i - 2); j <= Math.min(validRows.length - 1, i + 2); j++) {
-        window.push(validRows[j][tKey]);
-      }
-      window.sort((a, b) => a - b);
-      const median = window[Math.floor(window.length / 2)];
-      
-      // If the current point deviates by > 20°C from its local median, it's a sensor glitch.
-      // (Even extreme weather fronts rarely drop temperature by 20°C instantly without a gradual slope)
-      if (Math.abs(validRows[i][tKey] - median) > 20) {
-        delete validRows[i][tKey];
-      }
-    }
-  }
-
-  return rows;
-}
+// cleanWeatherData was removed in favor of canonical applyQualityControl from @/utils/qc
 
 // ---------------------------------------------------------------------------
 // Dew point synthesis (Magnus formula, matching R calculate_dew_point())
@@ -475,12 +298,16 @@ function calculateDewPoint(temp: number, rh: number): number {
   return (b * alpha) / (a - alpha);
 }
 
-function synthesizeDewPoint(rows: any[]): void {
+function synthesizeDewPoint(rows: HourlyRow[]): void {
   for (const row of rows) {
     if (
       row.dewPoint === undefined &&
       row.temperature !== undefined &&
+      row.temperature !== null &&
       row.humidity !== undefined &&
+      row.humidity !== null &&
+      typeof row.temperature === "number" &&
+      typeof row.humidity === "number" &&
       !isNaN(row.temperature) &&
       !isNaN(row.humidity) &&
       row.humidity > 0 && row.humidity <= 100
@@ -518,13 +345,10 @@ function isPrecipParam(name: string): boolean {
 // Pivot long-format raw rows into wide HourlyRow objects
 // With parameter variant selection (matching R select_preferred_param_names)
 // ---------------------------------------------------------------------------
-function pivotArchiveRows(rawRows: any[]): any[] {
+function pivotArchiveRows(rawRows: RawArchiveRow[]): HourlyRow[] {
   // Step 1: Group rows by (timestamp, standard_name) and pick best variant
   // For precipitation: prefer method=sum with shortest duration (PT1H > PT3H > PT6H)
   // For other params: prefer method=point with PT0S or no duration
-
-  // Group by timestamp+paramName, keeping the best variant per group
-  const bestByKey = new Map<string, { dt: string; paramName: string; value: number }>();
 
   // For each (timestamp, standard_name), track the best candidate with its rank
   const rankMap = new Map<string, { rank: number; value: number; dt: string; paramName: string }>();
@@ -571,7 +395,7 @@ function pivotArchiveRows(rawRows: any[]): any[] {
   }
 
   // Step 2: Pivot selected rows to wide format
-  const wideRowsMap = new Map<string, any>();
+  const wideRowsMap = new Map<string, HourlyRow>();
 
   for (const entry of rankMap.values()) {
     if (isBadValue(entry.value)) continue;
@@ -580,7 +404,7 @@ function pivotArchiveRows(rawRows: any[]): any[] {
       wideRowsMap.set(entry.dt, { datetime: entry.dt });
     }
 
-    mapParamToRow(wideRowsMap.get(entry.dt), entry.paramName, entry.value);
+    mapParamToRow(wideRowsMap.get(entry.dt)!, entry.paramName, entry.value);
   }
 
   return Array.from(wideRowsMap.values());
@@ -595,7 +419,7 @@ async function fetchArchiveDetails(
   endDate: Date,
   onProgress: (msg: string) => void,
   options: { detectSubHourly?: boolean; rangeLimitDays?: number; limitWindowStart?: Date; rangeAnchorDate?: Date } = {}
-): Promise<{ rows: any[]; resolution: TimestampResolution; rangeLimitDays: number | null }> {
+): Promise<{ rows: HourlyRow[]; resolution: TimestampResolution; rangeLimitDays: number | null }> {
   const dateStrs = buildDateRange(startDate, endDate);
   const emptyResolution = analyzeTimestampResolution([]);
   if (dateStrs.length === 0) {
@@ -605,7 +429,7 @@ async function fetchArchiveDetails(
   onProgress(`Preparing to fetch ${dateStrs.length} days from Hugging Face archive...`);
 
   const BATCH_SIZE = 10;
-  const allRawRows: any[] = [];
+  const allRawRows: RawArchiveRow[] = [];
   const batches: string[][] = [];
   const shouldDetectSubHourly = options.detectSubHourly ?? true;
   let rangeLimitDays = options.rangeLimitDays ?? MAX_HOURLY_WINDOW_DAYS;
@@ -634,7 +458,7 @@ async function fetchArchiveDetails(
     onProgress(`Downloading and querying archive batch ${i + 1} of ${batches.length} (${batch[0]} to ${batch[batch.length - 1]})...`);
 
     try {
-      const rows = await queryArchiveBatch(batch, stationId);
+      const rows = await queryArchiveBatch<RawArchiveRow>(batch, stationId);
       allRawRows.push(...(archiveIsSubHourly ? filterRowsFromDate(rows, limitWindowStartKey) : rows));
 
       const batchResolution = analyzeTimestampResolution(rows);
@@ -653,9 +477,10 @@ async function fetchArchiveDetails(
         allRawRows.length = 0;
         allRawRows.push(...clampedRows);
       }
-    } catch (error: any) {
+    } catch (error) {
+      const err = error as Error;
       console.warn(
-        `[api/observations/station-details]   Batch query error: ${error.message || error}`
+        `[api/observations/station-details]   Batch query error: ${err.message || err}`
       );
     }
   }
@@ -677,7 +502,39 @@ async function fetchArchiveDetails(
 }
 
 const liveDataCache = new NodeCache({ stdTTL: 300, checkperiod: 120, useClones: false });
-const liveInFlight = new Map<string, Promise<{ rows: any[]; units: Record<string, string> }>>();
+interface CoverageRange {
+  observedProperty?: {
+    unit?: {
+      symbol?: unknown;
+    };
+  };
+  unit?: {
+    symbol?: unknown;
+  };
+  values?: Array<number | string | null>;
+}
+
+function getSymbolString(symbol: unknown): string | undefined {
+  if (typeof symbol === "string") return symbol;
+  if (symbol && typeof symbol === "object" && "value" in symbol) {
+    const val = (symbol as { value?: unknown }).value;
+    if (typeof val === "string") return val;
+  }
+  return undefined;
+}
+
+interface MeteoGateCoverage {
+  domain?: {
+    axes?: {
+      t?: {
+        values?: string[];
+      };
+    };
+  };
+  ranges?: Record<string, CoverageRange>;
+}
+
+const liveInFlight = new Map<string, Promise<{ rows: HourlyRow[]; units: Record<string, string> }>>();
 
 // ---------------------------------------------------------------------------
 // Live fetch: MeteoGate CoverageJSON REST API
@@ -687,12 +544,12 @@ async function fetchLiveDetails(
   startDate: Date,
   endDate: Date,
   onProgress: (msg: string) => void
-): Promise<{ rows: any[]; units: Record<string, string> }> {
+): Promise<{ rows: HourlyRow[]; units: Record<string, string> }> {
   const startIso = startDate.toISOString();
   const endIso = endDate.toISOString();
   const cacheKey = `live:${stationId}:${startIso}:${endIso}`;
 
-  const cached = liveDataCache.get<{ rows: any[]; units: Record<string, string> }>(cacheKey);
+  const cached = liveDataCache.get<{ rows: HourlyRow[]; units: Record<string, string> }>(cacheKey);
   if (cached) {
     onProgress(`Loaded live data from cache...`);
     return cached;
@@ -704,11 +561,11 @@ async function fetchLiveDetails(
     return inFlight;
   }
 
-  const fetchAndCache = async (): Promise<{ rows: any[]; units: Record<string, string> }> => {
+  const fetchAndCache = async (): Promise<{ rows: HourlyRow[]; units: Record<string, string> }> => {
     const url = `https://observations.meteogate.eu/collections/observations/locations/${stationId}?datetime=${startIso}/${endIso}&f=CoverageJSON`;
 
     onProgress(`Fetching live recent data from MeteoGate API...`);
-    
+
     try {
       const rawData = await fetchBypassSSL(url);
       onProgress(`Parsing live data response...`);
@@ -718,10 +575,10 @@ async function fetchLiveDetails(
         json.type === "Coverage" ? [json] : json.coverages || [];
       if (coverages.length === 0) return { rows: [], units: {} };
 
-      const parsedRows: any[] = [];
+      const parsedRows: HourlyRow[] = [];
       const unitMap: Record<string, string> = {};
 
-      coverages.forEach((coverage: any) => {
+      coverages.forEach((coverage: MeteoGateCoverage) => {
         const timestamps = coverage.domain?.axes?.t?.values || [];
         const ranges = coverage.ranges || {};
 
@@ -730,15 +587,13 @@ async function fetchLiveDetails(
         // Extract units from CoverageJSON ranges metadata
         Object.keys(ranges).forEach((paramName) => {
           const observedProperty = ranges[paramName]?.observedProperty;
-          const unitSymbol = observedProperty?.unit?.symbol?.value
-            || observedProperty?.unit?.symbol
-            || ranges[paramName]?.unit?.symbol?.value
-            || ranges[paramName]?.unit?.symbol;
+          const unitSymbol = getSymbolString(observedProperty?.unit?.symbol)
+            || getSymbolString(ranges[paramName]?.unit?.symbol);
           if (unitSymbol && typeof unitSymbol === "string") {
             // Map the paramName to a known field key
-            const testRow: any = {};
+            const testRow: HourlyRow = { datetime: "" };
             mapParamToRow(testRow, paramName, 0);
-            const mappedKey = Object.keys(testRow)[0];
+            const mappedKey = Object.keys(testRow).filter(k => k !== "datetime")[0];
             if (mappedKey) {
               // Sunshine values are always converted to minutes internally,
               // so force the display unit to "min" regardless of the raw API unit
@@ -752,19 +607,17 @@ async function fetchLiveDetails(
         });
 
         timestamps.forEach((ts: string, index: number) => {
-          const row: any = { datetime: ts };
+          const row: HourlyRow = { datetime: ts };
 
           Object.keys(ranges).forEach((paramName) => {
             const values = ranges[paramName]?.values || [];
             const val = values[index];
-            
-            const observedProperty = ranges[paramName]?.observedProperty;
-            const unitSymbol = observedProperty?.unit?.symbol?.value
-              || observedProperty?.unit?.symbol
-              || ranges[paramName]?.unit?.symbol?.value
-              || ranges[paramName]?.unit?.symbol;
 
-            if (val !== null && val !== undefined && !isBadValue(val)) {
+            const observedProperty = ranges[paramName]?.observedProperty;
+            const unitSymbol = getSymbolString(observedProperty?.unit?.symbol)
+              || getSymbolString(ranges[paramName]?.unit?.symbol);
+
+            if (val !== null && val !== undefined && typeof val === "number" && !isBadValue(val)) {
               mapParamToRow(row, paramName, val, unitSymbol);
             }
           });
@@ -838,7 +691,7 @@ export async function GET(request: Request) {
         }
       }
 
-      function sendEvent(event: string, data: any): boolean {
+      function sendEvent(event: string, data: unknown): boolean {
         if (streamClosed || request.signal.aborted) {
           streamClosed = true;
           return false;
@@ -852,7 +705,7 @@ export async function GET(request: Request) {
           return false;
         }
       }
-      
+
       function sendProgress(msg: string) {
         sendEvent("progress", { message: msg });
       }
@@ -862,8 +715,8 @@ export async function GET(request: Request) {
         const apiCutoff = new Date();
         apiCutoff.setUTCHours(apiCutoff.getUTCHours() - 24);
 
-        let archiveRows: any[] = [];
-        let liveRows: any[] = [];
+        let archiveRows: HourlyRow[] = [];
+        let liveRows: HourlyRow[] = [];
         let liveUnits: Record<string, string> = {};
         let stationIsSubHourly = false;
         let rangeLimitDays = MAX_HOURLY_WINDOW_DAYS;
@@ -947,7 +800,7 @@ export async function GET(request: Request) {
         sendProgress("Merging and sorting datasets...");
 
         // Merge both datasets using a map to deduplicate by datetime
-        const mergedMap = new Map<string, any>();
+        const mergedMap = new Map<string, HourlyRow>();
 
         archiveRows.forEach((row) => {
           mergedMap.set(row.datetime, row);
@@ -970,9 +823,9 @@ export async function GET(request: Request) {
             new Date(a.datetime).getTime() - new Date(b.datetime).getTime()
         );
 
-        // Apply physical sanity bounds cleaning (matching R clean_weather_data)
+        // Apply physical sanity bounds cleaning (canonical bounds check and despiking)
         sendProgress("Applying quality control filters...");
-        mergedRows = cleanWeatherData(mergedRows);
+        mergedRows = applyQualityControl(mergedRows);
 
         // Synthesize dew point from temperature + humidity where missing
         synthesizeDewPoint(mergedRows);
@@ -1034,9 +887,10 @@ export async function GET(request: Request) {
           },
         });
         closeStream();
-      } catch (error: any) {
-        console.error("[api/observations/station-details] Error:", error);
-        sendEvent("error", { success: false, message: error.message });
+      } catch (error) {
+        const err = error as Error;
+        console.error("[api/observations/station-details] Error:", err);
+        sendEvent("error", { success: false, message: err.message });
         closeStream();
       }
     }

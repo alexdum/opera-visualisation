@@ -31,6 +31,7 @@ export function WeatherTable<T>({
   const [sorting, setSorting] = useState<SortingState>(() => defaultSorting);
   const [globalFilter, setGlobalFilter] = useState("");
 
+  // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
     data,
     columns,
@@ -79,7 +80,7 @@ export function WeatherTable<T>({
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
                 {headerGroup.headers.map((header, index) => {
-                  const metaClassName = (header.column.columnDef.meta as any)?.className || "";
+                  const metaClassName = (header.column.columnDef.meta as { className?: string })?.className || "";
                   return (
                   <th
                     key={header.id}
@@ -114,10 +115,10 @@ export function WeatherTable<T>({
                 }`}
               >
                 {row.getVisibleCells().map((cell, index) => {
-                  const metaClassName = (cell.column.columnDef.meta as any)?.className || "";
+                  const metaClassName = (cell.column.columnDef.meta as { className?: string })?.className || "";
                   return (
-                  <td 
-                    key={cell.id} 
+                  <td
+                    key={cell.id}
                     className={`p-4 text-sm text-slate-600 font-medium ${index === 0 ? "sticky left-0 bg-white shadow-[1px_0_0_0_#f1f5f9] z-10 group-hover:bg-slate-50" : ""} ${metaClassName}`}
                   >
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}

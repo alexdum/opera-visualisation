@@ -122,10 +122,71 @@ const WeatherMapComponent: React.FC<MapProps> = ({
 
   const sourceReadyRef = useRef(false);
 
+  const idleTimeoutRef = useRef<number | null>(null);
+  const onMapIdleRef = useRef<(() => void) | null>(null);
+  const isPendingIdleSyncRef = useRef<boolean>(false);
+
+  const clearIdleSync = useCallback(() => {
+    if (idleTimeoutRef.current !== null) {
+      window.clearTimeout(idleTimeoutRef.current);
+      idleTimeoutRef.current = null;
+    }
+    if (onMapIdleRef.current !== null && map.current) {
+      map.current.off('idle', onMapIdleRef.current);
+      onMapIdleRef.current = null;
+    }
+  }, []);
+
+  const fallbackTimerRef = useRef<number | null>(null);
+  const clearFallbackTimer = useCallback(() => {
+    if (fallbackTimerRef.current !== null) {
+      window.clearTimeout(fallbackTimerRef.current);
+      fallbackTimerRef.current = null;
+    }
+  }, []);
+
   const [basemap, setBasemap] = useState<string>("positron");
   const [showLabels, setShowLabels] = useState<boolean>(true);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const triggerIdleSync = useCallback((m: maplibregl.Map) => {
+    if (!isPendingIdleSyncRef.current) return;
+    isPendingIdleSyncRef.current = false;
+    clearIdleSync();
+
+    const mExtended = m as unknown as { isIdle?: () => boolean };
+    const isMapCurrentlyIdle = typeof mExtended.isIdle === "function"
+      ? mExtended.isIdle()
+      : (typeof m.loaded === "function" ? m.loaded() : false);
+
+    if (isMapCurrentlyIdle) {
+      setIsLoading(false);
+      clearFallbackTimer();
+    } else {
+      const handleIdle = () => {
+        setIsLoading(false);
+        clearIdleSync();
+        clearFallbackTimer();
+      };
+      onMapIdleRef.current = handleIdle;
+      m.once('idle', handleIdle);
+
+      // Bounded fallback of 1.5s
+      idleTimeoutRef.current = window.setTimeout(() => {
+        console.warn("[Map] Idle event timed out. Dismissing loader.");
+        setErrorMsg("Map rendering timed out. Displaying map in degraded mode.");
+        setIsLoading(false);
+        clearIdleSync();
+        clearFallbackTimer();
+      }, 1500);
+    }
+  }, [clearIdleSync, clearFallbackTimer]);
+
+  const triggerIdleSyncRef = useRef(triggerIdleSync);
+  useEffect(() => {
+    triggerIdleSyncRef.current = triggerIdleSync;
+  }, [triggerIdleSync]);
   const [visibleBounds, setVisibleBounds] = useState<maplibregl.LngLatBounds | null>(null);
   const [isStatsExpanded, setIsStatsExpanded] = useState<boolean>(() => {
     if (typeof window !== "undefined") {
@@ -170,18 +231,19 @@ const WeatherMapComponent: React.FC<MapProps> = ({
 
     const abortController = new AbortController();
     const requestKey = observationRequestKey;
-    let idleListenerActive = false;
-
-    const onMapIdle = () => {
-      setIsLoading(false);
-      idleListenerActive = false;
-    };
 
     const fetchObservations = async () => {
       setIsLoading(true);
       setErrorMsg(null);
       setObservations({});
       setActiveObservationKey("");
+
+      clearFallbackTimer();
+      fallbackTimerRef.current = window.setTimeout(() => {
+        console.warn("[Map] Loading fallback timed out. Displaying degraded state.");
+        setErrorMsg("Map loading timed out. Displaying map in degraded mode.");
+        setIsLoading(false);
+      }, 12000);
 
       try {
         const bounds = stations.reduce(
@@ -282,18 +344,12 @@ const WeatherMapComponent: React.FC<MapProps> = ({
 
         // Apply QC: physical bounds + IQR-based spatial outlier detection
         const filteredObs = filterMapObservations(newObs, selectedHour, parameter);
+        isPendingIdleSyncRef.current = true;
         setObservations(filteredObs);
         setActiveObservationKey(requestKey);
-
-        const m = map.current;
-        if (m) {
-          idleListenerActive = true;
-          m.once('idle', onMapIdle);
-        } else {
-          setIsLoading(false);
-        }
       } catch (error: unknown) {
         if (getErrorName(error) === "AbortError") return;
+        clearFallbackTimer();
         console.error("[Map] Fetch observations failed:", error);
         setObservations({});
         setActiveObservationKey("");
@@ -306,11 +362,11 @@ const WeatherMapComponent: React.FC<MapProps> = ({
     return () => {
       abortController.abort();
       window.clearTimeout(timer);
-      if (idleListenerActive && map.current) {
-        map.current.off('idle', onMapIdle);
-      }
+      isPendingIdleSyncRef.current = false;
+      clearIdleSync();
+      clearFallbackTimer();
     };
-  }, [stations, parameter, endDate, selectedHour, observationRequestKey, setObservations]);
+  }, [stations, parameter, endDate, selectedHour, observationRequestKey, setObservations, clearIdleSync, clearFallbackTimer]);
 
   // ── Build GeoJSON from current refs (always reads latest values) ──
   const buildGeoJSON = useCallback((): GeoJSON.FeatureCollection => {
@@ -538,6 +594,13 @@ const WeatherMapComponent: React.FC<MapProps> = ({
 
     map.current = new maplibregl.Map(mapOptions);
 
+    // Capture map rendering or loading errors
+    map.current.on('error', (e) => {
+      console.error("[Map] MapLibre error:", e);
+      setErrorMsg(`Map rendering error: ${e.error?.message || 'Unknown map error'}`);
+      setIsLoading(false);
+    });
+
     map.current.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-left");
     map.current.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
 
@@ -584,7 +647,7 @@ const WeatherMapComponent: React.FC<MapProps> = ({
             maxzoom: 18
           }, m.getStyle().layers[0]?.id);
 
-          // Hide all opaque background/land/water layers so satellite shows through, 
+          // Hide all opaque background/land/water layers so satellite shows through,
           // but explicitly keep borders (boundary) and labels (label)
           const layers = m.getStyle().layers;
           layers.forEach(layer => {
@@ -593,7 +656,7 @@ const WeatherMapComponent: React.FC<MapProps> = ({
             const isLabel = id.includes("label");
             const isBoundary = id.includes("boundary");
             const isCustom = id === "sentinel-satellite" || id === CIRCLE_LAYER || id === SELECTED_LAYER || id === TEXT_LAYER;
-            
+
             if (!isLabel && !isBoundary && !isCustom) {
               m.setLayoutProperty(id, 'visibility', 'none');
             } else if (isBoundary) {
@@ -620,6 +683,11 @@ const WeatherMapComponent: React.FC<MapProps> = ({
 
       // Re-add station layers (always uses latest data via ref)
       addSourceAndLayersRef.current();
+
+      // Trigger idle sync if there are pending observations waiting to render
+      if (m) {
+        triggerIdleSyncRef.current(m);
+      }
     });
 
     // ── Hover: change cursor + show popup ──
@@ -694,39 +762,41 @@ const WeatherMapComponent: React.FC<MapProps> = ({
     });
 
     return () => {
+      clearIdleSync();
+      clearFallbackTimer();
       popupRef.current?.remove();
       popupRef.current = null;
       map.current?.remove();
       map.current = null;
       sourceReadyRef.current = false;
     };
-  }, []); // Runs once
+  }, [clearIdleSync, clearFallbackTimer]); // Runs once
 
   // ── 3. Handle basemap changes ──
   const initialBasemapRef = useRef(true);
-  
+
   useEffect(() => {
     if (!map.current) return;
-    
+
     // On initial mount, the map constructor already sets the style.
     // Calling setStyle again would destroy our source/layers and cause a race condition.
     if (initialBasemapRef.current) {
       initialBasemapRef.current = false;
       return;
     }
-    
+
     // For satellite, we use 'positron' as the base to get all the vector boundaries/labels
-    const styleUrl = basemap === "satellite" || basemap === "positron" 
-      ? "https://tiles.openfreemap.org/styles/positron" 
+    const styleUrl = basemap === "satellite" || basemap === "positron"
+      ? "https://tiles.openfreemap.org/styles/positron"
       : "https://tiles.openfreemap.org/styles/bright";
-      
+
     map.current.setStyle(styleUrl);
   }, [basemap]);
 
   // ── 3b. Sync Label Visibility without full style reload ──
   useEffect(() => {
     if (!map.current) return;
-    
+
     const applyLabelVisibility = () => {
       if (!map.current || !map.current.isStyleLoaded()) return;
       const style = map.current.getStyle();
@@ -742,7 +812,7 @@ const WeatherMapComponent: React.FC<MapProps> = ({
     if (map.current.isStyleLoaded()) {
       applyLabelVisibility();
     }
-    
+
     map.current.on('style.load', applyLabelVisibility);
     return () => {
       map.current?.off('style.load', applyLabelVisibility);
@@ -767,8 +837,11 @@ const WeatherMapComponent: React.FC<MapProps> = ({
       return true;
     };
 
-    tryUpdate();
-  }, [stations, observations, selectedHour, parameter, selectedStation, buildGeoJSON]);
+    const updated = tryUpdate();
+    if (updated) {
+      triggerIdleSync(m);
+    }
+  }, [stations, observations, selectedHour, parameter, selectedStation, buildGeoJSON, triggerIdleSync]);
 
   // ── 5. Zoom to Selected Country or Station Centroid ──
   useEffect(() => {
@@ -813,9 +886,9 @@ const WeatherMapComponent: React.FC<MapProps> = ({
   const handleHomeClick = () => {
     if (!map.current) return;
     setSelectedStation("");
-    map.current.flyTo({ 
-      center: [10, 50], 
-      zoom: 3, 
+    map.current.flyTo({
+      center: [10, 50],
+      zoom: 3,
       essential: true,
       duration: 1500
     });
@@ -845,14 +918,14 @@ const WeatherMapComponent: React.FC<MapProps> = ({
       {/* Visible Extent Summary Cards */}
       {visibleStats && (
         <div className="absolute top-2.5 right-2.5 z-10 flex flex-col gap-2 max-w-[280px]">
-          <details 
+          <details
             className="group bg-white/95 backdrop-blur-md border border-slate-200 rounded-xl shadow-lg flex flex-col transition-all duration-200 marker:content-['']"
             open={isStatsExpanded}
             onToggle={(e) => setIsStatsExpanded(e.currentTarget.open)}
           >
             <summary className="p-3 text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-start justify-between gap-2 cursor-pointer border-slate-100 group-open:border-b group-open:pb-1.5 list-none [&::-webkit-details-marker]:hidden">
               <div className="flex flex-col leading-tight gap-0.5">
-                  <span className="truncate inline-block max-w-[120px]">
+                  <span className="break-words leading-tight">
                     {({
                       air_temperature: "Air Temperature",
                       precipitation_amount: "Precipitation",
@@ -860,10 +933,14 @@ const WeatherMapComponent: React.FC<MapProps> = ({
                       wind_speed: "Wind Speed",
                     }[parameter] || parameter.replace(/_/g, ' ').replace(/([A-Z])/g, ' $1').trim())}
                   </span>
-                <span className="text-[9px] text-slate-400 tracking-normal normal-case font-medium flex items-center gap-1 cursor-help relative group/tip">
+                <span
+                  tabIndex={0}
+                  className="text-[9px] text-slate-400 tracking-normal normal-case font-medium flex items-center gap-1 cursor-help relative hover-tooltip focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500 rounded px-0.5"
+                  aria-label="Information about Screen Extent statistics"
+                >
                   Screen Extent
                   <Info size={10} className="text-slate-400" />
-                  <span className="pointer-events-none opacity-0 group-hover/tip:opacity-100 group-hover/tip:pointer-events-auto transition-opacity duration-200 absolute right-0 top-full mt-1 z-50 w-52 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-medium leading-relaxed text-slate-600 shadow-lg normal-case tracking-normal">
+                  <span className="tooltip-content pointer-events-none opacity-0 transition-opacity duration-200 absolute right-0 top-full mt-1 z-50 w-52 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[10px] font-medium leading-relaxed text-slate-600 shadow-lg normal-case tracking-normal">
                     These aggregated statistics dynamically update to only include the stations currently visible within the map boundaries.
                   </span>
                 </span>
@@ -875,7 +952,7 @@ const WeatherMapComponent: React.FC<MapProps> = ({
                 </div>
               </div>
             </summary>
-            
+
             <div className="p-3 pt-1.5 flex flex-col animate-in fade-in duration-200">
               <div className="flex justify-between items-center">
                   <span className="text-[10px] font-semibold text-slate-500 uppercase">Average</span>
@@ -891,7 +968,7 @@ const WeatherMapComponent: React.FC<MapProps> = ({
                         {visibleStats.max.toFixed(1)} {getUnitForParam(parameter)}
                       </span>
                       {visibleStats.maxStation && (
-                        <span className="text-[9px] font-medium text-slate-500 text-right truncate w-full max-w-[180px]">
+                        <span className="text-[9px] font-medium text-slate-500 text-right break-words leading-tight">
                           {visibleStats.maxStation.name}, {visibleStats.maxStation.country}
                         </span>
                       )}
@@ -906,7 +983,7 @@ const WeatherMapComponent: React.FC<MapProps> = ({
                         {visibleStats.min.toFixed(1)} {getUnitForParam(parameter)}
                       </span>
                       {visibleStats.minStation && (
-                        <span className="text-[9px] font-medium text-slate-500 text-right truncate w-full max-w-[180px]">
+                        <span className="text-[9px] font-medium text-slate-500 text-right break-words leading-tight">
                           {visibleStats.minStation.name}, {visibleStats.minStation.country}
                         </span>
                       )}

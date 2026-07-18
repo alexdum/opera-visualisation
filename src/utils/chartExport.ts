@@ -57,7 +57,7 @@ function inlineStyles(original: Element, clone: Element): void {
   for (const prop of INLINE_STYLE_PROPS) {
     const value = computed[prop];
     if (value && value !== "" && value !== "normal" && value !== "auto" && (value !== "none" || prop === "display")) {
-      (clone as HTMLElement | SVGElement).style[prop as any] = value as string;
+      (clone as HTMLElement | SVGElement).style.setProperty(prop as string, value as string);
     }
   }
 

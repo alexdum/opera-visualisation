@@ -1,12 +1,12 @@
 import * as xlsx from "xlsx";
 
-export const downloadCSV = (data: any[], filename: string) => {
+export const downloadCSV = (data: Record<string, unknown>[], filename: string) => {
   if (!data || data.length === 0) return;
-  
+
   const headers = Object.keys(data[0]);
   const csvContent = [
     headers.join(","),
-    ...data.map(row => 
+    ...data.map(row =>
       headers.map(header => {
         const val = row[header];
         return val === undefined || val === null ? "" : String(val);
@@ -24,13 +24,13 @@ export const downloadCSV = (data: any[], filename: string) => {
   document.body.removeChild(link);
 };
 
-export const downloadExcel = (data: any[], filename: string) => {
+export const downloadExcel = (data: Record<string, unknown>[], filename: string) => {
   if (!data || data.length === 0) return;
-  
+
   const worksheet = xlsx.utils.json_to_sheet(data);
   const workbook = xlsx.utils.book_new();
   xlsx.utils.book_append_sheet(workbook, worksheet, "Station Data");
-  
+
   // Write and download
   xlsx.writeFile(workbook, `${filename}.xlsx`);
 };

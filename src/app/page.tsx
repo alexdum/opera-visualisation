@@ -1,14 +1,15 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useRef, Suspense } from "react";
+import React, { useState, useEffect, useMemo, useRef, Suspense, useCallback } from "react";
 import { flushSync } from "react-dom";
+import { useSearchParams } from "next/navigation";
 import { Sidebar } from "@/components/Sidebar";
 import { WeatherMap } from "@/components/Map";
 import { DashboardCharts } from "@/components/DashboardCharts";
 import { WeatherTable } from "@/components/Table";
 import { Tooltip } from "@/components/Tooltip";
-import { ColumnDef } from "@tanstack/react-table";
-import { Map as MapIcon, List, BarChart3, AlertCircle, Info, Calendar, Thermometer, Wind, Database, Download, Maximize, Minimize, MapPin, Mountain, Loader2 } from "lucide-react";
+import { ColumnDef, CellContext } from "@tanstack/react-table";
+import { Map as MapIcon, List, BarChart3, AlertCircle, Info, Database, Download, Maximize, Minimize, MapPin, Mountain } from "lucide-react";
 import { downloadCSV, downloadExcel } from "@/utils/export";
 import { countryMatches, resolveCountryName } from "@/utils/country";
 import { applyQualityControl } from "@/utils/qc";
@@ -119,36 +120,82 @@ function NoStationDataMessage() {
   );
 }
 
+interface EffectiveRange {
+  start: string;
+  end: string;
+  adjusted: boolean;
+  reason: string | null;
+  limitDays: number | null;
+}
+
 interface ClientStationCacheEntry {
   data: HourlyRow[];
   units: Record<string, string>;
   sampling: StationSampling | null;
-  effectiveRange: any;
+  effectiveRange: EffectiveRange;
   timestamp: number;
 }
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+
 const stationDetailsCache = new Map() as Map<string, ClientStationCacheEntry>;
 
-function EuroMeteoApp() {
+// Weather-logical sort order for land parameters
+const LAND_SORT_ORDER = [
+  "temperature", "tempMin", "tempMax", "tempMinGround", "tempMin50cm",
+  "dewPoint", "humidity", "virtualTemperature", "surfaceTemperature",
+  "precipitation", "precipitation1h", "precipitation3h", "precipitation6h",
+  "precipitation12h", "precipitation24h", "lwePrecipitationRate", "rainfallRate",
+  "snowDepth", "snowFresh",
+  "windSpeed", "windSpeed2m", "windGust", "windGustInst", "windGustDirection", "windDirection",
+  "pressure", "pressureStation", "pressureTendency",
+  "cloudCover", "cloudCoverLow", "cloudBaseAltitude", "visibility",
+  "solarRadiation",
+  "sunshineDuration10m", "sunshineDuration1h", "sunshineDuration3h",
+  "sunshineDuration6h", "sunshineDuration12h", "sunshineDuration24h",
+  "sunshineDuration", "ultravioletIndex", "etp",
+  "soilTemp10cm", "soilTemp20cm", "soilTemp50cm",
+  "equivalentReflectivityFactor",
+];
+
+// Keys that should render as integers (directions, percentages, indices)
+const INTEGER_KEYS = new Set([
+  "windDirection", "windGustDirection", "cloudCover", "cloudCoverLow",
+  "humidity", "ultravioletIndex",
+]);
+
+interface InitialUrlState {
+  country: string;
+  station: string;
+  stationSlug: string;
+  startDate: string;
+  endDate: string;
+  parameter: string;
+  activeTab: string;
+}
+
+function getDefaultDateRange(): Pick<InitialUrlState, "startDate" | "endDate"> {
+  const now = new Date();
+  return {
+    endDate: now.toISOString().split("T")[0],
+    startDate: new Date(now.getTime() - 32 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+  };
+}
+
+function EuroMeteoApp({ initialUrlState }: { initialUrlState: InitialUrlState }) {
   // --- Sidebar & General Filters State ---
   const [stations, setStations] = useState<Station[]>([]);
-  const [selectedCountry, setSelectedCountry] = useState<string>("");
-  const [selectedStation, setSelectedStation] = useState<string>("");
+  const [selectedCountry, setSelectedCountry] = useState<string>(initialUrlState.country);
+  const [selectedStation, setSelectedStation] = useState<string>(initialUrlState.station);
   // Pending station slug: set when a station slug is received (from URL or message)
   // but can't be resolved yet because stations haven't loaded
-  const [pendingStationSlug, setPendingStationSlug] = useState<string>("");
-  
+  const [pendingStationSlug, setPendingStationSlug] = useState<string>(initialUrlState.stationSlug);
+
   // Default to Last 31 Days like MeteoGate
-  const [endDate, setEndDate] = useState<string>(
-    new Date().toISOString().split("T")[0] // default to today
-  );
-  const [startDate, setStartDate] = useState<string>(
-    new Date(new Date().getTime() - 32 * 24 * 60 * 60 * 1000).toISOString().split("T")[0] // default to yesterday - 31 days
-  );
-  const [parameter, setParameter] = useState<string>("air_temperature");
+  const [endDate, setEndDate] = useState<string>(initialUrlState.endDate);
+  const [startDate, setStartDate] = useState<string>(initialUrlState.startDate);
+  const [parameter, setParameter] = useState<string>(initialUrlState.parameter);
 
   // --- UI Elements State ---
-  const [activeTab, setActiveTab] = useState<string>("map");
+  const [activeTab, setActiveTab] = useState<string>(initialUrlState.activeTab);
 
   const switchTab = (newTab: string) => {
     if (newTab === activeTab) return;
@@ -176,7 +223,7 @@ function EuroMeteoApp() {
 
   // Lifted state from Map for current observation values
   const [areaObservations, setAreaObservations] = useState<Record<string, number[]>>({});
-  
+
   // Default to 3 hours ago (matching MeteoGate R app)
   const [selectedHour, setSelectedHour] = useState<number>(() => {
     const d = new Date();
@@ -189,11 +236,16 @@ function EuroMeteoApp() {
     return Array.from(unique).sort();
   }, [stations]);
 
-  const canonicalSelectedCountry = useMemo(
-    () => resolveCountryName(selectedCountry, countryNames),
-    [selectedCountry, countryNames]
+  const selectedStationCountry = useMemo(
+    () => stations.find((station) => station.id === selectedStation)?.country || "",
+    [stations, selectedStation]
   );
-  
+
+  const canonicalSelectedCountry = useMemo(
+    () => resolveCountryName(selectedStationCountry || selectedCountry, countryNames),
+    [selectedStationCountry, selectedCountry, countryNames]
+  );
+
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
 
   // Monitor native fullscreen changes
@@ -238,43 +290,26 @@ function EuroMeteoApp() {
     fetchStations();
   }, []);
 
-  // --- URL Search Params Synchronization ---
+  const activeTabRef = useRef(activeTab);
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
 
-    // Read initial states from URL on mount
-    const params = new URLSearchParams(window.location.search);
-    const country = params.get("country");
-    const station = params.get("station");
-    const param = params.get("parameter");
-    const start = params.get("start");
-    const end = params.get("end");
-    const tab = params.get("tab");
-
-    if (country) setSelectedCountry(country);
-    if (station) setSelectedStation(station);
-    if (param) setParameter(param);
-    if (start) setStartDate(start);
-    if (end) setEndDate(end);
-    if (tab) setActiveTab(tab);
-
-    // Read stationSlug for deferred resolution (SEO hub links pass slugs, not IDs)
-    const stationSlug = params.get("stationSlug");
-    if (stationSlug && !station) {
-      setPendingStationSlug(stationSlug);
-    }
-  }, []);
-
-  // --- Resolve pending station slug once stations are loaded ---
-  useEffect(() => {
-    if (!pendingStationSlug || stations.length === 0) return;
-
+  const [prevPendingSlug, setPrevPendingSlug] = useState("");
+  if (pendingStationSlug && stations.length > 0 && pendingStationSlug !== prevPendingSlug) {
+    setPrevPendingSlug(pendingStationSlug);
     const match = stations.find((st) => slugify(st.name) === pendingStationSlug);
     if (match) {
       setSelectedStation(match.id);
+      setSelectedCountry(match.country);
       setPendingStationSlug('');
     }
-  }, [pendingStationSlug, stations]);
+  }
+
+  if (!selectedStation && (stationLogs.length > 0 || stationSampling !== null)) {
+    setStationLogs([]);
+    setStationSampling(null);
+  }
 
   // --- Listen for navigation commands from parent window (iframe embedding) ---
   // The parent page (climateexplorer.app) sends 'eurometeo-navigate' messages
@@ -372,20 +407,9 @@ function EuroMeteoApp() {
 
   const [loadingMessage, setLoadingMessage] = useState<string>("Connecting to API...");
 
-  // Sync country filter to match the selected station's country
-  useEffect(() => {
-    if (!selectedStation || stations.length === 0) return;
-    const station = stations.find(st => st.id === selectedStation);
-    if (station && !countryMatches(station.country, canonicalSelectedCountry)) {
-      setSelectedCountry(station.country);
-    }
-  }, [selectedStation, stations, canonicalSelectedCountry]);
-
   // --- Fetch detailed logs when a station is selected ---
   useEffect(() => {
     if (!selectedStation) {
-      setStationLogs([]);
-      setStationSampling(null);
       return;
     }
 
@@ -394,7 +418,7 @@ function EuroMeteoApp() {
     const fetchDetailedLogs = async () => {
       const cacheKey = `${selectedStation}|${startDate}|${endDate}`;
       const cached = stationDetailsCache.get(cacheKey);
-      
+
       if (cached && Date.now() - cached.timestamp < 5 * 60 * 1000) {
         setStationLogs(cached.data);
         setStationUnits(cached.units);
@@ -429,47 +453,47 @@ function EuroMeteoApp() {
 
       setIsLoadingLogs(true);
       setLoadingMessage("Connecting to API...");
-      
+
       try {
         const res = await fetch(
           `/api/observations/station-details?stationId=${selectedStation}&start=${startDate}&end=${endDate}`,
           { signal: abortController.signal }
         );
-        
+
         if (!res.ok) {
            throw new Error(`HTTP error! status: ${res.status}`);
         }
-        
+
         const reader = res.body?.getReader();
         if (!reader) throw new Error("No reader available");
-        
+
         const decoder = new TextDecoder();
         let buffer = "";
-        
+
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          
+
           buffer += decoder.decode(value, { stream: true });
           const parts = buffer.split('\n\n');
           // Last part might be incomplete, keep it in buffer
           buffer = parts.pop() || "";
-          
+
           for (const chunk of parts) {
             const lines = chunk.split('\n');
             let event = "message";
             let data = "";
-            
+
             for (const line of lines) {
               if (line.startsWith("event: ")) event = line.slice(7);
               else if (line.startsWith("data: ")) data = line.slice(6);
             }
-            
+
             if (event === "progress" && data) {
               try {
                 const parsed = JSON.parse(data);
                 setLoadingMessage(parsed.message);
-              } catch (e) {}
+              } catch {}
             } else if (event === "complete" && data) {
               try {
                 const parsed = JSON.parse(data);
@@ -570,7 +594,7 @@ function EuroMeteoApp() {
                     }
                   }
                 }
-                
+
                 stationDetailsCache.set(cacheKey, {
                   data: qcFilteredData,
                   units: parsed.units || {},
@@ -589,19 +613,20 @@ function EuroMeteoApp() {
                     timestamp: Date.now()
                   });
                 }
-              } catch (e) {}
+              } catch {}
             } else if (event === "error" && data) {
               try {
                 const parsed = JSON.parse(data);
                 console.warn("SSE Error:", parsed.message);
                 setErrorMsg(parsed.message);
-              } catch (e) {}
+              } catch {}
             }
           }
         }
-      } catch (err: any) {
-        if (err.name !== "AbortError") {
-          console.error("Detailed logs fetch error:", err);
+      } catch (err) {
+        const errorObj = err as Error;
+        if (errorObj.name !== "AbortError") {
+          console.error("Detailed logs fetch error:", errorObj);
         }
       } finally {
         if (!abortController.signal.aborted) {
@@ -620,16 +645,16 @@ function EuroMeteoApp() {
   // Jump to Dashboard 3 seconds after a station is selected
   useEffect(() => {
     if (!selectedStation) return;
-    
+
     // Only set timeout if we aren't already on the dashboard
-    if (activeTab === "dashboard") return;
-    
+    if (activeTabRef.current === "dashboard") return;
+
     const timer = setTimeout(() => {
       setActiveTab("dashboard");
     }, 3000);
-    
+
     return () => clearTimeout(timer);
-  }, [selectedStation]); // We only trigger on station selection, activeTab is checked inside to avoid loops
+  }, [selectedStation]); // We only trigger on station selection, activeTab is checked via ref to avoid loops
 
   // Find active station object details
   const activeStationDetails = useMemo(() => {
@@ -759,35 +784,11 @@ function EuroMeteoApp() {
     seaWaterElectricalConductivity: "Conductivity",
   }), []);
 
-  // Weather-logical sort order for land parameters
-  const LAND_SORT_ORDER = [
-    "temperature", "tempMin", "tempMax", "tempMinGround", "tempMin50cm",
-    "dewPoint", "humidity", "virtualTemperature", "surfaceTemperature",
-    "precipitation", "precipitation1h", "precipitation3h", "precipitation6h",
-    "precipitation12h", "precipitation24h", "lwePrecipitationRate", "rainfallRate",
-    "snowDepth", "snowFresh",
-    "windSpeed", "windSpeed2m", "windGust", "windGustInst", "windGustDirection", "windDirection",
-    "pressure", "pressureStation", "pressureTendency",
-    "cloudCover", "cloudCoverLow", "cloudBaseAltitude", "visibility",
-    "solarRadiation",
-    "sunshineDuration10m", "sunshineDuration1h", "sunshineDuration3h",
-    "sunshineDuration6h", "sunshineDuration12h", "sunshineDuration24h",
-    "sunshineDuration", "ultravioletIndex", "etp",
-    "soilTemp10cm", "soilTemp20cm", "soilTemp50cm",
-    "equivalentReflectivityFactor",
-  ];
-
-  // Keys that should render as integers (directions, percentages, indices)
-  const INTEGER_KEYS = new Set([
-    "windDirection", "windGustDirection", "cloudCover", "cloudCoverLow",
-    "humidity", "ultravioletIndex",
-  ]);
-
   // --- Column builder helper ---
-  function buildColumns(
+  const buildColumns = useCallback((
     keys: string[],
     sortOrder: string[],
-  ): ColumnDef<HourlyRow>[] {
+  ): ColumnDef<HourlyRow>[] => {
     const datetimeCol: ColumnDef<HourlyRow> = {
       accessorKey: "datetime",
       header: "Datetime (UTC)",
@@ -819,9 +820,9 @@ function EuroMeteoApp() {
       const headerName = paramMeta[key] || camelToTitle(key);
       const unit = stationUnits[key] || "";
       return {
-        accessorKey: key as any,
+        accessorKey: key as keyof HourlyRow,
         header: `${headerName}${unit ? ` [${unit}]` : ""}`,
-        cell: (info: any) => {
+        cell: (info: CellContext<HourlyRow, unknown>) => {
           const val = info.getValue() as number | undefined;
           if (val === undefined || val === null) return "-";
           if (INTEGER_KEYS.has(key) || key.toLowerCase().includes("direction")) {
@@ -833,7 +834,7 @@ function EuroMeteoApp() {
     });
 
     return [datetimeCol, ...dataCols];
-  }
+  }, [stationUnits, paramMeta]);
 
   // 2. Observations logs: detect present keys, dedup, split land/ocean
   const { landColumns, oceanColumns, hasOceanData, hasLandData } = useMemo(() => {
@@ -850,7 +851,7 @@ function EuroMeteoApp() {
     const presentKeys = new Set<string>();
     stationLogs.forEach((row) => {
       Object.keys(row).forEach((k) => {
-        if (k !== "datetime" && (row as any)[k] !== undefined && (row as any)[k] !== null) {
+        if (k !== "datetime" && row[k] !== undefined && row[k] !== null) {
           presentKeys.add(k);
         }
       });
@@ -867,8 +868,8 @@ function EuroMeteoApp() {
       for (const kept of deduped) {
         let allSame = true;
         for (const row of stationLogs) {
-          const v1 = (row as any)[key];
-          const v2 = (row as any)[kept];
+          const v1 = row[key];
+          const v2 = row[kept];
           const v1null = v1 === undefined || v1 === null;
           const v2null = v2 === undefined || v2 === null;
           if (v1null && v2null) continue;
@@ -904,7 +905,7 @@ function EuroMeteoApp() {
       hasOceanData: oceanKeys.length > 0,
       hasLandData: landKeys.length > 0,
     };
-  }, [stationLogs, stationUnits]);
+  }, [stationLogs, buildColumns, paramMeta]);
 
   const showingOceanData = hasOceanData && (!hasLandData || dashboardDataTab === "ocean");
   const activeLogColumns = showingOceanData ? oceanColumns : landColumns;
@@ -913,6 +914,11 @@ function EuroMeteoApp() {
   const handleStationSelection = (stationId: string) => {
     if (!stationId) {
       setStationSampling(null);
+    } else {
+      const station = stations.find((candidate) => candidate.id === stationId);
+      if (station) {
+        setSelectedCountry(station.country);
+      }
     }
     setSelectedStation(stationId);
   };
@@ -1037,7 +1043,7 @@ function EuroMeteoApp() {
                   selectedHour={selectedHour}
                   setSelectedHour={setSelectedHour}
                   isLoadingStations={isLoadingStations}
-                  onStationClick={(stationId) => {
+                  onStationClick={() => {
                     setActiveTab("dashboard");
                   }}
                 />
@@ -1152,7 +1158,7 @@ function EuroMeteoApp() {
                       )}
 
                       {/* Dashboard content wrapper */}
-                      <div className="relative w-full min-h-[400px]">
+                      <div className="relative w-full min-h-[400px] snap-start scroll-mt-2">
                         {isLoadingLogs && (
                           <div className="absolute inset-0 z-40 bg-slate-50/70 backdrop-blur-[1px] flex flex-col items-center justify-center gap-2 rounded-2xl">
                             <div className="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin" />
@@ -1185,8 +1191,8 @@ function EuroMeteoApp() {
                           </div>
 
                           {/* Sub-tab: Data Table (always mounted, cached when inactive) */}
-                          <div 
-                            className={`cached-view flex-col gap-3 min-h-[400px] ${dashboardSubTab === "data" ? "is-active" : ""}`}
+                          <div
+                            className={`cached-view flex-col gap-3 min-h-[400px] snap-start scroll-mt-2 ${dashboardSubTab === "data" ? "is-active" : ""}`}
                           >
                             {/* Land / Ocean sub-tabs (only show if both exist) */}
                             {hasLandData && hasOceanData && (
@@ -1251,7 +1257,27 @@ export default function Page() {
         </p>
       </div>
     }>
-      <EuroMeteoApp />
+      <EuroMeteoUrlState />
     </Suspense>
   );
+}
+
+function EuroMeteoUrlState() {
+  const searchParams = useSearchParams();
+  const initialUrlState = useMemo<InitialUrlState>(() => {
+    const defaults = getDefaultDateRange();
+    const station = searchParams.get("station") || "";
+
+    return {
+      country: searchParams.get("country") || "",
+      station,
+      stationSlug: station ? "" : searchParams.get("stationSlug") || "",
+      startDate: searchParams.get("start") || defaults.startDate,
+      endDate: searchParams.get("end") || defaults.endDate,
+      parameter: searchParams.get("parameter") || "air_temperature",
+      activeTab: searchParams.get("tab") || "map",
+    };
+  }, [searchParams]);
+
+  return <EuroMeteoApp initialUrlState={initialUrlState} />;
 }

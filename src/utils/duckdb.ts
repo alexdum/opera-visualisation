@@ -17,13 +17,13 @@ fs.mkdirSync(PARQUET_CACHE_DIR, { recursive: true });
  * Run a SQL query against DuckDB and return rows.
  * Does NOT require httpfs – used for querying local parquet files.
  */
-export function queryDuckDB(sql: string): Promise<any[]> {
-  return new Promise<any[]>((resolve, reject) => {
+export function queryDuckDB<T = Record<string, unknown>>(sql: string): Promise<T[]> {
+  return new Promise<T[]>((resolve, reject) => {
     db.all(sql, (err, rows) => {
       if (err) {
         reject(err);
       } else {
-        resolve(rows);
+        resolve(rows as T[]);
       }
     });
   });
@@ -144,10 +144,10 @@ export async function ensureParquetCached(
  * Downloads and queries parquet files for a batch of dates.
  * Returns rows from all successfully cached files for the given station.
  */
-export async function queryArchiveBatch(
+export async function queryArchiveBatch<T = Record<string, unknown>>(
   dateStrs: string[],
   stationId: string
-): Promise<any[]> {
+): Promise<T[]> {
   // Download all files in this batch concurrently (limited concurrency)
   const MAX_CONCURRENT = 4;
   const localPaths: string[] = [];
@@ -181,5 +181,5 @@ export async function queryArchiveBatch(
     WHERE station_id = '${stationId}'
   `;
 
-  return queryDuckDB(sql);
+  return queryDuckDB<T>(sql);
 }

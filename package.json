@@ -6,7 +6,8 @@
     "dev": "next dev --webpack",
     "build": "next build --webpack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "node --experimental-strip-types src/utils/__tests__/qc.test.ts"
   },
   "dependencies": {
     "@tanstack/react-table": "^8.21.3",

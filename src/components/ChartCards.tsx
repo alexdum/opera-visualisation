@@ -28,12 +28,23 @@ const formatDate = (isoString: string) => {
   }
 };
 
-const CustomTooltip = ({ active, payload, label, unit }: any) => {
+interface CustomTooltipProps {
+  active?: boolean;
+  payload?: Array<{
+    color?: string;
+    name: string;
+    value?: number | string;
+  }>;
+  label?: string;
+  unit?: string;
+}
+
+const CustomTooltip: React.FC<CustomTooltipProps> = ({ active, payload, label, unit }) => {
   if (active && payload && payload.length) {
     return (
       <div className="bg-white/95 backdrop-blur-sm rounded-xl border border-slate-200 shadow-lg p-3 text-sm">
         <p className="font-bold text-slate-700 mb-2">{label}</p>
-        {payload.map((entry: any, index: number) => (
+        {payload.map((entry, index) => (
           <div key={`item-${index}`} className="flex items-center gap-2 mb-1">
             <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: entry.color }} />
             <span className="text-slate-600 font-medium capitalize">{entry.name}:</span>
@@ -48,14 +59,20 @@ const CustomTooltip = ({ active, payload, label, unit }: any) => {
   return null;
 };
 
+interface ChartConfig {
+  key: string;
+  name: string;
+  color: string;
+}
+
 // Generic Area Chart Card
-export const AreaChartCard = React.memo(({ data, title, unit, config, stationName, country }: { data: HourlyRow[], title: string, unit: string, config: { key: string, name: string, color: string }[], stationName?: string, country?: string }) => {
+export const AreaChartCard = React.memo(({ data, title, unit, config, stationName, country }: { data: HourlyRow[], title: string, unit: string, config: ChartConfig[], stationName?: string, country?: string }) => {
   const chartRef = useRef<HTMLDivElement>(null);
   const [isExpanded, setIsExpanded] = useState(false);
   const chartData = useMemo(() => data.map(d => {
-    const row: any = { time: formatDate(d.datetime) };
+    const row: Record<string, string | number | undefined | null> = { time: formatDate(d.datetime) };
     config.forEach(c => {
-      let val = (d as any)[c.key];
+      let val = d[c.key];
       if (typeof val === "number" && val < 0 && NON_NEGATIVE_PARAMS.some(p => c.key === p || c.key.startsWith(p))) {
         val = 0;
       }
@@ -125,15 +142,16 @@ export const AreaChartCard = React.memo(({ data, title, unit, config, stationNam
     </>
   );
 });
+AreaChartCard.displayName = "AreaChartCard";
 
 // Generic Bar Chart Card
-export const BarChartCard = React.memo(({ data, title, unit, config, stacked = false, stationName, country }: { data: HourlyRow[], title: string, unit: string, config: { key: string, name: string, color: string }[], stacked?: boolean, stationName?: string, country?: string }) => {
+export const BarChartCard = React.memo(({ data, title, unit, config, stacked = false, stationName, country }: { data: HourlyRow[], title: string, unit: string, config: ChartConfig[], stacked?: boolean, stationName?: string, country?: string }) => {
   const chartRef = useRef<HTMLDivElement>(null);
   const [isExpanded, setIsExpanded] = useState(false);
   const chartData = useMemo(() => data.map(d => {
-    const row: any = { time: formatDate(d.datetime) };
+    const row: Record<string, string | number | undefined | null> = { time: formatDate(d.datetime) };
     config.forEach(c => {
-      let val = (d as any)[c.key];
+      let val = d[c.key];
       if (typeof val === "number" && val < 0 && NON_NEGATIVE_PARAMS.some(p => c.key === p || c.key.startsWith(p))) {
         val = 0;
       }
@@ -195,17 +213,18 @@ export const BarChartCard = React.memo(({ data, title, unit, config, stacked = f
     </>
   );
 });
+BarChartCard.displayName = "BarChartCard";
 
 // Generic Composed Chart Card (Area + Line)
-export const ComposedChartCard = React.memo(({ data, title, unit, areaConfig, lineConfig, stationName, country }: { data: HourlyRow[], title: string, unit: string, areaConfig: { key: string, name: string, color: string }, lineConfig: { key: string, name: string, color: string }, stationName?: string, country?: string }) => {
+export const ComposedChartCard = React.memo(({ data, title, unit, areaConfig, lineConfig, stationName, country }: { data: HourlyRow[], title: string, unit: string, areaConfig: ChartConfig, lineConfig: ChartConfig, stationName?: string, country?: string }) => {
   const chartRef = useRef<HTMLDivElement>(null);
   const [isExpanded, setIsExpanded] = useState(false);
   const chartData = useMemo(() => data.map(d => {
-    let areaVal = (d as any)[areaConfig.key];
+    let areaVal = d[areaConfig.key];
     if (typeof areaVal === "number" && areaVal < 0 && NON_NEGATIVE_PARAMS.some(p => areaConfig.key === p || areaConfig.key.startsWith(p))) {
       areaVal = 0;
     }
-    let lineVal = (d as any)[lineConfig.key];
+    let lineVal = d[lineConfig.key];
     if (typeof lineVal === "number" && lineVal < 0 && NON_NEGATIVE_PARAMS.some(p => lineConfig.key === p || lineConfig.key.startsWith(p))) {
       lineVal = 0;
     }
@@ -277,6 +296,7 @@ export const ComposedChartCard = React.memo(({ data, title, unit, areaConfig, li
     </>
   );
 });
+ComposedChartCard.displayName = "ComposedChartCard";
 
 // Diverging Bar Chart Card (bars above/below zero, dual-colored)
 export const DivergingBarChartCard = React.memo(({ data, title, unit, dataKey, name, posColor = "#43a047", negColor = "#e53935", stationName, country }: {
@@ -286,7 +306,7 @@ export const DivergingBarChartCard = React.memo(({ data, title, unit, dataKey, n
   const [isExpanded, setIsExpanded] = useState(false);
   const chartData = useMemo(() => data.map(d => ({
     time: formatDate(d.datetime),
-    [dataKey]: (d as any)[dataKey],
+    [dataKey]: d[dataKey],
   })), [data, dataKey]);
 
   const hasData = useMemo(() => chartData.some(d => d[dataKey] !== undefined && d[dataKey] !== null), [chartData, dataKey]);
@@ -344,6 +364,51 @@ export const DivergingBarChartCard = React.memo(({ data, title, unit, dataKey, n
     </>
   );
 });
+DivergingBarChartCard.displayName = "DivergingBarChartCard";
+
+interface DualTooltipProps {
+  active?: boolean;
+  payload?: Array<{
+    dataKey?: string | number;
+    color?: string;
+    name: string;
+    value?: number | string;
+  }>;
+  label?: string;
+  leftKey: string;
+  leftUnit: string;
+  rightUnit: string;
+}
+
+const DualTooltip: React.FC<DualTooltipProps> = ({
+  active,
+  payload,
+  label,
+  leftKey,
+  leftUnit,
+  rightUnit,
+}) => {
+  if (active && payload && payload.length) {
+    return (
+      <div className="bg-white/95 backdrop-blur-sm rounded-xl border border-slate-200 shadow-lg p-3 text-sm">
+        <p className="font-bold text-slate-700 mb-2">{label}</p>
+        {payload.map((entry, index) => {
+          const u = entry.dataKey === leftKey ? leftUnit : rightUnit;
+          return (
+            <div key={`item-${index}`} className="flex items-center gap-2 mb-1">
+              <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: entry.color }} />
+              <span className="text-slate-600 font-medium capitalize">{entry.name}:</span>
+              <span className="text-slate-800 font-bold">
+                {entry.value !== undefined ? Number(entry.value).toFixed(1) : "-"} {u}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+  return null;
+};
 
 // Dual-Axis Chart Card (left Y-axis + right Y-axis with different units)
 export const DualAxisChartCard = React.memo(({ data, title, leftConfig, rightConfig, stationName, country }: {
@@ -357,11 +422,11 @@ export const DualAxisChartCard = React.memo(({ data, title, leftConfig, rightCon
   const chartRef = useRef<HTMLDivElement>(null);
   const [isExpanded, setIsExpanded] = useState(false);
   const chartData = useMemo(() => data.map(d => {
-    let leftVal = (d as any)[leftConfig.key];
+    let leftVal = d[leftConfig.key];
     if (typeof leftVal === "number" && leftVal < 0 && NON_NEGATIVE_PARAMS.some(p => leftConfig.key === p || leftConfig.key.startsWith(p))) {
       leftVal = 0;
     }
-    let rightVal = (d as any)[rightConfig.key];
+    let rightVal = d[rightConfig.key];
     if (typeof rightVal === "number" && rightVal < 0 && NON_NEGATIVE_PARAMS.some(p => rightConfig.key === p || rightConfig.key.startsWith(p))) {
       rightVal = 0;
     }
@@ -376,30 +441,6 @@ export const DualAxisChartCard = React.memo(({ data, title, leftConfig, rightCon
   const hasRightData = useMemo(() => chartData.some(d => d[rightConfig.key] !== undefined && d[rightConfig.key] !== null), [chartData, rightConfig]);
 
   if (!hasLeftData && !hasRightData) return null;
-
-  // Custom tooltip that shows the correct unit per series
-  const DualTooltip = ({ active, payload, label }: any) => {
-    if (active && payload && payload.length) {
-      return (
-        <div className="bg-white/95 backdrop-blur-sm rounded-xl border border-slate-200 shadow-lg p-3 text-sm">
-          <p className="font-bold text-slate-700 mb-2">{label}</p>
-          {payload.map((entry: any, index: number) => {
-            const u = entry.dataKey === leftConfig.key ? leftConfig.unit : rightConfig.unit;
-            return (
-              <div key={`item-${index}`} className="flex items-center gap-2 mb-1">
-                <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: entry.color }} />
-                <span className="text-slate-600 font-medium capitalize">{entry.name}:</span>
-                <span className="text-slate-800 font-bold">
-                  {entry.value !== undefined ? Number(entry.value).toFixed(1) : "-"} {u}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      );
-    }
-    return null;
-  };
 
   const chartContent = (
     <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
@@ -433,7 +474,15 @@ export const DualAxisChartCard = React.memo(({ data, title, leftConfig, rightCon
           unit={` ${rightConfig.unit}`}
           domain={["auto", "auto"]}
         />
-        <Tooltip content={<DualTooltip />} />
+        <Tooltip
+          content={
+            <DualTooltip
+              leftKey={leftConfig.key}
+              leftUnit={leftConfig.unit}
+              rightUnit={rightConfig.unit}
+            />
+          }
+        />
         {hasLeftData && (
           <Area
             yAxisId="left"
@@ -495,3 +544,4 @@ export const DualAxisChartCard = React.memo(({ data, title, leftConfig, rightCon
     </>
   );
 });
+DualAxisChartCard.displayName = "DualAxisChartCard";

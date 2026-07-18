@@ -49,6 +49,27 @@ function u(units: Record<string, string>, key: string, fallback: string): string
 }
 
 const DashboardChartsComponent: React.FC<{ data: HourlyRow[]; units?: Record<string, string>; stationName?: string; country?: string }> = ({ data, units = {}, stationName, country }) => {
+  const dateRangeString = useMemo(() => {
+    const datesOnly = data.map(d => d.datetime).filter(Boolean);
+    if (datesOnly.length === 0) return "";
+    const minDateStr = datesOnly.reduce((a, b) => a < b ? a : b, datesOnly[0]);
+    const maxDateStr = datesOnly.reduce((a, b) => a > b ? a : b, datesOnly[0]);
+    try {
+      const start = new Date(minDateStr);
+      const end = new Date(maxDateStr);
+      const startDay = start.getUTCDate();
+      const startMonth = start.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' });
+      const endDay = end.getUTCDate();
+      const endMonth = end.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' });
+      const endYear = end.getUTCFullYear();
+      const endHour = end.getUTCHours().toString().padStart(2, '0');
+      const endMinute = end.getUTCMinutes().toString().padStart(2, '0');
+      return `${startDay} ${startMonth} – ${endDay} ${endMonth} ${endYear}, latest at ${endHour}:${endMinute} UTC`;
+    } catch {
+      return "";
+    }
+  }, [data]);
+
   // Determine which precipitation columns have actual non-zero data
   const precipCharts = PRECIP_KEYS.filter(({ key }) => hasNonZeroData(data, key));
   const sunshineCharts = SUNSHINE_KEYS.filter(({ key }) => hasNonZeroData(data, key));
@@ -95,15 +116,13 @@ const DashboardChartsComponent: React.FC<{ data: HourlyRow[]; units?: Record<str
   const vals = (key: string) => data.map(d => d[key]).filter((v): v is number => typeof v === 'number' && !isNaN(v));
 
   // Safe Math Helpers to protect against empty arrays yielding ±Infinity
-  const safeMax = (arr: number[]) => arr.length > 0 ? Math.max(...arr) : null;
-  const safeMin = (arr: number[]) => arr.length > 0 ? Math.min(...arr) : null;
   const safeMean = (arr: number[]) => arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
 
   // Helper to find extreme value and its timestamp
   const getExtreme = (key: string, type: 'max' | 'min') => {
     let extremeVal = type === 'max' ? -Infinity : Infinity;
     let extremeTime = "";
-    
+
     for (const d of data) {
       const v = d[key];
       if (typeof v === 'number' && !isNaN(v)) {
@@ -116,9 +135,9 @@ const DashboardChartsComponent: React.FC<{ data: HourlyRow[]; units?: Record<str
         }
       }
     }
-    
-    return extremeVal === -Infinity || extremeVal === Infinity 
-      ? null 
+
+    return extremeVal === -Infinity || extremeVal === Infinity
+      ? null
       : { val: extremeVal, time: extremeTime };
   };
 
@@ -139,38 +158,29 @@ const DashboardChartsComponent: React.FC<{ data: HourlyRow[]; units?: Record<str
 
   // Caching variables to avoid repetitive array iteration
   const tempVals = vals("temperature");
-  const tempMaxVals = vals("tempMax");
-  const tempMinVals = vals("tempMin");
-  
+
   const humidityVals = vals("humidity");
   const dewPointVals = vals("dewPoint");
-  
+
   const windSpeedVals = vals("windSpeed");
-  const windGustVals = vals("windGust");
   const windSpeed2mVals = vals("windSpeed2m");
-  const windGustInstVals = vals("windGustInst");
-  
+
   const pressureVals = vals("pressure");
   const pressureStationVals = vals("pressureStation");
-  
-  const snowDepthVals = vals("snowDepth");
+
   const snowFreshVals = vals("snowFresh");
-  
-  const groundVals = vals("tempMinGround");
-  const ground50Vals = vals("tempMin50cm");
-  
+
   const soil10Vals = vals("soilTemp10cm");
   const soil20Vals = vals("soilTemp20cm");
   const soil50Vals = vals("soilTemp50cm");
   const allSoilVals = [...soil10Vals, ...soil20Vals, ...soil50Vals];
-  
+
   const solarVals = vals("solarRadiation");
   const visibilityVals = vals("visibility");
   const cloudCoverVals = vals("cloudCover");
   const cloudCoverLowVals = vals("cloudCoverLow");
-  
+
   const sstVals = vals("seaSurfaceTemperature");
-  const waveHeightVals = vals("seaSurfaceWaveSignificantHeight");
 
   // 1. Temperature Statistics
   let tempStats = null;
@@ -189,10 +199,10 @@ const DashboardChartsComponent: React.FC<{ data: HourlyRow[]; units?: Record<str
     const primaryPrecipKey = precipCharts.find(c => c.key === "precipitation1h")?.key || precipCharts[0].key;
     const precipVals = vals(primaryPrecipKey).map(v => Math.max(0, v));
     const total = precipVals.length > 0 ? precipVals.reduce((a, b) => a + b, 0) : null;
-    const maxRateExt = hasPrecipRate 
-      ? (getExtreme("lwePrecipitationRate", "max") || getExtreme("rainfallRate", "max")) 
+    const maxRateExt = hasPrecipRate
+      ? (getExtreme("lwePrecipitationRate", "max") || getExtreme("rainfallRate", "max"))
       : getExtreme(primaryPrecipKey, "max");
-    
+
     if (total !== null && maxRateExt) {
       precipStats = { total, maxRate: maxRateExt };
     }
@@ -311,7 +321,6 @@ const DashboardChartsComponent: React.FC<{ data: HourlyRow[]; units?: Record<str
     return val !== null ? `${(val / divisor).toFixed(precision)}${suffix}` : "—";
   };
 
-  const latestRow = data.length > 0 ? data[data.length - 1] : null;
 
   const statCards = [
     tempStats && {
@@ -393,26 +402,7 @@ const DashboardChartsComponent: React.FC<{ data: HourlyRow[]; units?: Record<str
     }
   ].filter(Boolean) as { title: string; value: string; subtext: string; icon: React.ReactNode; bgClass: string }[];
 
-  const dateRangeString = useMemo(() => {
-    const datesOnly = data.map(d => d.datetime).filter(Boolean);
-    if (datesOnly.length === 0) return "";
-    const minDateStr = datesOnly.reduce((a, b) => a < b ? a : b, datesOnly[0]);
-    const maxDateStr = datesOnly.reduce((a, b) => a > b ? a : b, datesOnly[0]);
-    try {
-      const start = new Date(minDateStr);
-      const end = new Date(maxDateStr);
-      const startDay = start.getUTCDate();
-      const startMonth = start.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' });
-      const endDay = end.getUTCDate();
-      const endMonth = end.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' });
-      const endYear = end.getUTCFullYear();
-      const endHour = end.getUTCHours().toString().padStart(2, '0');
-      const endMinute = end.getUTCMinutes().toString().padStart(2, '0');
-      return `${startDay} ${startMonth} – ${endDay} ${endMonth} ${endYear}, latest at ${endHour}:${endMinute} UTC`;
-    } catch {
-      return "";
-    }
-  }, [data]);
+
 
   return (
     <div className="flex flex-col gap-6 w-full">
@@ -423,18 +413,18 @@ const DashboardChartsComponent: React.FC<{ data: HourlyRow[]; units?: Record<str
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
             {statCards.map((card, i) => (
-              <div 
-                key={i} 
+              <div
+                key={i}
                 className={`glass-card flex items-start gap-3 p-4 rounded-2xl shadow-xs border ${card.bgClass}`}
               >
                 <div className="p-2 rounded-xl bg-white/40 dark:bg-slate-900/20 border border-white/40 dark:border-slate-800/30">
                   {card.icon}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider truncate">
+                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider break-words leading-tight">
                     {card.title}
                   </div>
-                  <div 
+                  <div
                     className="text-lg font-black tracking-tight mt-0.5 animate-fade-in"
                     style={{ color: 'var(--foreground)' }}
                   >
@@ -450,26 +440,26 @@ const DashboardChartsComponent: React.FC<{ data: HourlyRow[]; units?: Record<str
         </div>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 lazy-render">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 lazy-render snap-start scroll-mt-2">
       {/* ─── Core Meteorological Charts ─── */}
       {hasTemperature && (
-        <AreaChartCard 
-          data={data} 
-          title="Temperature Profile" 
-          unit={u(units, "temperature", "°C")} 
+        <AreaChartCard
+          data={data}
+          title="Temperature Profile"
+          unit={u(units, "temperature", "°C")}
           config={[
             { key: "tempMax", name: "Max Temp", color: "#d32f2f" },
             { key: "temperature", name: "Temperature", color: "#b71c1c" },
             { key: "tempMin", name: "Min Temp", color: "#1976d2" }
-          ]} 
+          ]}
           stationName={stationName}
           country={country}
         />
       )}
       {hasHumidityDewPoint && (
-        <DualAxisChartCard 
-          data={data} 
-          title="Humidity & Dew Point" 
+        <DualAxisChartCard
+          data={data}
+          title="Humidity & Dew Point"
           leftConfig={{ key: "humidity", name: "Relative Humidity", color: "#43a047", unit: u(units, "humidity", "%") }}
           rightConfig={{ key: "dewPoint", name: "Dew Point", color: "#1e88e5", unit: u(units, "dewPoint", "°C") }}
           stationName={stationName}
@@ -479,14 +469,14 @@ const DashboardChartsComponent: React.FC<{ data: HourlyRow[]; units?: Record<str
 
       {/* ─── Dynamic Precipitation Charts (one per accumulation period) ─── */}
       {precipCharts.map(({ key, label }) => (
-        <BarChartCard 
+        <BarChartCard
           key={key}
-          data={data} 
-          title={label} 
-          unit={u(units, key, "mm")} 
+          data={data}
+          title={label}
+          unit={u(units, key, "mm")}
           config={[
             { key, name: label, color: "#0277bd" }
-          ]} 
+          ]}
           stationName={stationName}
           country={country}
         />
@@ -512,55 +502,55 @@ const DashboardChartsComponent: React.FC<{ data: HourlyRow[]; units?: Record<str
       )}
 
       {hasSnow && (
-        <BarChartCard 
-          data={data} 
-          title="Snow Profile" 
-          unit={u(units, "snowDepth", "cm")} 
+        <BarChartCard
+          data={data}
+          title="Snow Profile"
+          unit={u(units, "snowDepth", "cm")}
           stacked={true}
           config={[
             { key: "snowDepth", name: "Snow Depth", color: "#90CAF9" },
             { key: "snowFresh", name: "Fresh Snow", color: "#B0BEC5" }
-          ]} 
+          ]}
           stationName={stationName}
           country={country}
         />
       )}
       {hasGroundTemp && (
-        <AreaChartCard 
-          data={data} 
-          title="Ground Temperature" 
-          unit={u(units, "tempMinGround", "°C")} 
+        <AreaChartCard
+          data={data}
+          title="Ground Temperature"
+          unit={u(units, "tempMinGround", "°C")}
           config={[
             { key: "tempMinGround", name: "Min Ground Temp", color: "#388E3C" },
             { key: "tempMin50cm", name: "Min Temp at 50cm", color: "#795548" }
-          ]} 
+          ]}
           stationName={stationName}
           country={country}
         />
       )}
       {hasSoilTemp && (
-        <AreaChartCard 
-          data={data} 
-          title="Soil Temperature" 
-          unit={u(units, "soilTemp10cm", "°C")} 
+        <AreaChartCard
+          data={data}
+          title="Soil Temperature"
+          unit={u(units, "soilTemp10cm", "°C")}
           config={[
             { key: "soilTemp10cm", name: "10cm Depth", color: "#D7CCC8" },
             { key: "soilTemp20cm", name: "20cm Depth", color: "#A1887F" },
             { key: "soilTemp50cm", name: "50cm Depth", color: "#795548" }
-          ]} 
+          ]}
           stationName={stationName}
           country={country}
         />
       )}
       {hasPressure && (
-        <AreaChartCard 
-          data={data} 
-          title="Sea Level Pressure" 
-          unit={u(units, "pressure", "hPa")} 
+        <AreaChartCard
+          data={data}
+          title="Sea Level Pressure"
+          unit={u(units, "pressure", "hPa")}
           config={[
             { key: "pressure", name: "Sea Level Pressure", color: "#AB47BC" },
             { key: "pressureStation", name: "Station Pressure", color: "#7B1FA2" }
-          ]} 
+          ]}
           stationName={stationName}
           country={country}
         />
@@ -582,23 +572,23 @@ const DashboardChartsComponent: React.FC<{ data: HourlyRow[]; units?: Record<str
       )}
 
       {hasCloudCover && (
-        <AreaChartCard 
-          data={data} 
-          title="Cloud Cover" 
-          unit={u(units, "cloudCover", "%")} 
+        <AreaChartCard
+          data={data}
+          title="Cloud Cover"
+          unit={u(units, "cloudCover", "%")}
           config={[
             { key: "cloudCover", name: "Cloud Cover", color: "#78909C" },
             { key: "cloudCoverLow", name: "Low Cloud", color: "#B0BEC5" }
-          ]} 
+          ]}
           stationName={stationName}
           country={country}
         />
       )}
       {hasWindSpeed && (
-        <ComposedChartCard 
-          data={data} 
-          title="Wind Speed & Gusts" 
-          unit={u(units, "windSpeed", "m/s")} 
+        <ComposedChartCard
+          data={data}
+          title="Wind Speed & Gusts"
+          unit={u(units, "windSpeed", "m/s")}
           areaConfig={{ key: "windSpeed", name: "Wind Speed", color: "#43a047" }}
           lineConfig={{ key: "windGust", name: "Wind Gust", color: "#2e7d32" }}
           stationName={stationName}
@@ -606,10 +596,10 @@ const DashboardChartsComponent: React.FC<{ data: HourlyRow[]; units?: Record<str
         />
       )}
       {hasWind2m && (
-        <ComposedChartCard 
-          data={data} 
-          title="Wind 2m & Instant Gust" 
-          unit={u(units, "windSpeed2m", "m/s")} 
+        <ComposedChartCard
+          data={data}
+          title="Wind 2m & Instant Gust"
+          unit={u(units, "windSpeed2m", "m/s")}
           areaConfig={{ key: "windSpeed2m", name: "Wind Speed (2m)", color: "#81C784" }}
           lineConfig={{ key: "windGustInst", name: "Instant Gust", color: "#D32F2F" }}
           stationName={stationName}
@@ -617,42 +607,42 @@ const DashboardChartsComponent: React.FC<{ data: HourlyRow[]; units?: Record<str
         />
       )}
       {hasVisibility && (
-        <AreaChartCard 
-          data={data} 
-          title="Visibility" 
-          unit={u(units, "visibility", "m")} 
+        <AreaChartCard
+          data={data}
+          title="Visibility"
+          unit={u(units, "visibility", "m")}
           config={[
             { key: "visibility", name: "Visibility", color: "#5D4037" }
-          ]} 
+          ]}
           stationName={stationName}
           country={country}
         />
       )}
       {hasSolarRadiation && (
-        <AreaChartCard 
-          data={data} 
-          title="Solar Radiation" 
-          unit={u(units, "solarRadiation", "W/m²")} 
+        <AreaChartCard
+          data={data}
+          title="Solar Radiation"
+          unit={u(units, "solarRadiation", "W/m²")}
           config={[
             { key: "solarRadiation", name: "Global Solar Radiation", color: "#FFB300" }
-          ]} 
+          ]}
           stationName={stationName}
           country={country}
         />
       )}
       {sunshineCharts.map(({ key, label }) => (
-        <BarChartCard 
+        <BarChartCard
           key={key}
-          data={data} 
-          title={label} 
-          unit={u(units, key, "min")} 
+          data={data}
+          title={label}
+          unit={u(units, key, "min")}
           config={[
             { key, name: label, color: "#FFD700" }
-          ]} 
+          ]}
           stationName={stationName}
           country={country}
         />
-      ))} 
+      ))}
       {/* ─── UV Index ─── */}
       {hasUV && (
         <AreaChartCard
@@ -668,13 +658,13 @@ const DashboardChartsComponent: React.FC<{ data: HourlyRow[]; units?: Record<str
       )}
 
       {hasEtp && (
-        <BarChartCard 
-          data={data} 
-          title="Evapotranspiration (ETP)" 
-          unit={u(units, "etp", "mm")} 
+        <BarChartCard
+          data={data}
+          title="Evapotranspiration (ETP)"
+          unit={u(units, "etp", "mm")}
           config={[
             { key: "etp", name: "ETP", color: "#795548" }
-          ]} 
+          ]}
           stationName={stationName}
           country={country}
         />

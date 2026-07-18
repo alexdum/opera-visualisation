@@ -6,19 +6,24 @@ interface MapLegendProps {
   values?: number[];
 }
 
+interface LegendStop {
+  val: number;
+  color: string;
+  showLabel: boolean;
+}
+
 export const MapLegend: React.FC<MapLegendProps> = ({ parameter, values }) => {
   const allStops = useMemo(() => getLegendStops(parameter), [parameter]);
   const unit = getUnitForParam(parameter);
 
   // Clip legend stops to the value range visible on screen
-  const stops = useMemo(() => {
+  const stops = useMemo<LegendStop[]>(() => {
     if (!values || values.length === 0) {
       return allStops;
     }
 
     const minVal = Math.min(...values);
     const maxVal = Math.max(...values);
-
 
     // stops are sorted HIGH → LOW (reversed palette)
     // Find the range of stops that covers [minVal, maxVal],
@@ -45,14 +50,12 @@ export const MapLegend: React.FC<MapLegendProps> = ({ parameter, values }) => {
     startIndex = Math.max(0, startIndex - 1);
     endIndex = Math.min(allStops.length - 1, endIndex + 1);
 
-
-
     if (startIndex <= endIndex) {
       return allStops.slice(startIndex, endIndex + 1);
     }
 
     return allStops;
-  }, [allStops, values, parameter]);
+  }, [allStops, values]);
 
   const isTemperature = parameter.includes("temperature");
 
@@ -62,19 +65,19 @@ export const MapLegend: React.FC<MapLegendProps> = ({ parameter, values }) => {
         {unit}
       </div>
       <div className="flex flex-col">
-        {stops.map((stop: any, i: number) => (
+        {stops.map((stop: LegendStop, i: number) => (
           <div key={`${stop.val}`} className="relative flex items-center" style={{ height: isTemperature ? '11px' : '16px' }}>
-            <div 
-              className="w-7 h-full border-x border-black/20" 
-              style={{ 
-                backgroundColor: stop.color, 
+            <div
+              className="w-7 h-full border-x border-black/20"
+              style={{
+                backgroundColor: stop.color,
                 opacity: 0.9,
                 borderTop: i === 0 ? '1px solid rgba(0,0,0,0.2)' : 'none',
                 borderBottom: i === stops.length - 1 ? '1px solid rgba(0,0,0,0.2)' : 'none',
-              }} 
+              }}
             />
             {stop.showLabel && (
-              <span 
+              <span
                 className="absolute left-9 text-slate-600 font-semibold text-[11px] leading-none min-w-[24px] z-10"
                 style={{ bottom: 0, transform: 'translateY(50%)' }}
               >
@@ -87,3 +90,4 @@ export const MapLegend: React.FC<MapLegendProps> = ({ parameter, values }) => {
     </div>
   );
 };
+MapLegend.displayName = "MapLegend";
