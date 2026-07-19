@@ -106,8 +106,9 @@ export const ClimateChart = React.memo(({ data, parameter, stationName, country 
           </defs>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
           <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
-          <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} unit={` ${config.unit}`} domain={[0, 'auto']} />
+          <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} domain={[0, 'auto']} />
           <Tooltip
+            formatter={(value: number) => [`${value} ${config.unit}`, config.title]}
             contentStyle={{
               background: "rgba(255, 255, 255, 0.95)",
               borderRadius: "12px",
@@ -136,8 +137,9 @@ export const ClimateChart = React.memo(({ data, parameter, stationName, country 
           </defs>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
           <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
-          <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} unit={` ${config.unit}`} domain={["auto", "auto"]} />
+          <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} domain={["auto", "auto"]} />
           <Tooltip
+            formatter={(value: number) => [`${value} ${config.unit}`, config.title]}
             contentStyle={{
               background: "rgba(255, 255, 255, 0.95)",
               borderRadius: "12px",
@@ -162,7 +164,7 @@ export const ClimateChart = React.memo(({ data, parameter, stationName, country 
     <>
       <div ref={chartRef} className="w-full h-[360px] glass-card heavy-chart rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${config.title} chart`}>
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{config.title}</h3>
+          <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{config.title} ({config.unit})</h3>
           <div className="flex items-center gap-1">
             <button
               className="hidden md:flex p-2 min-w-[44px] min-h-[44px] items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"

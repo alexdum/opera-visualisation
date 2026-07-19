@@ -96,6 +96,15 @@ When implementing or modifying map legends for continuous fields that are binned
 5. **Cohesive Overlay Alignment**: Ensure the legend card coordinates match alignment offsets (e.g., `right-2.5` / `right-10px`) of sibling map widgets (like summary cards) so the UI appears visually aligned on the edges.
 <!-- END:ui-ux-legend-alignment-rule -->
 
+<!-- BEGIN:ui-ux-chart-axes-rule -->
+## UI/UX: Chart Axes and Measurement Units
+
+When implementing time-series or bar charts (e.g., using Recharts) for dashboard visualisations:
+1. **Minimise Axis Clutter**: Do not append measurement units (e.g., `°C`, `hPa`, `mm`) to every tick mark on the Y-axis. This causes unnecessary repetition and visual noise.
+2. **Contextualize in Titles**: Place the measurement unit in the chart's title or subtitle (e.g., `Temperature Profile (°C)`).
+3. **Preserve Exact Units in Tooltips**: While the Y-axis should remain clean (raw numbers), the interactive hover tooltip MUST explicitly format the value with its unit (e.g., `22.4 °C`), ensuring users get precise context when inspecting specific data points.
+<!-- END:ui-ux-chart-axes-rule -->
+
 <!-- BEGIN:react-maplibre-sync-rule -->
 ## React MapLibre GL: Loading and Performance Synchronization
 

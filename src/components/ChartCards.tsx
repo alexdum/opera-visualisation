@@ -98,7 +98,7 @@ export const AreaChartCard = React.memo(({ data, title, unit, config, stationNam
         </defs>
         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
         <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
-        <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} unit={` ${unit}`} domain={["auto", "auto"]} />
+        <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} domain={["auto", "auto"]} />
         <Tooltip content={<CustomTooltip unit={unit} />} />
         {config.map((c, i) => {
           const hasKeyData = chartData.some(d => d[c.key] !== undefined && d[c.key] !== null);
@@ -113,7 +113,7 @@ export const AreaChartCard = React.memo(({ data, title, unit, config, stationNam
     <>
       <div ref={chartRef} className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title}</h3>
+          <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title} ({unit})</h3>
           <div className="flex items-center gap-1">
             <button
               className="hidden md:flex p-2 min-w-[44px] min-h-[44px] items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
@@ -169,7 +169,7 @@ export const BarChartCard = React.memo(({ data, title, unit, config, stacked = f
       <BarChart data={chartData}>
         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
         <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
-        <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} unit={` ${unit}`} domain={[0, 'auto']} />
+        <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} domain={[0, 'auto']} />
         <Tooltip content={<CustomTooltip unit={unit} />} />
         {config.map((c, i) => {
           const hasKeyData = chartData.some(d => d[c.key] !== undefined && d[c.key] !== null);
@@ -184,7 +184,7 @@ export const BarChartCard = React.memo(({ data, title, unit, config, stacked = f
     <>
       <div ref={chartRef} className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title}</h3>
+          <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title} ({unit})</h3>
           <div className="flex items-center gap-1">
             <button
               className="hidden md:flex p-2 min-w-[44px] min-h-[44px] items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
@@ -251,7 +251,7 @@ export const ComposedChartCard = React.memo(({ data, title, unit, areaConfig, li
         </defs>
         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
         <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
-        <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} unit={` ${unit}`} />
+        <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} />
         <Tooltip content={<CustomTooltip unit={unit} />} />
         {hasAreaData && (
           <Area type="monotone" dataKey={areaConfig.key} name={areaConfig.name} stroke={areaConfig.color} strokeWidth={2} fill={`url(#grad-${areaConfig.key})`} connectNulls />
@@ -267,7 +267,7 @@ export const ComposedChartCard = React.memo(({ data, title, unit, areaConfig, li
     <>
       <div ref={chartRef} className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title}</h3>
+          <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title} ({unit})</h3>
           <div className="flex items-center gap-1">
             <button
               className="hidden md:flex p-2 min-w-[44px] min-h-[44px] items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
@@ -318,7 +318,7 @@ export const DivergingBarChartCard = React.memo(({ data, title, unit, dataKey, n
       <BarChart data={chartData}>
         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
         <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
-        <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} unit={` ${unit}`} domain={['auto', 'auto']} />
+        <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} domain={['auto', 'auto']} />
         <Tooltip content={<CustomTooltip unit={unit} />} />
         <ReferenceLine y={0} stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="4 2" />
         <Bar dataKey={dataKey} name={name} radius={[3, 3, 0, 0]}>
@@ -335,7 +335,7 @@ export const DivergingBarChartCard = React.memo(({ data, title, unit, dataKey, n
     <>
       <div ref={chartRef} className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title}</h3>
+          <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title} ({unit})</h3>
           <div className="flex items-center gap-1">
             <button
               className="hidden md:flex p-2 min-w-[44px] min-h-[44px] items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
@@ -462,7 +462,6 @@ export const DualAxisChartCard = React.memo(({ data, title, leftConfig, rightCon
           stroke={leftConfig.color}
           fontSize={11}
           tickLine={false}
-          unit={` ${leftConfig.unit}`}
           domain={[0, 100]}
         />
         <YAxis
@@ -471,7 +470,6 @@ export const DualAxisChartCard = React.memo(({ data, title, leftConfig, rightCon
           stroke={rightConfig.color}
           fontSize={11}
           tickLine={false}
-          unit={` ${rightConfig.unit}`}
           domain={["auto", "auto"]}
         />
         <Tooltip
@@ -515,7 +513,7 @@ export const DualAxisChartCard = React.memo(({ data, title, leftConfig, rightCon
     <>
       <div ref={chartRef} className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title}</h3>
+          <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title} ({leftConfig.unit} / {rightConfig.unit})</h3>
           <div className="flex items-center gap-1">
             <button
               className="hidden md:flex p-2 min-w-[44px] min-h-[44px] items-center justify-center rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"

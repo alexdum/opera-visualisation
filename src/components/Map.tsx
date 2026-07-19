@@ -243,7 +243,7 @@ const WeatherMapComponent: React.FC<MapProps> = ({
         console.warn("[Map] Loading fallback timed out. Displaying degraded state.");
         setErrorMsg("Map loading timed out. Displaying map in degraded mode.");
         setIsLoading(false);
-      }, 12000);
+      }, 15000);
 
       try {
         const bounds = stations.reduce(
