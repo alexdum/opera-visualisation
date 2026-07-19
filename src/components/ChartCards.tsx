@@ -16,6 +16,7 @@ import {
   Line,
   ReferenceLine,
   Cell,
+  Brush,
 } from "recharts";
 import { HourlyRow, NON_NEGATIVE_PARAMS } from "@/utils/qc";
 
@@ -42,21 +43,21 @@ interface CustomTooltipProps {
 const CustomTooltip: React.FC<CustomTooltipProps> = ({ active, payload, label, unit }) => {
   if (active && payload && payload.length) {
     return (
-      <div className="bg-white/95 backdrop-blur-sm rounded-xl border border-slate-200 shadow-lg p-3 text-sm">
+      <div className="bg-white/95 backdrop-blur-sm rounded-xl border border-slate-200 shadow-lg p-3 text-sm transition-opacity duration-150 ease-in-out opacity-100">
         <p className="font-bold text-slate-700 mb-2">{label}</p>
         {payload.map((entry, index) => (
           <div key={`item-${index}`} className="flex items-center gap-2 mb-1">
             <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: entry.color }} />
             <span className="text-slate-600 font-medium capitalize">{entry.name}:</span>
             <span className="text-slate-800 font-bold">
-              {entry.value !== undefined ? Number(entry.value).toFixed(1) : "-"} {unit}
+              {entry.value !== undefined && entry.value !== null ? Number(entry.value).toFixed(1) : "—"} {unit && entry.value !== undefined && entry.value !== null ? unit : ""}
             </span>
           </div>
         ))}
       </div>
     );
   }
-  return null;
+  return <div className="opacity-0 transition-opacity duration-150" />;
 };
 
 interface ChartConfig {
@@ -99,12 +100,13 @@ export const AreaChartCard = React.memo(({ data, title, unit, config, stationNam
         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
         <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
         <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} domain={["auto", "auto"]} />
-        <Tooltip content={<CustomTooltip unit={unit} />} />
+        <Tooltip content={<CustomTooltip unit={unit} />} cursor={{ stroke: '#94a3b8', strokeDasharray: '4 4' }} isAnimationActive={true} />
         {config.map((c, i) => {
           const hasKeyData = chartData.some(d => d[c.key] !== undefined && d[c.key] !== null);
           if (!hasKeyData) return null;
-          return <Area key={`area-${i}`} type="monotone" dataKey={c.key} name={c.name} stroke={c.color} strokeWidth={2} fill={`url(#grad-${c.key})`} connectNulls />;
+          return <Area key={`area-${i}`} type="monotone" dataKey={c.key} name={c.name} stroke={c.color} strokeWidth={2} fill={`url(#grad-${c.key})`} activeDot={{ r: 6, strokeWidth: 2 }} connectNulls />;
         })}
+        <Brush dataKey="time" height={30} stroke="#94a3b8" />
       </AreaChart>
     </ResponsiveContainer>
   );
@@ -170,12 +172,13 @@ export const BarChartCard = React.memo(({ data, title, unit, config, stacked = f
         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
         <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
         <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} domain={[0, 'auto']} />
-        <Tooltip content={<CustomTooltip unit={unit} />} />
+        <Tooltip content={<CustomTooltip unit={unit} />} cursor={{ fill: '#f1f5f9', opacity: 0.5 }} isAnimationActive={true} />
         {config.map((c, i) => {
           const hasKeyData = chartData.some(d => d[c.key] !== undefined && d[c.key] !== null);
           if (!hasKeyData) return null;
-          return <Bar key={`bar-${i}`} dataKey={c.key} name={c.name} fill={c.color} stackId={stacked ? "a" : undefined} radius={stacked ? 0 : [4, 4, 0, 0]} />;
+          return <Bar key={`bar-${i}`} dataKey={c.key} name={c.name} fill={c.color} stackId={stacked ? "stack" : undefined} radius={stacked ? [0, 0, 0, 0] : [4, 4, 0, 0]} />;
         })}
+        <Brush dataKey="time" height={30} stroke="#94a3b8" />
       </BarChart>
     </ResponsiveContainer>
   );
@@ -252,13 +255,14 @@ export const ComposedChartCard = React.memo(({ data, title, unit, areaConfig, li
         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
         <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
         <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} />
-        <Tooltip content={<CustomTooltip unit={unit} />} />
+        <Tooltip content={<CustomTooltip unit={unit} />} cursor={{ stroke: '#94a3b8', strokeDasharray: '4 4' }} isAnimationActive={true} />
         {hasAreaData && (
-          <Area type="monotone" dataKey={areaConfig.key} name={areaConfig.name} stroke={areaConfig.color} strokeWidth={2} fill={`url(#grad-${areaConfig.key})`} connectNulls />
+          <Area type="monotone" dataKey={areaConfig.key} name={areaConfig.name} stroke={areaConfig.color} strokeWidth={2} fill={`url(#grad-${areaConfig.key})`} activeDot={{ r: 6, strokeWidth: 2 }} connectNulls />
         )}
         {hasLineData && (
           <Line type="monotone" dataKey={lineConfig.key} name={lineConfig.name} stroke={lineConfig.color} strokeWidth={0} dot={{ r: 3, fill: lineConfig.color, strokeWidth: 0 }} activeDot={{ r: 5 }} connectNulls={false} />
         )}
+        <Brush dataKey="time" height={30} stroke="#94a3b8" />
       </ComposedChart>
     </ResponsiveContainer>
   );
@@ -319,14 +323,15 @@ export const DivergingBarChartCard = React.memo(({ data, title, unit, dataKey, n
         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
         <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
         <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} domain={['auto', 'auto']} />
-        <Tooltip content={<CustomTooltip unit={unit} />} />
-        <ReferenceLine y={0} stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="4 2" />
-        <Bar dataKey={dataKey} name={name} radius={[3, 3, 0, 0]}>
+        <Tooltip content={<CustomTooltip unit={unit} />} cursor={{ fill: '#f1f5f9', opacity: 0.5 }} isAnimationActive={true} />
+        <ReferenceLine y={0} stroke="#cbd5e1" />
+        <Bar dataKey={dataKey} name={name} radius={[4, 4, 4, 4]}>
           {chartData.map((entry, index) => {
-            const val = entry[dataKey] as number | undefined;
+            const val = entry[dataKey] as number;
             return <Cell key={`cell-${index}`} fill={val !== undefined && val !== null && val >= 0 ? posColor : negColor} />;
           })}
         </Bar>
+        <Brush dataKey="time" height={30} stroke="#94a3b8" />
       </BarChart>
     </ResponsiveContainer>
   );
@@ -480,6 +485,8 @@ export const DualAxisChartCard = React.memo(({ data, title, leftConfig, rightCon
               rightUnit={rightConfig.unit}
             />
           }
+          cursor={{ stroke: '#94a3b8', strokeDasharray: '4 4' }}
+          isAnimationActive={true}
         />
         {hasLeftData && (
           <Area
@@ -490,6 +497,7 @@ export const DualAxisChartCard = React.memo(({ data, title, leftConfig, rightCon
             stroke={leftConfig.color}
             strokeWidth={2}
             fill={`url(#grad-dual-${leftConfig.key})`}
+            activeDot={{ r: 6, strokeWidth: 2 }}
             connectNulls
           />
         )}
@@ -502,9 +510,11 @@ export const DualAxisChartCard = React.memo(({ data, title, leftConfig, rightCon
             stroke={rightConfig.color}
             strokeWidth={2}
             dot={false}
+            activeDot={{ r: 6, strokeWidth: 2 }}
             connectNulls
           />
         )}
+        <Brush dataKey="time" height={30} stroke="#94a3b8" />
       </ComposedChart>
     </ResponsiveContainer>
   );
