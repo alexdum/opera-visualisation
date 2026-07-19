@@ -108,7 +108,7 @@ export const ClimateChart = React.memo(({ data, parameter, stationName, country 
           <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
           <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} domain={[0, 'auto']} />
           <Tooltip
-            formatter={(value: number) => [`${value} ${config.unit}`, config.title]}
+            formatter={(value: any) => [`${value} ${config.unit}`, config.title]}
             contentStyle={{
               background: "rgba(255, 255, 255, 0.95)",
               borderRadius: "12px",
@@ -139,7 +139,7 @@ export const ClimateChart = React.memo(({ data, parameter, stationName, country 
           <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
           <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} domain={["auto", "auto"]} />
           <Tooltip
-            formatter={(value: number) => [`${value} ${config.unit}`, config.title]}
+            formatter={(value: any) => [`${value} ${config.unit}`, config.title]}
             contentStyle={{
               background: "rgba(255, 255, 255, 0.95)",
               borderRadius: "12px",
