@@ -105,6 +105,14 @@ When implementing time-series or bar charts (e.g., using Recharts) for dashboard
 3. **Preserve Exact Units in Tooltips**: While the Y-axis should remain clean (raw numbers), the interactive hover tooltip MUST explicitly format the value with its unit (e.g., `22.4 °C`), ensuring users get precise context when inspecting specific data points.
 <!-- END:ui-ux-chart-axes-rule -->
 
+<!-- BEGIN:ui-ux-meteorological-chart-rendering-rule -->
+## UI/UX: Meteorological Chart Rendering
+
+When refactoring or updating charting components (e.g., Recharts), preserve the specific geometric rendering of discrete meteorological phenomena:
+1. **Discrete vs. Continuous Data**: Secondary, sparse, or instantaneous events (such as Wind Gusts) MUST be rendered as disconnected scatter points (e.g., `strokeWidth={0}`, `dot={...}`) rather than solid, continuous lines. 
+2. **Physical Accuracy**: Interpolating a continuous line between isolated, sudden gust events is physically misleading. Do not blindly apply a uniform `strokeWidth={2}` or `dot={false}` across all chart lines when applying global UI updates.
+<!-- END:ui-ux-meteorological-chart-rendering-rule -->
+
 <!-- BEGIN:react-maplibre-sync-rule -->
 ## React MapLibre GL: Loading and Performance Synchronization
 

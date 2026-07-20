@@ -60,6 +60,7 @@ interface AreaObservationsResponse {
   message?: string;
   observations?: AreaObservation[];
   coverages?: LegacyCoverage[];
+  apiUnavailable?: boolean;
 }
 
 const SOURCE_ID = "stations-source";
@@ -347,13 +348,18 @@ const WeatherMapComponent: React.FC<MapProps> = ({
         isPendingIdleSyncRef.current = true;
         setObservations(filteredObs);
         setActiveObservationKey(requestKey);
+
+        // Show banner when the live API is completely unreachable
+        if (json.apiUnavailable) {
+          setErrorMsg("Connection to the MeteoGate live API is currently not possible. Data is available only for the historical period.");
+        }
       } catch (error: unknown) {
         if (getErrorName(error) === "AbortError") return;
         clearFallbackTimer();
         console.error("[Map] Fetch observations failed:", error);
         setObservations({});
         setActiveObservationKey("");
-        setErrorMsg(getErrorMessage(error) || "MeteoGate observation fetch timed out or returned empty coordinates. Degraded mode active.");
+        setErrorMsg("Connection to the MeteoGate live API is currently not possible. Data is available only for the historical period.");
         setIsLoading(false);
       }
     };

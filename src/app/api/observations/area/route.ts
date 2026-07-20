@@ -237,7 +237,7 @@ async function getLiveObservations(
   datetimeRange: string,
   targetHour: number,
   tiles: Tile[]
-): Promise<AreaObservationPayload> {
+): Promise<AreaObservationPayload & { apiUnavailable?: boolean }> {
   console.info(`[api/observations/area] Fetching ${tiles.length} tiles for parameter ${parameter}, datetime=${datetimeRange}`);
 
   const tilePromises = tiles.map(async (tile) => {
@@ -254,27 +254,41 @@ async function getLiveObservations(
         return [];
       }
       console.warn(`[api/observations/area] Tile fetch failed: ${message}`);
-      return [];
+      throw error;
     }
   });
 
-  const results = await Promise.all(tilePromises);
+  // Use allSettled so partial successes still return data
+  const settled = await Promise.allSettled(tilePromises);
   const observationsByStation = new Map<string, AreaObservation>();
+  let failedTiles = 0;
 
-  results.forEach((coverages) => {
-    if (!Array.isArray(coverages)) return;
+  for (const result of settled) {
+    if (result.status === "rejected") {
+      failedTiles++;
+      continue;
+    }
+    const coverages = result.value;
+    if (!Array.isArray(coverages)) continue;
 
-    coverages.forEach((coverage) => {
+    for (const coverage of coverages) {
       const observation = extractCoverageObservation(coverage, parameter, targetHour);
       if (observation) {
         observationsByStation.set(observation.stationId, observation);
       }
-    });
-  });
+    }
+  }
 
   const observations = Array.from(observationsByStation.values());
+
+  if (failedTiles > 0) {
+    console.warn(`[api/observations/area] ${failedTiles}/${tiles.length} tiles failed`);
+  }
   console.info(`[api/observations/area] Returned ${observations.length} compact live observations`);
-  return { success: true, count: observations.length, observations };
+
+  // If ALL tiles failed, signal that the API is unavailable
+  const apiUnavailable = failedTiles === tiles.length && tiles.length > 0;
+  return { success: true, count: observations.length, observations, apiUnavailable };
 }
 
 export async function POST(request: Request) {
@@ -321,7 +335,7 @@ export async function POST(request: Request) {
     const { tiles, totalTiles, lngSpan, latSpan } = buildTiles(bounds, stations);
     console.info(`[api/observations/area] ${lngSpan.toFixed(0)}°×${latSpan.toFixed(0)}° → ${totalTiles} tiles total, ${tiles.length} populated`);
 
-    const cacheKey = `live:${parameter}:${datetimeRange}:${getTileKey(tiles)}`;
+    const cacheKey = `live:v2:${parameter}:${datetimeRange}:${getTileKey(tiles)}`;
     const cached = observationCache.get<AreaObservationPayload>(cacheKey);
     if (cached) {
       return NextResponse.json({ ...cached, fromCache: true });
@@ -338,8 +352,14 @@ export async function POST(request: Request) {
 
     try {
       const payload = await promise;
-      const ttlSeconds = ageHours < 2 ? 120 : 900;
-      observationCache.set(cacheKey, payload, ttlSeconds);
+
+      // Don't cache responses where the API was completely unavailable —
+      // so the next request retries the live API immediately.
+      if (!payload.apiUnavailable) {
+        const ttlSeconds = ageHours < 2 ? 120 : 900;
+        observationCache.set(cacheKey, payload, ttlSeconds);
+      }
+
       return NextResponse.json({ ...payload, fromCache: false });
     } finally {
       inFlightRequests.delete(cacheKey);
