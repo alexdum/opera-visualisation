@@ -436,59 +436,78 @@ export function WeatherMap({
 
   // ── Viewport-aware image refresh ──────────────────────────────────────
   // When the user zooms or pans, update the active image source to render
-  // only the visible region at high resolution. This gives COG overviews
-  // the best chance to match the current pixel density.
+  // only the visible region at high resolution.  The new image is preloaded
+  // via a hidden <img> before calling updateImage so that the coordinate
+  // change and the pixel content change happen atomically — otherwise the
+  // old image would briefly be stretched to the new bounds, causing a
+  // visible spatial shift.
   useEffect(() => {
     const instance = map.current;
     if (!instance || !mapReady) return;
     const currentFrame = frames[currentTimeIndex];
     if (!currentFrame) return;
 
+    let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+    let aborted = false;
+
     const updateImageForViewport = () => {
-      if (!instance.isStyleLoaded()) return;
-      const mapBounds = instance.getBounds();
-      const bbox = {
-        west: mapBounds.getWest(),
-        south: mapBounds.getSouth(),
-        east: mapBounds.getEast(),
-        north: mapBounds.getNorth(),
-      };
-      // Clamp to OPERA extent
-      const clampedBbox = {
-        west: Math.max(bbox.west, -39.552438),
-        south: Math.max(bbox.south, 31.749398),
-        east: Math.min(bbox.east, 57.81137),
-        north: Math.min(bbox.north, 73.931257),
-      };
-      // Only use viewport bbox if the user is zoomed in enough that
-      // the OPERA extent doesn't fit entirely in the viewport.
-      const isZoomedIn =
-        clampedBbox.east - clampedBbox.west < 90 ||
-        clampedBbox.north - clampedBbox.south < 35;
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        if (aborted || !instance.isStyleLoaded()) return;
+        const mapBounds = instance.getBounds();
+        const bbox = {
+          west: mapBounds.getWest(),
+          south: mapBounds.getSouth(),
+          east: mapBounds.getEast(),
+          north: mapBounds.getNorth(),
+        };
+        // Clamp to OPERA extent
+        const clampedBbox = {
+          west: Math.max(bbox.west, -39.552438),
+          south: Math.max(bbox.south, 31.749398),
+          east: Math.min(bbox.east, 57.81137),
+          north: Math.min(bbox.north, 73.931257),
+        };
+        // Only use viewport bbox if the user is zoomed in enough that
+        // the OPERA extent doesn't fit entirely in the viewport.
+        const isZoomedIn =
+          clampedBbox.east - clampedBbox.west < 90 ||
+          clampedBbox.north - clampedBbox.south < 35;
 
-      const viewportBbox = isZoomedIn ? clampedBbox : undefined;
-      const coordinates: [[number, number], [number, number], [number, number], [number, number]] = viewportBbox
-        ? [
-            [viewportBbox.west, viewportBbox.north],
-            [viewportBbox.east, viewportBbox.north],
-            [viewportBbox.east, viewportBbox.south],
-            [viewportBbox.west, viewportBbox.south],
-          ]
-        : OPERA_IMAGE_COORDINATES;
+        const viewportBbox = isZoomedIn ? clampedBbox : undefined;
+        const coordinates: [[number, number], [number, number], [number, number], [number, number]] = viewportBbox
+          ? [
+              [viewportBbox.west, viewportBbox.north],
+              [viewportBbox.east, viewportBbox.north],
+              [viewportBbox.east, viewportBbox.south],
+              [viewportBbox.west, viewportBbox.south],
+            ]
+          : OPERA_IMAGE_COORDINATES;
 
-      const desiredFrames = selectAnimationFrames(frames, currentTimeIndex);
-      desiredFrames.forEach((frame) => {
-        const identity = frameIdentity(frame, minQuality);
-        const sourceId = `radar-source-${identity}`;
-        const source = instance.getSource(sourceId) as maplibregl.ImageSource | undefined;
-        if (!source) return;
-        const frameUrl = buildFrameUrl(frame, minQuality, TILE_API_BASE, viewportBbox);
-        source.updateImage({ url: frameUrl, coordinates });
-      });
+        const desiredFrames = selectAnimationFrames(frames, currentTimeIndex);
+        desiredFrames.forEach((frame) => {
+          const identity = frameIdentity(frame, minQuality);
+          const sourceId = `radar-source-${identity}`;
+          const source = instance.getSource(sourceId) as maplibregl.ImageSource | undefined;
+          if (!source) return;
+          const frameUrl = buildFrameUrl(frame, minQuality, TILE_API_BASE, viewportBbox);
+          // Preload the image so MapLibre can update coordinates and
+          // content atomically from the browser cache.
+          const preload = new Image();
+          preload.onload = () => {
+            if (aborted) return;
+            const s = instance.getSource(sourceId) as maplibregl.ImageSource | undefined;
+            if (s) s.updateImage({ url: frameUrl, coordinates });
+          };
+          preload.src = frameUrl;
+        });
+      }, 300);
     };
 
     instance.on("moveend", updateImageForViewport);
     return () => {
+      aborted = true;
+      if (debounceTimer) clearTimeout(debounceTimer);
       instance.off("moveend", updateImageForViewport);
     };
   }, [currentTimeIndex, frames, mapReady, minQuality, product]);
