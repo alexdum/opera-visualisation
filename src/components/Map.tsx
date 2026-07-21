@@ -46,6 +46,34 @@ const OPERA_IMAGE_COORDINATES: [[number, number], [number, number], [number, num
   [-39.552438, 31.749398],  // bottom-left
 ];
 
+/** Compute the current viewport bbox clamped to OPERA extent, or undefined if zoomed out. */
+const getViewportBbox = (instance: maplibregl.Map) => {
+  const b = instance.getBounds();
+  const clamped = {
+    west: Math.max(b.getWest(), -39.552438),
+    south: Math.max(b.getSouth(), 31.749398),
+    east: Math.min(b.getEast(), 57.81137),
+    north: Math.min(b.getNorth(), 73.931257),
+  };
+  const isZoomedIn =
+    clamped.east - clamped.west < 90 ||
+    clamped.north - clamped.south < 35;
+  return isZoomedIn ? clamped : undefined;
+};
+
+/** Convert a viewport bbox to MapLibre image source coordinates, or fall back to full extent. */
+const bboxToCoordinates = (
+  bbox?: { west: number; south: number; east: number; north: number },
+): [[number, number], [number, number], [number, number], [number, number]] =>
+  bbox
+    ? [
+        [bbox.west, bbox.north],
+        [bbox.east, bbox.north],
+        [bbox.east, bbox.south],
+        [bbox.west, bbox.south],
+      ]
+    : OPERA_IMAGE_COORDINATES;
+
 const fitRadarExtent = (instance: maplibregl.Map, duration: number) => {
   const compact = instance.getContainer().clientWidth < 640;
   instance.fitBounds(OPERA_RADAR_BOUNDS, {
@@ -345,6 +373,8 @@ export function WeatherMap({
       const desiredLayerIds: string[] = [];
       const desiredSourceIds: string[] = [];
       const radarBeforeId = radarOverlayBeforeId(instance.getStyle().layers);
+      const viewportBbox = getViewportBbox(instance);
+      const coordinates = bboxToCoordinates(viewportBbox);
       desiredFrames.forEach((frame, index) => {
         const identity = frameIdentity(frame, minQuality);
         const sourceId = `radar-source-${identity}`;
@@ -352,12 +382,12 @@ export function WeatherMap({
         if (index === 0) activeSourceId = sourceId;
         desiredSourceIds.push(sourceId);
         desiredLayerIds.push(layerId);
-        const frameUrl = buildFrameUrl(frame, minQuality, TILE_API_BASE);
+        const frameUrl = buildFrameUrl(frame, minQuality, TILE_API_BASE, viewportBbox);
         if (!instance.getSource(sourceId)) {
           instance.addSource(sourceId, {
             type: "image",
             url: frameUrl,
-            coordinates: OPERA_IMAGE_COORDINATES,
+            coordinates,
           });
         }
         if (!instance.getLayer(layerId)) {
@@ -434,13 +464,10 @@ export function WeatherMap({
     };
   }, [currentTimeIndex, frames, mapReady, minQuality, opacity, product, styleRevision]);
 
-  // ── Viewport-aware image refresh ──────────────────────────────────────
-  // When the user zooms or pans, update the active image source to render
+  // ── Viewport-aware image refresh on zoom/pan ────────────────────────
+  // When the user zooms or pans, update all active image sources to render
   // only the visible region at high resolution.  The new image is preloaded
-  // via a hidden <img> before calling updateImage so that the coordinate
-  // change and the pixel content change happen atomically — otherwise the
-  // old image would briefly be stretched to the new bounds, causing a
-  // visible spatial shift.
+  // before calling updateImage so the coordinate + content swap is atomic.
   useEffect(() => {
     const instance = map.current;
     if (!instance || !mapReady) return;
@@ -454,35 +481,8 @@ export function WeatherMap({
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
         if (aborted || !instance.isStyleLoaded()) return;
-        const mapBounds = instance.getBounds();
-        const bbox = {
-          west: mapBounds.getWest(),
-          south: mapBounds.getSouth(),
-          east: mapBounds.getEast(),
-          north: mapBounds.getNorth(),
-        };
-        // Clamp to OPERA extent
-        const clampedBbox = {
-          west: Math.max(bbox.west, -39.552438),
-          south: Math.max(bbox.south, 31.749398),
-          east: Math.min(bbox.east, 57.81137),
-          north: Math.min(bbox.north, 73.931257),
-        };
-        // Only use viewport bbox if the user is zoomed in enough that
-        // the OPERA extent doesn't fit entirely in the viewport.
-        const isZoomedIn =
-          clampedBbox.east - clampedBbox.west < 90 ||
-          clampedBbox.north - clampedBbox.south < 35;
-
-        const viewportBbox = isZoomedIn ? clampedBbox : undefined;
-        const coordinates: [[number, number], [number, number], [number, number], [number, number]] = viewportBbox
-          ? [
-              [viewportBbox.west, viewportBbox.north],
-              [viewportBbox.east, viewportBbox.north],
-              [viewportBbox.east, viewportBbox.south],
-              [viewportBbox.west, viewportBbox.south],
-            ]
-          : OPERA_IMAGE_COORDINATES;
+        const viewportBbox = getViewportBbox(instance);
+        const coordinates = bboxToCoordinates(viewportBbox);
 
         const desiredFrames = selectAnimationFrames(frames, currentTimeIndex);
         desiredFrames.forEach((frame) => {
