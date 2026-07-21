@@ -407,7 +407,7 @@ const DashboardChartsComponent: React.FC<{ data: HourlyRow[]; units?: Record<str
   return (
     <div className="flex flex-col gap-6 w-full">
       {statCards.length > 0 && (
-        <div className="w-full flex flex-col gap-3 snap-start scroll-mt-2">
+        <div className="w-full flex flex-col gap-3">
           <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider pl-1">
             Station Observations Summary {dateRangeString && `(${dateRangeString})`}
           </h3>
@@ -440,7 +440,7 @@ const DashboardChartsComponent: React.FC<{ data: HourlyRow[]; units?: Record<str
         </div>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 lazy-render snap-start scroll-mt-2">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 lazy-render">
       {/* ─── Core Meteorological Charts ─── */}
       {hasTemperature && (
         <AreaChartCard

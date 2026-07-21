@@ -113,7 +113,7 @@ export const AreaChartCard = React.memo(({ data, title, unit, config, stationNam
 
   return (
     <>
-      <div ref={chartRef} className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
+      <div ref={chartRef} className="w-full h-[360px] glass-card heavy-chart rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title} ({unit})</h3>
           <div className="flex items-center gap-1">
@@ -185,7 +185,7 @@ export const BarChartCard = React.memo(({ data, title, unit, config, stacked = f
 
   return (
     <>
-      <div ref={chartRef} className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
+      <div ref={chartRef} className="w-full h-[360px] glass-card heavy-chart rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title} ({unit})</h3>
           <div className="flex items-center gap-1">
@@ -269,7 +269,7 @@ export const ComposedChartCard = React.memo(({ data, title, unit, areaConfig, li
 
   return (
     <>
-      <div ref={chartRef} className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
+      <div ref={chartRef} className="w-full h-[360px] glass-card heavy-chart rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title} ({unit})</h3>
           <div className="flex items-center gap-1">
@@ -338,7 +338,7 @@ export const DivergingBarChartCard = React.memo(({ data, title, unit, dataKey, n
 
   return (
     <>
-      <div ref={chartRef} className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
+      <div ref={chartRef} className="w-full h-[360px] glass-card heavy-chart rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title} ({unit})</h3>
           <div className="flex items-center gap-1">
@@ -521,7 +521,7 @@ export const DualAxisChartCard = React.memo(({ data, title, leftConfig, rightCon
 
   return (
     <>
-      <div ref={chartRef} className="w-full h-[360px] glass-card heavy-chart snap-center rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
+      <div ref={chartRef} className="w-full h-[360px] glass-card heavy-chart rounded-2xl p-5 border border-slate-100/50 shadow-sm flex flex-col gap-4" role="figure" aria-label={`${title} chart`}>
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{title} ({leftConfig.unit} / {rightConfig.unit})</h3>
           <div className="flex items-center gap-1">

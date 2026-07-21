@@ -1085,7 +1085,7 @@ function EuroMeteoApp({ initialUrlState }: { initialUrlState: InitialUrlState })
               </div>
 
               {/* Tab: Dashboard charts & raw logs — always mounted, hidden when inactive */}
-              <div ref={dashboardScrollRef} className="w-full h-full overflow-y-auto custom-scrollbar snap-y snap-proximity flex flex-col gap-6 pr-1 pb-6 p-1 md:p-6" style={{ display: activeTab === "dashboard" ? "flex" : "none" }}>
+              <div ref={dashboardScrollRef} className="w-full h-full overflow-y-auto custom-scrollbar flex flex-col gap-6 pr-1 pb-6 p-1 md:p-6" style={{ display: activeTab === "dashboard" ? "flex" : "none" }}>
                   {isLoadingStations ? (
                     <div className="flex-grow flex flex-col items-center justify-center gap-3">
                       <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
@@ -1105,7 +1105,7 @@ function EuroMeteoApp({ initialUrlState }: { initialUrlState: InitialUrlState })
                     <>
                       {/* Station details banner card */}
                       {activeStationDetails && (
-                        <div className="glass-card rounded-2xl p-6 border border-slate-100/50 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4 snap-start scroll-mt-2">
+                        <div className="glass-card rounded-2xl p-6 border border-slate-100/50 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                           <div className="flex flex-col gap-1">
                             <h2 className="text-lg font-bold text-slate-800 tracking-tight">
                               {activeStationDetails.name}
@@ -1163,7 +1163,7 @@ function EuroMeteoApp({ initialUrlState }: { initialUrlState: InitialUrlState })
                       )}
 
                       {/* Dashboard content wrapper */}
-                      <div className="relative w-full min-h-[400px] snap-start scroll-mt-2">
+                      <div className="relative w-full min-h-[400px]">
                         {isLoadingLogs && (
                           <div className="absolute inset-0 z-40 bg-slate-50/70 backdrop-blur-[1px] flex flex-col items-center justify-center gap-2 rounded-2xl">
                             <div className="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin" />
@@ -1197,7 +1197,7 @@ function EuroMeteoApp({ initialUrlState }: { initialUrlState: InitialUrlState })
 
                           {/* Sub-tab: Data Table (always mounted, cached when inactive) */}
                           <div
-                            className={`cached-view flex-col gap-3 min-h-[400px] snap-start scroll-mt-2 ${dashboardSubTab === "data" ? "is-active" : ""}`}
+                            className={`cached-view flex-col gap-3 min-h-[400px] ${dashboardSubTab === "data" ? "is-active" : ""}`}
                           >
                             {/* Land / Ocean sub-tabs (only show if both exist) */}
                             {hasLandData && hasOceanData && (
