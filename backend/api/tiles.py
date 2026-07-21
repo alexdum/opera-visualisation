@@ -412,6 +412,7 @@ def _render_cog_frame(
             dst_crs=CRS.from_epsg(3857),
             max_size=max_size,
             indexes=indexes,
+            resampling_method="nearest",
         )
         if frame.product == "DBZH" and min_quality is not None and image.count == 2:
             image = apply_quality_filter(image, min_quality)
@@ -461,7 +462,7 @@ def _render_geozarr_frame(
         src_crs=metadata["crs"],
         dst_transform=dst_transform,
         dst_crs="EPSG:3857",
-        resampling=Resampling.bilinear,
+        resampling=Resampling.nearest,
         src_nodata=np.nan,
         dst_nodata=np.nan,
     )
