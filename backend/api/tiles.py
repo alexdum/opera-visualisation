@@ -28,6 +28,7 @@ from api.cog_cache import BucketRateLimitError, local_cog
 router = APIRouter()
 TILE_SIZE = 256
 WEB_MERCATOR_LIMIT = 20037508.342789244
+OPERA_WGS84_BOUNDS = (-39.552438, 31.749398, 57.81137, 73.931257)
 
 
 DBZH_CMAP = [
@@ -391,5 +392,152 @@ def get_tile(
             "Cache-Control": "public, max-age=31536000, immutable",
             "X-OPERA-Backend": backend,
             "X-OPERA-Revision": revision,
+        },
+    )
+
+
+def _render_cog_frame(frame: CatalogFrame, min_quality: float | None, max_size: int = 1024) -> ImageData:
+    """Render the full OPERA extent from a COG as a single image."""
+    if not frame.hot_cog:
+        raise FileNotFoundError("Catalog does not advertise a hot COG")
+    cog_path = local_cog(frame.product, frame.timestamp, frame.revision, frame.hot_cog)
+    with Reader(str(cog_path)) as cog:
+        indexes = (1, 2) if frame.product == "DBZH" and min_quality is not None and cog.dataset.count >= 2 else 1
+        image = cog.part(
+            OPERA_WGS84_BOUNDS,
+            bounds_crs=CRS.from_epsg(4326),
+            dst_crs=CRS.from_epsg(4326),
+            max_size=max_size,
+            indexes=indexes,
+        )
+        if frame.product == "DBZH" and min_quality is not None and image.count == 2:
+            image = apply_quality_filter(image, min_quality)
+    return image
+
+
+def _render_geozarr_frame(frame: CatalogFrame, min_quality: float | None, max_size: int = 1024) -> ImageData:
+    """Render the full OPERA extent from GeoZarr as a single image."""
+    group = _open_geozarr(frame.geozarr)
+    metadata = _geozarr_metadata(frame.geozarr, frame.product)
+    
+    times = metadata["times"]
+    target_ns = np.datetime64(frame.timestamp.replace("Z", ""), "ns").astype(np.int64)
+    time_index = int(np.argmin(np.abs(times - target_ns)))
+
+    full_y, full_x = group[frame.product].shape[1], group[frame.product].shape[2]
+    step = max(1, max(full_y, full_x) // max_size)
+    slab = np.asarray(group[frame.product][time_index, ::step, ::step], dtype=np.float32)
+
+    undetect = group[frame.product].attrs.get("undetect_value", None)
+    if undetect is not None:
+        replacement = -4.999 if frame.product == "DBZH" else 0.0
+        slab[np.isclose(slab, np.float32(undetect))] = np.float32(replacement)
+    slab[~np.isfinite(slab)] = np.nan
+
+    src_transform = metadata["transform"] * Affine.scale(step, step)
+    src_h, src_w = slab.shape
+
+    out_w = min(max_size, src_w)
+    out_h = int(out_w * (OPERA_WGS84_BOUNDS[3] - OPERA_WGS84_BOUNDS[1]) / (OPERA_WGS84_BOUNDS[2] - OPERA_WGS84_BOUNDS[0]))
+    
+    dst_transform = from_bounds(*OPERA_WGS84_BOUNDS, out_w, out_h)
+    dst_data = np.full((1, out_h, out_w), np.nan, dtype=np.float32)
+    
+    reproject(
+        slab.reshape(1, src_h, src_w),
+        dst_data,
+        src_transform=src_transform,
+        src_crs=metadata["crs"],
+        dst_transform=dst_transform,
+        dst_crs="EPSG:4326",
+        resampling=Resampling.bilinear,
+        src_nodata=np.nan,
+        dst_nodata=np.nan,
+    )
+
+    if frame.product == "DBZH" and min_quality is not None:
+        quality_vars = frame.quality_variables or []
+        if quality_vars:
+            q_var = quality_vars[0]
+            q_slab = np.asarray(group[q_var][time_index, ::step, ::step], dtype=np.float32)
+            q_slab[~np.isfinite(q_slab)] = np.nan
+            dst_quality = np.full((1, out_h, out_w), np.nan, dtype=np.float32)
+            reproject(
+                q_slab.reshape(1, src_h, src_w),
+                dst_quality,
+                src_transform=src_transform,
+                src_crs=metadata["crs"],
+                dst_transform=dst_transform,
+                dst_crs="EPSG:4326",
+                resampling=Resampling.nearest,
+                src_nodata=np.nan,
+                dst_nodata=np.nan,
+            )
+
+            q_data = dst_quality[0]
+            quality_known = np.isfinite(q_data) & (q_data >= 0.0) & (q_data <= 1.0)
+            below_threshold = quality_known & (q_data < min_quality)
+            dst_data[0][below_threshold] = np.nan
+    
+    mask = np.isnan(dst_data)
+    masked_data = np.ma.MaskedArray(dst_data, mask=mask)
+    
+    return ImageData(
+        masked_data,
+        bounds=OPERA_WGS84_BOUNDS,
+        crs=CRS.from_epsg(4326),
+    )
+
+
+@functools.lru_cache(maxsize=256)
+def _render_frame_cached(
+    product: str, timestamp: str, revision: str,
+    min_quality_key: str, source: str, max_size: int,
+) -> bytes:
+    frame = resolve_catalog_frame(product, timestamp, revision)
+    min_quality = parse_min_quality(product, min_quality_key)
+    
+    use_cog = (
+        source != "geozarr"
+        and frame.hot_cog
+        and frame.hot_cog_ready
+    )
+    
+    try:
+        if use_cog:
+            image = _render_cog_frame(frame, min_quality, max_size)
+        else:
+            image = _render_geozarr_frame(frame, min_quality, max_size)
+    except Exception:
+        if frame.archive_ready and frame.geozarr:
+            image = _render_geozarr_frame(frame, min_quality, max_size)
+        else:
+            raise
+    
+    return image.render(img_format="WEBP", colormap=COLORMAPS[product])
+
+
+@router.get("/frame/{product}/{timestamp}/{revision}.webp")
+def get_frame(
+    product: str,
+    timestamp: str,
+    revision: str,
+    min_quality: str = Query("0.10"),
+    source: str = Query("auto", pattern="^(auto|cog|geozarr)$"),
+    max_size: int = Query(1024, ge=256, le=2048),
+) -> Response:
+    try:
+        content = _render_frame_cached(
+            product, timestamp, revision, min_quality, source, max_size,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Frame rendering failed") from exc
+    return Response(
+        content=content,
+        media_type="image/webp",
+        headers={
+            "Cache-Control": "public, max-age=31536000, immutable",
         },
     )

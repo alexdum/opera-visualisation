@@ -91,6 +91,17 @@ export const buildTileUrl = (
   return `${normalizedBase}/tiles/${encodeURIComponent(frame.product)}/${frame.timestamp}/${encodeURIComponent(frame.revision)}/{z}/{x}/{y}.webp?min_quality=${encodeURIComponent(quality)}&source=${encodeURIComponent(frame.backend)}`;
 };
 
+/** Build the URL for a full-frame image (single image per timestep). */
+export const buildFrameUrl = (
+  frame: RadarFrame,
+  minQuality: number | null,
+  apiBase = "",
+) => {
+  const quality = qualityKeyForProduct(frame.product, minQuality);
+  const normalizedBase = apiBase.replace(/\/$/, "");
+  return `${normalizedBase}/tiles/frame/${encodeURIComponent(frame.product)}/${frame.timestamp}/${encodeURIComponent(frame.revision)}.webp?min_quality=${encodeURIComponent(quality)}&source=${encodeURIComponent(frame.backend)}`;
+};
+
 export const parseQualityUrlValue = (value: string | null): number | null | undefined => {
   if (value === null) return undefined;
   if (value === "off") return null;

@@ -7,6 +7,7 @@ import { Home } from "lucide-react";
 
 import type { MapRenderState, RadarFrame, RadarProduct } from "@/types/radar";
 import {
+  buildFrameUrl,
   buildTileUrl,
   frameIdentity,
   isAdministrativeBoundaryLayer,
@@ -35,6 +36,14 @@ const TILE_API_BASE =
 export const OPERA_RADAR_BOUNDS: maplibregl.LngLatBoundsLike = [
   [-39.552438, 31.749398],
   [57.81137, 73.931257],
+];
+
+/** Four corners of the OPERA extent for MapLibre image sources [lng, lat]. */
+const OPERA_IMAGE_COORDINATES: [[number, number], [number, number], [number, number], [number, number]] = [
+  [-39.552438, 73.931257],  // top-left
+  [57.81137, 73.931257],    // top-right
+  [57.81137, 31.749398],    // bottom-right
+  [-39.552438, 31.749398],  // bottom-left
 ];
 
 const fitRadarExtent = (instance: maplibregl.Map, duration: number) => {
@@ -343,13 +352,12 @@ export function WeatherMap({
         if (index === 0) activeSourceId = sourceId;
         desiredSourceIds.push(sourceId);
         desiredLayerIds.push(layerId);
-        const tileUrl = buildTileUrl(frame, minQuality, TILE_API_BASE);
+        const frameUrl = buildFrameUrl(frame, minQuality, TILE_API_BASE);
         if (!instance.getSource(sourceId)) {
           instance.addSource(sourceId, {
-            type: "raster",
-            tiles: [tileUrl],
-            tileSize: 256,
-            maxzoom: 8,
+            type: "image",
+            url: frameUrl,
+            coordinates: OPERA_IMAGE_COORDINATES,
           });
         }
         if (!instance.getLayer(layerId)) {
