@@ -45,7 +45,8 @@ def daily_catalog() -> dict:
 def test_health():
     response = client.get("/api/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    assert response.json()["status"] == "ok"
+    assert "storage" in response.json()
 
 
 @pytest.mark.parametrize("product", ["DBZH", "RATE", "ACRR"])

@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import logging
 import os
 
+logger = logging.getLogger(__name__)
 
 BUCKET_MOUNT = os.getenv("BUCKET_MOUNT", "").strip()
 USE_LOCAL_MOUNT = bool(BUCKET_MOUNT) and os.path.isdir(BUCKET_MOUNT)
+
+if USE_LOCAL_MOUNT:
+    logger.info("Storage: LOCAL MOUNT at %s", BUCKET_MOUNT)
+else:
+    logger.info("Storage: HTTP (%s)", os.getenv("HF_BUCKET_URL", "default"))
 
 
 HF_BUCKET_URL = os.getenv(

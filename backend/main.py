@@ -24,9 +24,12 @@ if allowed_origins:
         allow_headers=["Accept", "Content-Type"],
     )
 
+from api.bucket import USE_LOCAL_MOUNT, BUCKET_MOUNT
+
 @app.get("/api/health")
 async def health():
-    return {"status": "ok"}
+    storage = f"local:{BUCKET_MOUNT}" if USE_LOCAL_MOUNT else "http"
+    return {"status": "ok", "storage": storage}
 
 app.include_router(catalog_router, prefix="/api/catalog")
 app.include_router(tiles_router, prefix="/tiles")
