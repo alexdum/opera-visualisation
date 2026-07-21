@@ -46,6 +46,7 @@ DBZH_CMAP = [
     ((45.0, 150.0), (190, 255, 255, 255)),
 ]
 RATE_CMAP = [
+    ((-15.0, -5.0), (100, 130, 160, 50)),   # scanning area: subtle semi-transparent blue-grey
     ((0.0, 0.1), (205, 245, 255, 150)),
     ((0.1, 0.5), (0, 255, 255, 255)),
     ((0.5, 1.0), (0, 170, 255, 255)),
@@ -58,6 +59,7 @@ RATE_CMAP = [
     ((100.0, 1000.0), (255, 0, 0, 255)),
 ]
 ACRR_CMAP = [
+    ((-15.0, -5.0), (100, 130, 160, 50)),   # scanning area: subtle semi-transparent blue-grey
     ((0.0, 0.1), (205, 245, 255, 150)),
     ((0.1, 0.5), (0, 255, 255, 255)),
     ((0.5, 1.0), (0, 170, 255, 255)),
@@ -217,7 +219,7 @@ def _render_geozarr_image(
     data = data.copy()
     undetect_value = measurement_array.attrs.get("undetect_value")
     if undetect_value is not None:
-        data[np.isclose(data, float(undetect_value))] = -4.999 if frame.product == "DBZH" else 0.0
+        data[np.isclose(data, float(undetect_value))] = -10.0
     data[~np.isfinite(data)] = np.nan
 
     source_transform = metadata["transform"] * Affine.translation(x_start, y_start)
@@ -448,8 +450,7 @@ def _render_geozarr_frame(
 
     undetect = group[frame.product].attrs.get("undetect_value", None)
     if undetect is not None:
-        replacement = -4.999 if frame.product == "DBZH" else 0.0
-        slab[np.isclose(slab, np.float32(undetect))] = np.float32(replacement)
+        slab[np.isclose(slab, np.float32(undetect))] = np.float32(-10.0)
     slab[~np.isfinite(slab)] = np.nan
 
     src_transform = metadata["transform"] * Affine.scale(step, step)
