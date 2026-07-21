@@ -400,6 +400,7 @@ export function WeatherMap({
               paint: {
                 "raster-opacity": index === 0 ? opacity : 0,
                 "raster-fade-duration": 0,
+                "raster-resampling": "nearest",
               },
             },
             radarBeforeId,
