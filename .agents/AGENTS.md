@@ -372,6 +372,13 @@ When a responsive sidebar, drawer, or control panel is translated off-screen:
 
 <!-- END:off-canvas-controls-rule -->
 
+<!-- BEGIN:docker-deployment-rule -->
+## Docker Deployments & Geospatial Dependencies
+
+1. **Python Slim Images**: When writing or updating a `Dockerfile` that uses a `python:slim` base image (e.g., `python:3.12-slim`) and installs `rasterio` or other GDAL-based packages, you MUST explicitly install `libexpat1` via `apt-get` (e.g., `RUN apt-get update && apt-get install -y libexpat1`). Pre-compiled wheels depend on this system library, and its absence causes a runtime `ImportError: libexpat.so.1` crash.
+2. **Hugging Face Spaces Secrets**: When deploying an application to Hugging Face Spaces that fetches data from the Hugging Face Hub (like COG map tiles), always explicitly remind the user to configure a read-only `HF_TOKEN` in the Space's Settings > Variables and secrets. The Space container does not automatically inherit the user's credentials, and failure to provide the token will result in anonymous rate limits.
+<!-- END:docker-deployment-rule -->
+
 <!-- BEGIN:verification-rules -->
 ## Verification Requirements
 
