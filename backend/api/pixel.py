@@ -18,7 +18,7 @@ from pyproj import CRS, Transformer
 from starlette.concurrency import run_in_threadpool
 import zarr
 
-from api.bucket import HF_BUCKET_URL, fsspec_storage_options
+from api.bucket import HF_BUCKET_URL, fsspec_storage_options, USE_LOCAL_MOUNT, resolve_path
 from api.catalog import CatalogFrame, cataloged_frames_between, normalize_product
 
 
@@ -28,9 +28,12 @@ STATUS_NAMES = {0: "detected", 1: "undetect", 2: "nodata"}
 
 @lru_cache(maxsize=8)
 def _open_group(store_path: str) -> Any:
-    store = zarr.storage.FsspecStore.from_url(
-        f"{HF_BUCKET_URL}/{store_path}", storage_options=fsspec_storage_options()
-    )
+    if USE_LOCAL_MOUNT:
+        store = zarr.storage.LocalStore(resolve_path(store_path))
+    else:
+        store = zarr.storage.FsspecStore.from_url(
+            f"{HF_BUCKET_URL}/{store_path}", storage_options=fsspec_storage_options()
+        )
     return zarr.open_group(store=store, mode="r")
 
 

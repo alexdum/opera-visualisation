@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
+import json
 import re
 import time
 from typing import Any
@@ -13,7 +14,7 @@ import httpx
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from api.bucket import HF_BUCKET_URL, auth_headers, object_url
+from api.bucket import HF_BUCKET_URL, auth_headers, object_url, USE_LOCAL_MOUNT, resolve_path
 
 
 router = APIRouter()
@@ -72,6 +73,22 @@ def _cache_bucket() -> int:
 
 @lru_cache(maxsize=128)
 def _fetch_json_cached(path: str, _bucket: int) -> dict[str, Any]:
+    if USE_LOCAL_MOUNT:
+        try:
+            with open(resolve_path(path), "r") as f:
+                document = json.load(f)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=f"Catalog unavailable: {path}") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=503, detail=f"Catalog is not valid JSON: {path}") from exc
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"Catalog request failed: {path}") from exc
+        
+        if not isinstance(document, dict):
+            raise HTTPException(status_code=503, detail=f"Catalog has invalid shape: {path}")
+        _validate_schema(document)
+        return document
+
     try:
         response = httpx.get(
             object_url(path),

@@ -10,7 +10,7 @@ import threading
 
 import httpx
 
-from api.bucket import auth_headers, object_url
+from api.bucket import auth_headers, object_url, USE_LOCAL_MOUNT, resolve_path
 
 
 class BucketRateLimitError(RuntimeError):
@@ -59,6 +59,8 @@ def _evict(keep: Path) -> None:
 
 def local_cog(product: str, timestamp: str, revision: str, hot_cog: str) -> Path:
     """Return a local immutable COG, downloading it once per revision."""
+    if USE_LOCAL_MOUNT:
+        return Path(resolve_path(hot_cog))
 
     target = _target_path(product, timestamp, revision, hot_cog)
     _CACHE_DIR.mkdir(parents=True, exist_ok=True)

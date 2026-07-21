@@ -20,7 +20,7 @@ from rio_tiler.errors import TileOutsideBounds
 from rio_tiler.models import ImageData
 import zarr
 
-from api.bucket import HF_BUCKET_URL, fsspec_storage_options
+from api.bucket import HF_BUCKET_URL, fsspec_storage_options, USE_LOCAL_MOUNT, resolve_path
 from api.catalog import CatalogFrame, normalize_product, resolve_catalog_frame
 from api.cog_cache import BucketRateLimitError, local_cog
 
@@ -137,9 +137,12 @@ def web_mercator_tile_bounds(z: int, x: int, y: int) -> tuple[float, float, floa
 
 @functools.lru_cache(maxsize=8)
 def _open_geozarr(path: str) -> Any:
-    store = zarr.storage.FsspecStore.from_url(
-        f"{HF_BUCKET_URL}/{path}", storage_options=fsspec_storage_options()
-    )
+    if USE_LOCAL_MOUNT:
+        store = zarr.storage.LocalStore(resolve_path(path))
+    else:
+        store = zarr.storage.FsspecStore.from_url(
+            f"{HF_BUCKET_URL}/{path}", storage_options=fsspec_storage_options()
+        )
     return zarr.open_group(store=store, mode="r")
 
 
@@ -263,9 +266,12 @@ def _render_geozarr_image(
 def _render_cog_image(frame: CatalogFrame, z: int, x: int, y: int, min_quality: float | None) -> ImageData:
     if not frame.hot_cog:
         raise FileNotFoundError("Catalog does not advertise a hot COG")
-    cog_path = local_cog(
-        frame.product, frame.timestamp, frame.revision, frame.hot_cog
-    )
+    if USE_LOCAL_MOUNT:
+        cog_path = resolve_path(frame.hot_cog)
+    else:
+        cog_path = local_cog(
+            frame.product, frame.timestamp, frame.revision, frame.hot_cog
+        )
     with Reader(str(cog_path)) as cog:
         indexes = (1, 2) if frame.product == "DBZH" and min_quality is not None and cog.dataset.count >= 2 else 1
         try:

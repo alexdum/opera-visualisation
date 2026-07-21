@@ -5,10 +5,20 @@ from __future__ import annotations
 import os
 
 
+BUCKET_MOUNT = os.getenv("BUCKET_MOUNT", "").strip()
+USE_LOCAL_MOUNT = bool(BUCKET_MOUNT) and os.path.isdir(BUCKET_MOUNT)
+
+
 HF_BUCKET_URL = os.getenv(
     "HF_BUCKET_URL",
     "https://huggingface.co/buckets/alexdum/opera-radar/resolve",
 ).rstrip("/")
+
+
+def resolve_path(path: str) -> str:
+    if USE_LOCAL_MOUNT:
+        return os.path.join(BUCKET_MOUNT, path.lstrip('/'))
+    return object_url(path)
 
 
 def object_url(path: str) -> str:
