@@ -291,8 +291,13 @@ function EuroMeteoApp({ initialUrlState }: { initialUrlState: InitialUrlState })
   }, []);
 
   const activeTabRef = useRef(activeTab);
+  const dashboardScrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     activeTabRef.current = activeTab;
+    // Reset dashboard scroll position to top when switching to dashboard tab
+    if (activeTab === "dashboard" && dashboardScrollRef.current) {
+      dashboardScrollRef.current.scrollTop = 0;
+    }
   }, [activeTab]);
 
   const [prevPendingSlug, setPrevPendingSlug] = useState("");
@@ -1080,7 +1085,7 @@ function EuroMeteoApp({ initialUrlState }: { initialUrlState: InitialUrlState })
               </div>
 
               {/* Tab: Dashboard charts & raw logs — always mounted, hidden when inactive */}
-              <div className="w-full h-full overflow-y-auto custom-scrollbar snap-y snap-proximity scroll-smooth flex flex-col gap-6 pr-1 pb-6 p-1 md:p-6" style={{ display: activeTab === "dashboard" ? "flex" : "none" }}>
+              <div ref={dashboardScrollRef} className="w-full h-full overflow-y-auto custom-scrollbar snap-y snap-proximity flex flex-col gap-6 pr-1 pb-6 p-1 md:p-6" style={{ display: activeTab === "dashboard" ? "flex" : "none" }}>
                   {isLoadingStations ? (
                     <div className="flex-grow flex flex-col items-center justify-center gap-3">
                       <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
