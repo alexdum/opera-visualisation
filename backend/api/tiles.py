@@ -400,7 +400,7 @@ def _render_cog_frame(
     frame: CatalogFrame, min_quality: float | None,
     max_size: int = 1024, bounds: tuple[float, ...] = OPERA_WGS84_BOUNDS,
 ) -> ImageData:
-    """Render a region of the OPERA COG as a single image."""
+    """Render a region of the OPERA COG as a single image in Web Mercator."""
     if not frame.hot_cog:
         raise FileNotFoundError("Catalog does not advertise a hot COG")
     cog_path = local_cog(frame.product, frame.timestamp, frame.revision, frame.hot_cog)
@@ -409,7 +409,7 @@ def _render_cog_frame(
         image = cog.part(
             bounds,
             bounds_crs=CRS.from_epsg(4326),
-            dst_crs=CRS.from_epsg(4326),
+            dst_crs=CRS.from_epsg(3857),
             max_size=max_size,
             indexes=indexes,
         )
@@ -422,7 +422,7 @@ def _render_geozarr_frame(
     frame: CatalogFrame, min_quality: float | None,
     max_size: int = 1024, bounds: tuple[float, ...] = OPERA_WGS84_BOUNDS,
 ) -> ImageData:
-    """Render a region of the OPERA GeoZarr archive as a single image."""
+    """Render a region of the OPERA GeoZarr archive as a single image in Web Mercator."""
     group = _open_geozarr(frame.geozarr)
     metadata = _geozarr_metadata(frame.geozarr, frame.product)
     
@@ -443,10 +443,15 @@ def _render_geozarr_frame(
     src_transform = metadata["transform"] * Affine.scale(step, step)
     src_h, src_w = slab.shape
 
+    # Compute output grid in Web Mercator so MapLibre can render without
+    # CRS distortion (its image source interpolates linearly in Mercator).
+    merc_bounds = transform_bounds("EPSG:4326", "EPSG:3857", *bounds)
+    merc_w = merc_bounds[2] - merc_bounds[0]
+    merc_h = merc_bounds[3] - merc_bounds[1]
     out_w = min(max_size, src_w)
-    out_h = int(out_w * (bounds[3] - bounds[1]) / (bounds[2] - bounds[0]))
+    out_h = max(1, int(out_w * merc_h / merc_w))
     
-    dst_transform = from_bounds(*bounds, out_w, out_h)
+    dst_transform = from_bounds(*merc_bounds, out_w, out_h)
     dst_data = np.full((1, out_h, out_w), np.nan, dtype=np.float32)
     
     reproject(
@@ -455,7 +460,7 @@ def _render_geozarr_frame(
         src_transform=src_transform,
         src_crs=metadata["crs"],
         dst_transform=dst_transform,
-        dst_crs="EPSG:4326",
+        dst_crs="EPSG:3857",
         resampling=Resampling.bilinear,
         src_nodata=np.nan,
         dst_nodata=np.nan,
@@ -474,7 +479,7 @@ def _render_geozarr_frame(
                 src_transform=src_transform,
                 src_crs=metadata["crs"],
                 dst_transform=dst_transform,
-                dst_crs="EPSG:4326",
+                dst_crs="EPSG:3857",
                 resampling=Resampling.nearest,
                 src_nodata=np.nan,
                 dst_nodata=np.nan,
@@ -490,8 +495,8 @@ def _render_geozarr_frame(
     
     return ImageData(
         masked_data,
-        bounds=bounds,
-        crs=CRS.from_epsg(4326),
+        bounds=merc_bounds,
+        crs=CRS.from_epsg(3857),
     )
 
 
