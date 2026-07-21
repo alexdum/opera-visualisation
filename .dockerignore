@@ -1,0 +1,17 @@
+.git
+.github
+.next
+node_modules
+backend/venv
+backend/**/__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+api_tile.webp
+test_tile.png
+backend/test_*.tif
+backend/*.gif
+backend/*legend*.png
+backend/debug_pixel.py
+backend/patch_pixel.py
+backend/test_*.py

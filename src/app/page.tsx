@@ -1,1288 +1,487 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useRef, Suspense, useCallback } from "react";
-import { flushSync } from "react-dom";
-import { useSearchParams } from "next/navigation";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { BarChart3, CloudRain, Database, Download, Info, Layers, Loader2, Map as MapIcon, MapPin, Menu, Radar, ShieldCheck, TimerReset, TriangleAlert, X } from "lucide-react";
+import dynamic from "next/dynamic";
+
+import type { PixelSeriesEntry } from "@/components/Charts";
+import { MapLegend } from "@/components/MapLegend";
 import { Sidebar } from "@/components/Sidebar";
-import { WeatherMap } from "@/components/Map";
-import { DashboardCharts } from "@/components/DashboardCharts";
-import { WeatherTable } from "@/components/Table";
-import { Tooltip } from "@/components/Tooltip";
-import { ColumnDef, CellContext } from "@tanstack/react-table";
-import { Map as MapIcon, List, BarChart3, AlertCircle, Info, Database, Download, Maximize, Minimize, MapPin, Mountain } from "lucide-react";
-import { downloadCSV, downloadExcel } from "@/utils/export";
-import { countryMatches, resolveCountryName } from "@/utils/country";
-import { applyQualityControl } from "@/utils/qc";
+import { useRadarAnimation } from "@/hooks/useRadarAnimation";
+import type { CatalogResponse, MapRenderState, RadarFrame, RadarProduct } from "@/types/radar";
+import { downloadPixelCsv } from "@/utils/pixelCsv";
+import { parseQualityUrlValue } from "@/utils/radar";
 
-interface Station {
-  id: string;
-  name: string;
-  country: string;
-  longitude: number;
-  latitude: number;
-  elevation: number | null;
-  available_params: string;
-}
 
-interface HourlyRow {
-  datetime: string;
-  [key: string]: string | number | undefined | null;
-}
+const PRODUCTS: RadarProduct[] = ["DBZH", "RATE", "ACRR"];
+const WeatherMap = dynamic(() => import("@/components/Map").then((module) => module.WeatherMap), { ssr: false });
+const PixelAnalysisChart = dynamic(
+  () => import("@/components/Charts").then((module) => module.PixelAnalysisChart),
+  { ssr: false },
+);
 
-interface StationSampling {
-  isSubHourly: boolean;
-  intervalMinutes: number | null;
-  intervalLabel: string | null;
-  rangeLimitDays: number | null;
-  maxTimestampsPerDay: number;
-}
+const apiBase = () => (process.env.NODE_ENV === "development" ? "http://localhost:7860" : "");
 
-type DateRangeMode = "unknown" | "auto" | "manual";
+export default function OperaRadarPage() {
+  const [isOpen, setIsOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<"map" | "analysis" | "about">("map");
+  const [urlHydrated, setUrlHydrated] = useState(false);
+  const [product, setProduct] = useState<RadarProduct>("DBZH");
+  const [selectedDate, setSelectedDate] = useState("");
+  const [basemap, setBasemap] = useState("positron");
+  const [showLabels, setShowLabels] = useState(true);
+  const [mapStylesOpen, setMapStylesOpen] = useState(false);
+  const [frames, setFrames] = useState<RadarFrame[]>([]);
+  const [currentTimeIndex, setCurrentTimeIndex] = useState(0);
+  const [opacity, setOpacity] = useState(0.7);
+  // The authoritative OPERA composite is the default view. Quality masking
+  // remains opt-in and an explicit min_quality URL parameter still overrides
+  // this default for shareable filtered views.
+  const [minQuality, setMinQuality] = useState<number | null>(null);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [renderState, setRenderState] = useState<MapRenderState>({ status: "idle" });
+  const [selectedPixel, setSelectedPixel] = useState<{ lon: number; lat: number } | null>(null);
+  const [pixelSeries, setPixelSeries] = useState<PixelSeriesEntry[]>([]);
+  const [pixelLoading, setPixelLoading] = useState(false);
+  const [pixelError, setPixelError] = useState<string | null>(null);
+  const initialTimeRef = useRef("");
+  const lastPixelRequestKeyRef = useRef<string | null>(null);
 
-interface AutoRangeWindow {
-  startDate: string;
-  endDate: string;
-  limitDays: number;
-  stationId: string;
-  locked: boolean;
-  sampling: StationSampling | null;
-}
-
-// Keys that indicate ocean/marine data
-const OCEAN_KEY_PREFIXES = [
-  "seaSurface", "seaWater", "sea_surface", "sea_water",
-];
-
-function isOceanKey(key: string): boolean {
-  return OCEAN_KEY_PREFIXES.some((p) => key.startsWith(p));
-}
-
-// Convert camelCase to human-readable: "seaSurfaceTemperature" → "Sea Surface Temperature"
-function camelToTitle(str: string): string {
-  return str
-    .replace(/([A-Z])/g, " $1")
-    .replace(/^./, (s) => s.toUpperCase())
-    .replace(/(\d+)([a-zA-Z])/g, "$1 $2")
-    .trim();
-}
-
-function getWindowStartDate(endDate: string, limitDays: number): string {
-  const end = new Date(`${endDate}T00:00:00Z`);
-  if (isNaN(end.getTime())) return endDate;
-
-  end.setUTCDate(end.getUTCDate() - (limitDays - 1));
-  return end.toISOString().split("T")[0];
-}
-
-function getDateWindowDays(startDate: string, endDate: string): number | null {
-  const start = new Date(`${startDate}T00:00:00Z`);
-  const end = new Date(`${endDate}T00:00:00Z`);
-  if (isNaN(start.getTime()) || isNaN(end.getTime()) || start > end) return null;
-
-  return Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1;
-}
-
-// Slugify station/country names — must match the parent page's implementation exactly
-function slugify(text: string): string {
-  if (!text) return '';
-  let s = text;
-  // Norwegian/Danish
-  s = s.replace(/\u00f8/g, 'o').replace(/\u00d8/g, 'o');
-  s = s.replace(/\u00e6/g, 'ae').replace(/\u00c6/g, 'ae');
-  // Polish
-  s = s.replace(/\u0142/g, 'l').replace(/\u0141/g, 'l');
-  // Icelandic
-  s = s.replace(/\u00f0/g, 'd').replace(/\u00d0/g, 'd');
-  s = s.replace(/\u00fe/g, 'th').replace(/\u00de/g, 'th');
-  // Turkish
-  s = s.replace(/\u0131/g, 'i');
-  // German umlauts
-  s = s.replace(/\u00fc/g, 'ue').replace(/\u00dc/g, 'ue');
-  s = s.replace(/\u00f6/g, 'oe').replace(/\u00d6/g, 'oe');
-  s = s.replace(/\u00e4/g, 'ae').replace(/\u00c4/g, 'ae');
-  s = s.replace(/\u00df/g, 'ss');
-  s = s.toLowerCase();
-  s = s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  s = s.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-  return s;
-}
-
-function NoStationDataMessage() {
-  return (
-    <div className="min-h-[260px] w-full flex items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-white/70 px-6 text-center">
-      <div className="flex flex-col items-center gap-3">
-        <AlertCircle className="text-slate-300" size={32} />
-        <p className="text-sm font-bold text-slate-500">
-          No data available for the station and period selected.
-        </p>
-      </div>
-    </div>
-  );
-}
-
-interface EffectiveRange {
-  start: string;
-  end: string;
-  adjusted: boolean;
-  reason: string | null;
-  limitDays: number | null;
-}
-
-interface ClientStationCacheEntry {
-  data: HourlyRow[];
-  units: Record<string, string>;
-  sampling: StationSampling | null;
-  effectiveRange: EffectiveRange;
-  timestamp: number;
-}
-
-const stationDetailsCache = new Map() as Map<string, ClientStationCacheEntry>;
-
-// Weather-logical sort order for land parameters
-const LAND_SORT_ORDER = [
-  "temperature", "tempMin", "tempMax", "tempMinGround", "tempMin50cm",
-  "dewPoint", "humidity", "virtualTemperature", "surfaceTemperature",
-  "precipitation", "precipitation1h", "precipitation3h", "precipitation6h",
-  "precipitation12h", "precipitation24h", "lwePrecipitationRate", "rainfallRate",
-  "snowDepth", "snowFresh",
-  "windSpeed", "windSpeed2m", "windGust", "windGustInst", "windGustDirection", "windDirection",
-  "pressure", "pressureStation", "pressureTendency",
-  "cloudCover", "cloudCoverLow", "cloudBaseAltitude", "visibility",
-  "solarRadiation",
-  "sunshineDuration10m", "sunshineDuration1h", "sunshineDuration3h",
-  "sunshineDuration6h", "sunshineDuration12h", "sunshineDuration24h",
-  "sunshineDuration", "ultravioletIndex", "etp",
-  "soilTemp10cm", "soilTemp20cm", "soilTemp50cm",
-  "equivalentReflectivityFactor",
-];
-
-// Keys that should render as integers (directions, percentages, indices)
-const INTEGER_KEYS = new Set([
-  "windDirection", "windGustDirection", "cloudCover", "cloudCoverLow",
-  "humidity", "ultravioletIndex",
-]);
-
-interface InitialUrlState {
-  country: string;
-  station: string;
-  stationSlug: string;
-  startDate: string;
-  endDate: string;
-  parameter: string;
-  activeTab: string;
-}
-
-function getDefaultDateRange(): Pick<InitialUrlState, "startDate" | "endDate"> {
-  const now = new Date();
-  return {
-    endDate: now.toISOString().split("T")[0],
-    startDate: new Date(now.getTime() - 32 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
-  };
-}
-
-function EuroMeteoApp({ initialUrlState }: { initialUrlState: InitialUrlState }) {
-  // --- Sidebar & General Filters State ---
-  const [stations, setStations] = useState<Station[]>([]);
-  const [selectedCountry, setSelectedCountry] = useState<string>(initialUrlState.country);
-  const [selectedStation, setSelectedStation] = useState<string>(initialUrlState.station);
-  // Pending station slug: set when a station slug is received (from URL or message)
-  // but can't be resolved yet because stations haven't loaded
-  const [pendingStationSlug, setPendingStationSlug] = useState<string>(initialUrlState.stationSlug);
-
-  // Default to Last 31 Days like MeteoGate
-  const [endDate, setEndDate] = useState<string>(initialUrlState.endDate);
-  const [startDate, setStartDate] = useState<string>(initialUrlState.startDate);
-  const [parameter, setParameter] = useState<string>(initialUrlState.parameter);
-
-  // --- UI Elements State ---
-  const [activeTab, setActiveTab] = useState<string>(initialUrlState.activeTab);
-
-  const switchTab = (newTab: string) => {
-    if (newTab === activeTab) return;
-    if (!document.startViewTransition) {
-      setActiveTab(newTab);
-      return;
-    }
-    document.startViewTransition(() => {
-      flushSync(() => {
-        setActiveTab(newTab);
-      });
-    });
-  };
-  const [dashboardSubTab, setDashboardSubTab] = useState<string>("plots");
-  const [dashboardDataTab, setDashboardDataTab] = useState<string>("land");
-  const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
-  const [isLoadingStations, setIsLoadingStations] = useState<boolean>(true);
-  const [stationLogs, setStationLogs] = useState<HourlyRow[]>([]);
-  const [stationUnits, setStationUnits] = useState<Record<string, string>>({});
-  const [stationSampling, setStationSampling] = useState<StationSampling | null>(null);
-  const autoRangeWindowRef = useRef<AutoRangeWindow | null>(null);
-  const dateRangeModeRef = useRef<DateRangeMode>("unknown");
-  const [isLoadingLogs, setIsLoadingLogs] = useState<boolean>(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-
-  // Lifted state from Map for current observation values
-  const [areaObservations, setAreaObservations] = useState<Record<string, number[]>>({});
-
-  // Default to 3 hours ago (matching MeteoGate R app)
-  const [selectedHour, setSelectedHour] = useState<number>(() => {
-    const d = new Date();
-    d.setUTCHours(d.getUTCHours() - 3);
-    return d.getUTCHours();
+  const currentFrame = frames[currentTimeIndex];
+  const animation = useRadarAnimation({
+    frameCount: frames.length,
+    currentTimeIndex,
+    setCurrentTimeIndex,
+    canAdvance: renderState.status === "ready" || renderState.status === "degraded",
   });
 
-  const countryNames = useMemo(() => {
-    const unique = new Set(stations.map((st) => st.country).filter(Boolean));
-    return Array.from(unique).sort();
-  }, [stations]);
-
-  const selectedStationCountry = useMemo(
-    () => stations.find((station) => station.id === selectedStation)?.country || "",
-    [stations, selectedStation]
-  );
-
-  const canonicalSelectedCountry = useMemo(
-    () => resolveCountryName(selectedStationCountry || selectedCountry, countryNames),
-    [selectedStationCountry, selectedCountry, countryNames]
-  );
-
-  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
-
-  // Monitor native fullscreen changes
   useEffect(() => {
-    const handleFullscreenChange = () => {
-      setIsFullscreen(!!document.fullscreenElement);
-    };
-    document.addEventListener("fullscreenchange", handleFullscreenChange);
-    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
+    const params = new URLSearchParams(window.location.search);
+    const requestedProduct = params.get("product")?.toUpperCase();
+    if (requestedProduct && PRODUCTS.includes(requestedProduct as RadarProduct)) {
+      setProduct(requestedProduct as RadarProduct);
+    }
+    setSelectedDate(params.get("date") ?? "");
+    const requestedBasemap = params.get("basemap");
+    setBasemap(["positron", "bright", "satellite"].includes(requestedBasemap ?? "") ? requestedBasemap! : "positron");
+    initialTimeRef.current = params.get("time") ?? "";
+    const requestedQuality = parseQualityUrlValue(params.get("min_quality"));
+    if (requestedQuality !== undefined) setMinQuality(requestedQuality);
+    const lonParam = params.get("lon");
+    const latParam = params.get("lat");
+    if (lonParam !== null && latParam !== null) {
+      const lon = Number(lonParam);
+      const lat = Number(latParam);
+      if (Number.isFinite(lon) && Number.isFinite(lat) && lon >= -180 && lon <= 180 && lat >= -90 && lat <= 90) {
+        setSelectedPixel({ lon, lat });
+      }
+    }
+    setUrlHydrated(true);
   }, []);
 
-  const toggleFullscreen = () => {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().catch((err) => {
-        console.warn(`Error attempting to enable fullscreen: ${err.message}`);
-      });
+  useEffect(() => {
+    if (!urlHydrated) return;
+    const params = new URLSearchParams(window.location.search);
+    params.set("product", product);
+    if (selectedDate) params.set("date", selectedDate);
+    else params.delete("date");
+    params.set("basemap", basemap);
+    params.set("min_quality", product === "DBZH" ? (minQuality === null ? "off" : minQuality.toFixed(2)) : "off");
+    if (currentFrame) params.set("time", currentFrame.timestamp);
+    else params.delete("time");
+    if (selectedPixel) {
+      params.set("lon", selectedPixel.lon.toString());
+      params.set("lat", selectedPixel.lat.toString());
     } else {
-      if (document.exitFullscreen) {
-        document.exitFullscreen();
-      }
+      params.delete("lon");
+      params.delete("lat");
     }
-  };
+    const query = params.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
+  }, [basemap, currentFrame, minQuality, product, selectedDate, selectedPixel, urlHydrated]);
 
-  // --- Initial Loading of Station Metadata ---
   useEffect(() => {
-    const fetchStations = async () => {
-      try {
-        const res = await fetch("/api/stations");
-        const json = await res.json();
-        if (json.success) {
-          setStations(json.data);
-        } else {
-          setErrorMsg(json.message || "Failed to load station lists.");
+    if (!urlHydrated) return;
+    const controller = new AbortController();
+    const query = new URLSearchParams({ product });
+    const endpoint = selectedDate ? "/api/catalog/day" : "/api/catalog/latest";
+    if (selectedDate) query.set("date", selectedDate);
+    else query.set("hours", "24");
+    setCatalogLoading(true);
+    setCatalogError(null);
+    // Never render frames belonging to the previous product/date while its
+    // replacement catalog is in flight.
+    setFrames([]);
+    setCurrentTimeIndex(0);
+    setRenderState({ status: "loading", message: "Loading the published frame catalog…" });
+    fetch(`${apiBase()}${endpoint}?${query}`, { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw new Error(body.detail ?? `Catalog request failed (${response.status})`);
         }
-      } catch (err) {
-        console.error("Stations fetch error:", err);
-        setErrorMsg("Failed to connect to the weather observation backend.");
-      } finally {
-        setIsLoadingStations(false);
-      }
-    };
-    fetchStations();
+        return response.json() as Promise<CatalogResponse>;
+      })
+      .then((catalog) => {
+        setFrames(catalog.frames);
+        const requestedTime = initialTimeRef.current;
+        const requestedIndex = requestedTime
+          ? catalog.frames.findIndex((frame) => frame.timestamp === requestedTime)
+          : -1;
+        setCurrentTimeIndex(requestedIndex >= 0 ? requestedIndex : Math.max(0, catalog.frames.length - 1));
+        initialTimeRef.current = "";
+        if (catalog.frames.length === 0) {
+          setRenderState({ status: "idle", message: `No published ${product} frames are available.` });
+        }
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        const message = error instanceof Error ? error.message : "Catalog request failed";
+        setFrames([]);
+        setCatalogError(message);
+        setRenderState({ status: "error", message });
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setCatalogLoading(false);
+      });
+    return () => controller.abort();
+  }, [product, selectedDate, urlHydrated]);
+
+  const handleMapClick = useCallback((point: { lon: number; lat: number }) => {
+    lastPixelRequestKeyRef.current = null;
+    setPixelSeries([]);
+    setPixelError(null);
+    setSelectedPixel({ lon: point.lon, lat: point.lat });
+    setActiveTab("analysis");
   }, []);
 
-  const activeTabRef = useRef(activeTab);
-  const dashboardScrollRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    activeTabRef.current = activeTab;
-    // Reset dashboard scroll position to top when switching to dashboard tab
-    if (activeTab === "dashboard" && dashboardScrollRef.current) {
-      dashboardScrollRef.current.scrollTop = 0;
-    }
-  }, [activeTab]);
-
-  const [prevPendingSlug, setPrevPendingSlug] = useState("");
-  if (pendingStationSlug && stations.length > 0 && pendingStationSlug !== prevPendingSlug) {
-    setPrevPendingSlug(pendingStationSlug);
-    const match = stations.find((st) => slugify(st.name) === pendingStationSlug);
-    if (match) {
-      setSelectedStation(match.id);
-      setSelectedCountry(match.country);
-      setPendingStationSlug('');
-    }
-  }
-
-  if (!selectedStation && (stationLogs.length > 0 || stationSampling !== null)) {
-    setStationLogs([]);
-    setStationSampling(null);
-  }
-
-  // --- Listen for navigation commands from parent window (iframe embedding) ---
-  // The parent page (climateexplorer.app) sends 'eurometeo-navigate' messages
-  // when users click country/station links, so the iframe can navigate without
-  // a full page reload.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const handleParentMessage = (event: MessageEvent) => {
-      const data = event.data;
-      if (!data || data.type !== 'eurometeo-navigate') return;
-
-      // Update parameter
-      if (data.parameter) {
-        setParameter(data.parameter);
-      }
-
-      // Update country (display name)
-      if (data.country) {
-        setSelectedCountry(data.country);
-      } else if (data.country === '' || data.country === null) {
-        setSelectedCountry('');
-      }
-
-      // Update station (WIGOS ID or slug)
-      if (data.stationId) {
-        setSelectedStation(data.stationId);
-        setPendingStationSlug('');
-      } else if (data.stationSlug) {
-        // Slug needs deferred resolution against the stations list
-        setPendingStationSlug(data.stationSlug);
-      } else {
-        setStationSampling(null);
-        setSelectedStation('');
-        setPendingStationSlug('');
-      }
-
-      // Update tab
-      if (data.tab) {
-        setActiveTab(data.tab);
-      }
-    };
-
-    window.addEventListener('message', handleParentMessage);
-    return () => window.removeEventListener('message', handleParentMessage);
+  const closePixelAnalysis = useCallback(() => {
+    lastPixelRequestKeyRef.current = null;
+    setSelectedPixel(null);
+    setPixelSeries([]);
+    setPixelError(null);
+    setPixelLoading(false);
+    setActiveTab("map");
   }, []);
 
-  // Sync state changes back to URL query parameters and notify parent iframe
+  const pixelWindow = useMemo(() => {
+    if (!currentFrame) return null;
+    const end = new Date(currentFrame.nominal_time);
+    const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
+    return { start: start.toISOString(), end: end.toISOString() };
+  }, [currentFrame]);
+
   useEffect(() => {
-    const params = new URLSearchParams();
-    if (canonicalSelectedCountry) params.set("country", canonicalSelectedCountry);
-    if (selectedStation) params.set("station", selectedStation);
-    if (parameter) params.set("parameter", parameter);
-    if (startDate) params.set("start", startDate);
-    if (endDate) params.set("end", endDate);
-    if (activeTab) params.set("tab", activeTab);
-
-    const newUrl = `${window.location.pathname}?${params.toString()}`;
-    window.history.pushState(null, "", newUrl);
-
-    // Notify parent window of state changes if embedded in an iframe
-    if (window.parent !== window) {
-      // Resolve station name and country from loaded metadata so the parent
-      // page can build SEO-friendly URL slugs without a pre-populated cache
-      const stationDetails = selectedStation
-        ? stations.find((st) => st.id === selectedStation) || null
-        : null;
-
-      // Build lightweight station list for the selected country so the parent
-      // page can render clickable station links in the dynamic context area
-      const countryStations = canonicalSelectedCountry
-        ? stations
-            .filter((st) => countryMatches(st.country, canonicalSelectedCountry))
-            .map((st) => ({ id: st.id, name: st.name }))
-        : null;
-
-      window.parent.postMessage({
-        type: 'EUROMETEO_STATE_CHANGE',
-        payload: {
-          country: canonicalSelectedCountry,
-          station: selectedStation,
-          stationName: stationDetails?.name || null,
-          stationCountry: stationDetails?.country || null,
-          parameter: parameter,
-          start: startDate,
-          end: endDate,
-          tab: activeTab,
-          countryStations: countryStations
-        },
-        search: `?${params.toString()}`
-      }, '*');
-    }
-  }, [canonicalSelectedCountry, selectedStation, parameter, startDate, endDate, activeTab, stations]);
-
-
-  const [loadingMessage, setLoadingMessage] = useState<string>("Connecting to API...");
-
-  // --- Fetch detailed logs when a station is selected ---
-  useEffect(() => {
-    if (!selectedStation) {
+    // Pixel data is expensive remote GeoZarr work. Hiding the Analysis tab
+    // preserves its successful result; returning to the same product, point,
+    // and time window must not repeat the request.
+    if (activeTab !== "analysis" || !selectedPixel || !pixelWindow) {
+      setPixelLoading(false);
       return;
     }
-
-    const abortController = new AbortController();
-
-    const fetchDetailedLogs = async () => {
-      const cacheKey = `${selectedStation}|${startDate}|${endDate}`;
-      const cached = stationDetailsCache.get(cacheKey);
-
-      if (cached && Date.now() - cached.timestamp < 5 * 60 * 1000) {
-        setStationLogs(cached.data);
-        setStationUnits(cached.units);
-        setStationSampling(cached.sampling);
-        setIsLoadingLogs(false);
-
-        // Restore autoRange state so sub-hourly stations don't trigger a
-        // date range mismatch re-fetch when navigating back.
-        const effectiveRange = cached.effectiveRange;
-        const sampling = cached.sampling;
-        if (effectiveRange?.adjusted && typeof effectiveRange.start === "string") {
-          const rangeLimitDays =
-            typeof sampling?.rangeLimitDays === "number"
-              ? sampling.rangeLimitDays
-              : typeof effectiveRange?.limitDays === "number"
-                ? effectiveRange.limitDays
-                : null;
-          if (rangeLimitDays !== null) {
-            dateRangeModeRef.current = "auto";
-            autoRangeWindowRef.current = {
-              startDate: effectiveRange.start,
-              endDate,
-              limitDays: rangeLimitDays,
-              stationId: selectedStation,
-              locked: true,
-              sampling,
-            };
-          }
-        }
-        return;
-      }
-
-      setIsLoadingLogs(true);
-      setLoadingMessage("Connecting to API...");
-
-      try {
-        const res = await fetch(
-          `/api/observations/station-details?stationId=${selectedStation}&start=${startDate}&end=${endDate}`,
-          { signal: abortController.signal }
-        );
-
-        if (!res.ok) {
-           throw new Error(`HTTP error! status: ${res.status}`);
-        }
-
-        const reader = res.body?.getReader();
-        if (!reader) throw new Error("No reader available");
-
-        const decoder = new TextDecoder();
-        let buffer = "";
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const parts = buffer.split('\n\n');
-          // Last part might be incomplete, keep it in buffer
-          buffer = parts.pop() || "";
-
-          for (const chunk of parts) {
-            const lines = chunk.split('\n');
-            let event = "message";
-            let data = "";
-
-            for (const line of lines) {
-              if (line.startsWith("event: ")) event = line.slice(7);
-              else if (line.startsWith("data: ")) data = line.slice(6);
-            }
-
-            if (event === "progress" && data) {
-              try {
-                const parsed = JSON.parse(data);
-                setLoadingMessage(parsed.message);
-              } catch {}
-            } else if (event === "complete" && data) {
-              try {
-                const parsed = JSON.parse(data);
-                const qcFilteredData = applyQualityControl(parsed.data || []);
-                setStationLogs(qcFilteredData);
-                setStationUnits(parsed.units || {});
-                const sampling = parsed.sampling || null;
-                const effectiveRange = parsed.effectiveRange;
-                const currentAutoRange = autoRangeWindowRef.current;
-                const lockedAutoRangeApplies =
-                  dateRangeModeRef.current === "auto" &&
-                  currentAutoRange !== null &&
-                  currentAutoRange.locked &&
-                  currentAutoRange.stationId === selectedStation &&
-                  currentAutoRange.startDate === startDate &&
-                  currentAutoRange.endDate === endDate;
-                const rangeLimitDays =
-                  typeof sampling?.rangeLimitDays === "number"
-                    ? sampling.rangeLimitDays
-                    : typeof effectiveRange?.limitDays === "number"
-                      ? effectiveRange.limitDays
-                      : null;
-                setStationSampling(
-                  lockedAutoRangeApplies && currentAutoRange?.sampling
-                    ? currentAutoRange.sampling
-                    : sampling
-                );
-
-                if (
-                  effectiveRange?.adjusted &&
-                  typeof effectiveRange.start === "string" &&
-                  effectiveRange.start !== startDate
-                ) {
-                  if (rangeLimitDays !== null) {
-                    dateRangeModeRef.current = "auto";
-                    autoRangeWindowRef.current = {
-                      startDate: effectiveRange.start,
-                      endDate,
-                      limitDays: rangeLimitDays,
-                      stationId: selectedStation,
-                      locked: true,
-                      sampling,
-                    };
-                  }
-                  setStartDate(effectiveRange.start);
-                } else if (rangeLimitDays !== null) {
-                  const currentWindowDays = getDateWindowDays(startDate, endDate);
-                  const expectedWindowStart = getWindowStartDate(endDate, rangeLimitDays);
-                  const hasActiveAutoRange =
-                    dateRangeModeRef.current === "auto" &&
-                    currentAutoRange !== null &&
-                    currentAutoRange.startDate === startDate &&
-                    currentAutoRange.endDate === endDate;
-                  const shouldSeedAutoRange =
-                    dateRangeModeRef.current === "unknown" &&
-                    currentWindowDays === rangeLimitDays &&
-                    startDate === expectedWindowStart;
-                  const activeAutoRange = hasActiveAutoRange
-                    ? currentAutoRange
-                    : shouldSeedAutoRange
-                      ? {
-                          startDate,
-                          endDate,
-                          limitDays: rangeLimitDays,
-                          stationId: selectedStation,
-                          locked: false,
-                          sampling,
-                        }
-                      : null;
-
-                  if (shouldSeedAutoRange && activeAutoRange) {
-                    dateRangeModeRef.current = "auto";
-                    autoRangeWindowRef.current = activeAutoRange;
-                  }
-
-                  const isLockedToCurrentStation =
-                    activeAutoRange?.locked &&
-                    activeAutoRange.stationId === selectedStation;
-
-                  if (
-                    activeAutoRange &&
-                    !isLockedToCurrentStation &&
-                    rangeLimitDays > activeAutoRange.limitDays
-                  ) {
-                    const expandedStart = getWindowStartDate(endDate, rangeLimitDays);
-                    dateRangeModeRef.current = "auto";
-                    autoRangeWindowRef.current = {
-                      startDate: expandedStart,
-                      endDate,
-                      limitDays: rangeLimitDays,
-                      stationId: selectedStation,
-                      locked: false,
-                      sampling,
-                    };
-
-                    if (expandedStart !== startDate) {
-                      setStartDate(expandedStart);
-                    }
-                  }
-                }
-
-                stationDetailsCache.set(cacheKey, {
-                  data: qcFilteredData,
-                  units: parsed.units || {},
-                  sampling: parsed.sampling || null,
-                  effectiveRange: parsed.effectiveRange,
-                  timestamp: Date.now()
-                });
-
-                if (effectiveRange?.adjusted && typeof effectiveRange.start === "string") {
-                  const adjustedCacheKey = `${selectedStation}|${effectiveRange.start}|${endDate}`;
-                  stationDetailsCache.set(adjustedCacheKey, {
-                    data: qcFilteredData,
-                    units: parsed.units || {},
-                    sampling: parsed.sampling || null,
-                    effectiveRange: parsed.effectiveRange,
-                    timestamp: Date.now()
-                  });
-                }
-              } catch {}
-            } else if (event === "error" && data) {
-              try {
-                const parsed = JSON.parse(data);
-                console.warn("SSE Error:", parsed.message);
-                setErrorMsg(parsed.message);
-              } catch {}
-            }
-          }
-        }
-      } catch (err) {
-        const errorObj = err as Error;
-        if (errorObj.name !== "AbortError") {
-          console.error("Detailed logs fetch error:", errorObj);
-        }
-      } finally {
-        if (!abortController.signal.aborted) {
-          setIsLoadingLogs(false);
-        }
-      }
-    };
-
-    fetchDetailedLogs();
-
-    return () => {
-      abortController.abort();
-    };
-  }, [selectedStation, startDate, endDate]);
-
-  // Jump to Dashboard 3 seconds after a station is selected
-  useEffect(() => {
-    if (!selectedStation) return;
-
-    // Only set timeout if we aren't already on the dashboard
-    if (activeTabRef.current === "dashboard") return;
-
-    const timer = setTimeout(() => {
-      setActiveTab("dashboard");
-    }, 3000);
-
-    return () => clearTimeout(timer);
-  }, [selectedStation]); // We only trigger on station selection, activeTab is checked via ref to avoid loops
-
-  // Find active station object details
-  const activeStationDetails = useMemo(() => {
-    return stations.find((st) => st.id === selectedStation) || null;
-  }, [stations, selectedStation]);
-
-  // --- Table Column Definitions ---
-
-  // 1. Station info table columns
-  const stationColumns = useMemo<ColumnDef<Station>[]>(
-    () => {
-      const cols: ColumnDef<Station>[] = [
-        { accessorKey: "name", header: "Station Name" },
-        { accessorKey: "id", header: "WIGOS ID", meta: { className: "hidden sm:table-cell" } },
-        { accessorKey: "country", header: "Country" },
-        {
-          id: "currentValue",
-          header: "Current Value",
-          cell: (info) => {
-            const st = info.row.original;
-            const vals = areaObservations[st.id] || [];
-            const val = vals[selectedHour] ?? NaN;
-            return isNaN(val) ? "-" : `${Math.round(val * 10) / 10}`;
-          }
-        },
-        {
-          accessorKey: "elevation",
-          header: "Elevation",
-          cell: (info) => {
-            const val = info.getValue() as number | null;
-            return val !== null ? `${val} m` : "Unknown";
-          },
-        },
-        {
-          accessorKey: "longitude",
-          header: "Longitude",
-          meta: { className: "hidden md:table-cell" },
-          cell: (info) => (info.getValue() as number).toFixed(4),
-        },
-        {
-          accessorKey: "latitude",
-          header: "Latitude",
-          meta: { className: "hidden md:table-cell" },
-          cell: (info) => (info.getValue() as number).toFixed(4),
-        },
-        { accessorKey: "available_params", header: "Available Parameters", meta: { className: "hidden lg:table-cell" } },
-      ];
-      return cols;
-    },
-    [areaObservations, selectedHour]
-  );
-
-  // --- Comprehensive readable header labels ---
-  const paramMeta: Record<string, string> = useMemo(() => ({
-    // Temperature
-    temperature: "Temp", tempMin: "Min Temp", tempMax: "Max Temp",
-    tempMin50cm: "Min Temp 50cm", tempMinGround: "Min Temp Grnd",
-    dewPoint: "Dew Point", virtualTemperature: "Virtual Temp",
-    surfaceTemperature: "Surface Temp",
-    // Humidity
-    humidity: "Rel Humidity",
-    // Precipitation (multi-column)
-    precipitation: "Precip", precipitation1h: "Precip 1h",
-    precipitation3h: "Precip 3h", precipitation6h: "Precip 6h",
-    precipitation12h: "Precip 12h", precipitation24h: "Precip 24h",
-    lwePrecipitationRate: "Precip Rate", rainfallRate: "Rain Rate",
-    // Snow
-    snowDepth: "Snow Depth", snowFresh: "Fresh Snow",
-    // Wind
-    windSpeed: "Wind Speed", windSpeed2m: "Wind Speed 2m",
-    windGust: "Wind Gust", windGustInst: "Wind Gust Inst",
-    windGustDirection: "Gust Dir", windDirection: "Wind Dir",
-    // Pressure
-    pressure: "Pressure MSL", pressureStation: "Pressure Stn",
-    pressureTendency: "Press Tendency",
-    // Cloud & Visibility
-    cloudCover: "Cloud Cover", cloudCoverLow: "Low Cloud",
-    cloudBaseAltitude: "Cloud Base", visibility: "Visibility",
-    // Radiation
-    solarRadiation: "Solar Rad",
-    sunshineDuration10m: "Sun Dur 10m", sunshineDuration1h: "Sun Dur 1h",
-    sunshineDuration3h: "Sun Dur 3h", sunshineDuration6h: "Sun Dur 6h",
-    sunshineDuration12h: "Sun Dur 12h", sunshineDuration24h: "Sun Dur 24h",
-    sunshineDuration: "Sun Dur",
-    surfaceDiffuseDownwellingShortwave: "Diffuse SW↓",
-    surfaceDirectDownwellingShortwave: "Direct SW↓",
-    surfaceDownwellingLongwaveFluxInAir: "LW↓",
-    surfaceUpwellingLongwaveFluxInAir: "LW↑",
-    surfaceUpwellingShortwaveFluxInAir: "SW↑",
-    surfaceNetDownwardRadiativeFlux: "Net Rad↓",
-    downwellingLongwaveFluxInAir: "LW↓ Air",
-    surfaceDownwellingPhotosyntheticPhotonFluxInAir: "PAR Photon",
-    surfaceDownwellingPhotosyntheticRadiativeFluxInAir: "PAR Rad",
-    integralWrtTimeOfSurfaceDownwellingLongwaveFluxInAir: "LW↓ Integral",
-    integralWrtTimeOfSurfaceDownwellingShortwaveFluxInAir: "SW↓ Integral",
-    ultravioletIndex: "UV Index",
-    // Soil
-    soilTemp10cm: "Soil T 10cm", soilTemp20cm: "Soil T 20cm", soilTemp50cm: "Soil T 50cm",
-    // ETP
-    etp: "ETP",
-    // Radar
-    equivalentReflectivityFactor: "Radar Refl",
-    // Ocean / Marine
-    seaSurfaceTemperature: "SST",
-    seaSurfaceWaveSignificantHeight: "Sig Wave Ht",
-    seaSurfaceWaveMaximumHeight: "Max Wave Ht",
-    seaSurfaceWaveMaximumPeriod: "Max Wave Per",
-    seaSurfaceWaveMeanPeriod: "Mean Wave Per",
-    seaSurfaceWaveSignificantPeriod: "Sig Wave Per",
-    seaSurfaceWaveFromDirection: "Wave Dir",
-    seaSurfaceWaveDirectionalSpread: "Wave Spread",
-    seaSurfaceWavePeriodOfHighestWave: "Highest Wave Per",
-    seaSurfaceWaveEnergyAtVarianceSpectralDensityMaximum: "Wave Energy Max",
-    seaSurfaceWaveFromDirectionAtVarianceSpectralDensityMaximum: "Wave Dir Max",
-    seaSurfaceWaveMeanPeriodFromVarianceSpectralDensityFirstFrequencyMoment: "Wave Per 1st Mom",
-    seaSurfaceWaveMeanPeriodFromVarianceSpectralDensitySecondFrequencyMoment: "Wave Per 2nd Mom",
-    seaSurfaceWavePeriodAtVarianceSpectralDensityMaximum: "Wave Per Max",
-    seaSurfaceSwellWaveFromDirection: "Swell Dir",
-    seaSurfaceSwellWaveSignificantHeight: "Swell Ht",
-    seaSurfaceSwellWaveMeanPeriodFromVarianceSpectralDensitySecondFrequencyMoment: "Swell Per 2nd Mom",
-    seaSurfaceWindWaveFromDirection: "Wind Wave Dir",
-    seaSurfaceWindWaveSignificantHeight: "Wind Wave Ht",
-    seaSurfaceWindWaveMeanPeriodFromVarianceSpectralDensitySecondFrequencyMoment: "Wind Wave Per",
-    seaWaterTemperature: "Sea Water Temp",
-    seaWaterSalinity: "Salinity",
-    seaWaterSpeed: "Current Speed",
-    seaWaterElectricalConductivity: "Conductivity",
-  }), []);
-
-  // --- Column builder helper ---
-  const buildColumns = useCallback((
-    keys: string[],
-    sortOrder: string[],
-  ): ColumnDef<HourlyRow>[] => {
-    const datetimeCol: ColumnDef<HourlyRow> = {
-      accessorKey: "datetime",
-      header: "Datetime (UTC)",
-      sortingFn: (rowA, rowB, columnId) =>
-        new Date(rowA.getValue(columnId) as string).getTime() -
-        new Date(rowB.getValue(columnId) as string).getTime(),
-      cell: (info) => {
-        try {
-          return new Date(info.getValue() as string).toLocaleString(undefined, {
-            timeZone: "UTC",
-            month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
-          });
-        } catch {
-          return info.getValue() as string;
-        }
-      },
-    };
-
-    const sorted = [...keys].sort((a, b) => {
-      const ia = sortOrder.indexOf(a);
-      const ib = sortOrder.indexOf(b);
-      if (ia === -1 && ib === -1) return a.localeCompare(b);
-      if (ia === -1) return 1;
-      if (ib === -1) return -1;
-      return ia - ib;
+    const query = new URLSearchParams({
+      product,
+      lon: selectedPixel.lon.toString(),
+      lat: selectedPixel.lat.toString(),
+      start: pixelWindow.start,
+      end: pixelWindow.end,
     });
-
-    const dataCols: ColumnDef<HourlyRow>[] = sorted.map((key) => {
-      const headerName = paramMeta[key] || camelToTitle(key);
-      const unit = stationUnits[key] || "";
-      return {
-        accessorKey: key as keyof HourlyRow,
-        header: `${headerName}${unit ? ` [${unit}]` : ""}`,
-        cell: (info: CellContext<HourlyRow, unknown>) => {
-          const val = info.getValue() as number | undefined;
-          if (val === undefined || val === null) return "-";
-          if (INTEGER_KEYS.has(key) || key.toLowerCase().includes("direction")) {
-            return `${Math.round(val)}`;
-          }
-          return `${val.toFixed(1)}`;
-        },
-      };
-    });
-
-    return [datetimeCol, ...dataCols];
-  }, [stationUnits, paramMeta]);
-
-  // 2. Observations logs: detect present keys, dedup, split land/ocean
-  const { landColumns, oceanColumns, hasOceanData, hasLandData } = useMemo(() => {
-    if (!stationLogs || stationLogs.length === 0) {
-      return {
-        landColumns: buildColumns([], LAND_SORT_ORDER),
-        oceanColumns: buildColumns([], []),
-        hasOceanData: false,
-        hasLandData: false,
-      };
+    const requestKey = query.toString();
+    if (lastPixelRequestKeyRef.current === requestKey) {
+      setPixelLoading(false);
+      return;
     }
-
-    // Collect all keys that have at least one non-null value
-    const presentKeys = new Set<string>();
-    stationLogs.forEach((row) => {
-      Object.keys(row).forEach((k) => {
-        if (k !== "datetime" && row[k] !== undefined && row[k] !== null) {
-          presentKeys.add(k);
+    const controller = new AbortController();
+    setPixelSeries([]);
+    setPixelLoading(true);
+    setPixelError(null);
+    fetch(`${apiBase()}/api/pixel?${query}`, { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw new Error(body.detail ?? `Pixel request failed (${response.status})`);
         }
+        return response.json();
+      })
+      .then((data) => {
+        lastPixelRequestKeyRef.current = requestKey;
+        setPixelSeries(data.series ?? []);
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setPixelSeries([]);
+        setPixelError(error instanceof Error ? error.message : "Pixel request failed");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setPixelLoading(false);
       });
-    });
+    return () => controller.abort();
+  }, [activeTab, pixelWindow, product, selectedPixel]);
 
-    // --- Duplicate column deduplication (matching R get_station_display_cols) ---
-    const keysArray = Array.from(presentKeys).sort((a, b) => a.length - b.length);
-    const deduped = new Set<string>();
-    const dropped = new Set<string>();
-
-    for (const key of keysArray) {
-      if (dropped.has(key)) continue;
-      let isDuplicate = false;
-      for (const kept of deduped) {
-        let allSame = true;
-        for (const row of stationLogs) {
-          const v1 = row[key];
-          const v2 = row[kept];
-          const v1null = v1 === undefined || v1 === null;
-          const v2null = v2 === undefined || v2 === null;
-          if (v1null && v2null) continue;
-          if (v1null !== v2null) { allSame = false; break; }
-          if (typeof v1 === "number" && typeof v2 === "number") {
-            if (Math.abs(v1 - v2) > 1e-9) { allSame = false; break; }
-          } else if (v1 !== v2) { allSame = false; break; }
+  useEffect(() => {
+    if (renderState.status !== "loading" || !renderState.frameKey) return;
+    const expectedFrameKey = renderState.frameKey;
+    const watchdog = window.setTimeout(() => {
+      setRenderState((current) => {
+        if (current.status !== "loading" || current.frameKey !== expectedFrameKey) {
+          return current;
         }
-        if (allSame) { isDuplicate = true; break; }
-      }
-      if (!isDuplicate) deduped.add(key);
-      else dropped.add(key);
-    }
+        return {
+          status: "degraded",
+          frameKey: expectedFrameKey,
+          message: "Radar tiles are still loading; the visible map may be incomplete.",
+        };
+      });
+    }, 15_000);
+    return () => window.clearTimeout(watchdog);
+  }, [renderState.frameKey, renderState.status]);
 
-    // Split into land and ocean keys
-    const landKeys: string[] = [];
-    const oceanKeys: string[] = [];
-    for (const key of deduped) {
-      if (isOceanKey(key)) oceanKeys.push(key);
-      else landKeys.push(key);
-    }
-
-    // Ocean sort: alphabetical by readable name
-    const oceanSort = [...oceanKeys].sort((a, b) => {
-      const na = paramMeta[a] || camelToTitle(a);
-      const nb = paramMeta[b] || camelToTitle(b);
-      return na.localeCompare(nb);
-    });
-
-    return {
-      landColumns: buildColumns(landKeys, LAND_SORT_ORDER),
-      oceanColumns: buildColumns(oceanKeys, oceanSort),
-      hasOceanData: oceanKeys.length > 0,
-      hasLandData: landKeys.length > 0,
-    };
-  }, [stationLogs, buildColumns, paramMeta]);
-
-  const showingOceanData = hasOceanData && (!hasLandData || dashboardDataTab === "ocean");
-  const activeLogColumns = showingOceanData ? oceanColumns : landColumns;
-  const hasActiveLogData = stationLogs.length > 0 && (showingOceanData ? hasOceanData : hasLandData);
-
-  const handleStationSelection = (stationId: string) => {
-    if (!stationId) {
-      setStationSampling(null);
-    } else {
-      const station = stations.find((candidate) => candidate.id === stationId);
-      if (station) {
-        setSelectedCountry(station.country);
-      }
-    }
-    setSelectedStation(stationId);
+  const handleExportCsv = () => {
+    if (pixelSeries.length === 0) return;
+    const timestamp = currentFrame?.timestamp ?? "series";
+    downloadPixelCsv(pixelSeries, product, `opera-${product.toLowerCase()}-pixel-${timestamp}`);
   };
 
-  const handleStationDoubleClick = (station: Station) => {
-    handleStationSelection(station.id);
-    switchTab("dashboard");
-  };
-
-  const handleManualStartDateChange = (date: string) => {
-    autoRangeWindowRef.current = null;
-    dateRangeModeRef.current = "manual";
-    setStationSampling(null);
-    setStartDate(date);
-  };
-
-  const handleManualEndDateChange = (date: string) => {
-    autoRangeWindowRef.current = null;
-    dateRangeModeRef.current = "manual";
-    setStationSampling(null);
-    setEndDate(date);
-  };
-
-  const handleMapParameterChange = (param: string) => {
-    setParameter(param);
-    if (activeTab === "dashboard") {
-      setStationSampling(null);
-      setSelectedStation("");
-      setPendingStationSlug("");
-      setSelectedCountry("");
-    }
-    switchTab("map");
-    setSidebarOpen(false);
-  };
+  const showLoader = catalogLoading || renderState.status === "loading";
 
   return (
-    <div className="flex h-[100dvh] w-screen overflow-hidden bg-slate-50">
-      {/* Sidebar Filter controls panel */}
-      <Sidebar
-        stations={stations}
-        selectedCountry={canonicalSelectedCountry}
-        setSelectedCountry={setSelectedCountry}
-        selectedStation={selectedStation}
-        setSelectedStation={handleStationSelection}
-        startDate={startDate}
-        setStartDate={handleManualStartDateChange}
-        endDate={endDate}
-        setEndDate={handleManualEndDateChange}
-        parameter={parameter}
-        setParameter={handleMapParameterChange}
-        isOpen={sidebarOpen}
-        setIsOpen={setSidebarOpen}
-        selectedHour={selectedHour}
-        observations={areaObservations}
-      />
+    <main className="relative flex h-screen w-full overflow-hidden bg-slate-50 text-slate-900">
+      {isOpen && (
+        <button
+          type="button"
+          aria-label="Close radar controls"
+          className="fixed inset-0 z-40 bg-slate-900/20 backdrop-blur-sm lg:hidden"
+          onClick={() => setIsOpen(false)}
+        />
+      )}
 
-      {/* Main View Shell Container */}
-      <main className="flex-1 h-full flex flex-col min-w-0 relative bg-slate-50 transition-all pl-0 lg:pl-[280px]">
-        {/* Top tab switcher header navigation */}
-        <header className="h-[70px] border-b border-slate-100/50 bg-white/70 backdrop-blur-md flex items-center justify-between pl-[72px] pr-4 lg:px-6 shrink-0 overflow-x-auto custom-scrollbar">
-          <div className="flex items-center gap-4 shrink-0">
-            <div className="flex items-center gap-1 shrink-0">
-              {[
-                { id: "map", label: "Map View", icon: MapIcon },
-                { id: "stations", label: "Stations Info", icon: List },
-                { id: "dashboard", label: "Dashboard", icon: BarChart3 },
-              ].map((tab) => {
-                const Icon = tab.icon;
-                const isActive = activeTab === tab.id;
-                return (
-                  <button
-                    key={tab.id}
-                    onClick={() => switchTab(tab.id)}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all btn-premium cursor-pointer ${
-                      isActive
-                        ? "bg-blue-500 text-white shadow-md shadow-blue-500/10"
-                        : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
-                    }`}
-                  >
-                    <Icon size={14} />
-                    {tab.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+      <div className={`glass-sidebar fixed z-50 flex h-full w-[280px] flex-shrink-0 flex-col border-r border-slate-200 transition-transform duration-300 lg:relative lg:translate-x-0 ${isOpen ? "translate-x-0" : "-translate-x-full"}`}>
+        <div className="flex-1 overflow-hidden">
+          <Sidebar
+            product={product}
+            setProduct={setProduct}
+            selectedDate={selectedDate}
+            setSelectedDate={setSelectedDate}
+            frames={frames}
+            currentTimeIndex={currentTimeIndex}
+            setCurrentTimeIndex={setCurrentTimeIndex}
+            opacity={opacity}
+            setOpacity={setOpacity}
+            minQuality={minQuality}
+            setMinQuality={setMinQuality}
+            renderState={renderState}
+            isPlaying={animation.isPlaying}
+            setIsPlaying={animation.setIsPlaying}
+            speed={animation.speed}
+            setSpeed={animation.setSpeed}
+            loop={animation.loop}
+            setLoop={animation.setLoop}
+            stepForward={animation.stepForward}
+            stepBackward={animation.stepBackward}
+          />
+        </div>
+      </div>
 
-          <div className="flex items-center gap-4">
-            <Tooltip content="Toggle Fullscreen" position="bottom">
-              <button
-                onClick={toggleFullscreen}
-                className="text-slate-400 hover:text-slate-700 transition-colors cursor-pointer min-w-[44px] min-h-[44px] flex items-center justify-center"
-              >
-                {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
+      <div className="relative min-w-0 flex-1 overflow-hidden">
+        <div className="relative h-full w-full overflow-hidden">
+          <div className="absolute left-1/2 top-3 z-30 flex -translate-x-1/2 items-center gap-2">
+            <button type="button" onClick={() => setIsOpen(!isOpen)} aria-label={isOpen ? "Close radar controls" : "Open radar controls"} className="min-h-11 min-w-11 rounded-xl border border-slate-200 bg-white/95 p-2 text-slate-700 shadow-lg backdrop-blur-md lg:hidden">
+              {isOpen ? <X size={20} aria-hidden="true" /> : <Menu size={20} aria-hidden="true" />}
+            </button>
+            <nav aria-label="Visualization views" className="flex space-x-1 rounded-xl border border-slate-200 bg-white/95 p-1 shadow-lg backdrop-blur-md">
+            {([
+              ["map", "Map", MapIcon],
+              ["analysis", "Pixel analysis", BarChart3],
+              ["about", "About", Info],
+            ] as const).map(([id, label, Icon]) => (
+              <button key={id} type="button" onClick={() => { setActiveTab(id); setMapStylesOpen(false); }} aria-label={label} aria-pressed={activeTab === id} className={`flex min-h-11 items-center rounded-lg px-3 text-sm font-semibold ${activeTab === id ? "bg-white text-blue-700 shadow-sm" : "text-slate-600"}`}>
+                <Icon size={16} className="mr-2" aria-hidden="true" />
+                <span className="hidden sm:inline">{label}</span>
               </button>
-            </Tooltip>
+            ))}
+            </nav>
           </div>
-        </header>
 
-        {/* View Switch Panels Container */}
-        <div className="flex-1 w-full overflow-hidden min-h-0 flex flex-col">
-          {errorMsg && !isLoadingStations && stations.length === 0 ? (
-            <div className="flex-grow flex flex-col items-center justify-center gap-3 text-center max-w-md mx-auto">
-              <AlertCircle className="text-rose-500" size={40} />
-              <h3 className="text-base font-bold text-slate-700">Database Connection Failed</h3>
-              <p className="text-sm text-slate-400 leading-relaxed">{errorMsg}</p>
-            </div>
-          ) : (
-            <div className="flex-grow w-full h-full min-h-0 relative">
-              {/* Tab: Map View — always mounted, renders immediately even without stations */}
-              <div className="w-full h-full relative" style={{ display: activeTab === "map" ? "block" : "none" }}>
-                <WeatherMap
-                  stations={stations}
-                  selectedCountry={canonicalSelectedCountry}
-                  selectedStation={selectedStation}
-                  setSelectedStation={handleStationSelection}
-                  parameter={parameter}
-                  startDate={startDate}
-                  endDate={endDate}
-                  observations={areaObservations}
-                  setObservations={setAreaObservations}
-                  selectedHour={selectedHour}
-                  setSelectedHour={setSelectedHour}
-                  isLoadingStations={isLoadingStations}
-                  onStationClick={() => {
-                    setActiveTab("dashboard");
-                  }}
-                />
-              </div>
-
-              {/* Tab: Stations Info table — always mounted, hidden when inactive */}
-              <div className="w-full h-full flex flex-col gap-4 p-1 md:p-6" style={{ display: activeTab === "stations" ? "flex" : "none" }}>
-                {isLoadingStations ? (
-                  <div className="flex-grow flex flex-col items-center justify-center gap-3">
-                    <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                    <p className="text-sm font-bold text-slate-500 uppercase tracking-wider animate-pulse">
-                      Loading stations...
-                    </p>
-                  </div>
-                ) : (
-                  <>
-                    <div className="bg-blue-50/50 border border-blue-100/50 rounded-2xl p-4 flex gap-3 items-center text-sm font-medium text-slate-600">
-                      <Info size={16} className="text-blue-500 shrink-0" />
-                      <p>
-                        Double-click or tap a row to select the station and view its detailed hourly weather log.
-                      </p>
-                    </div>
-                    <div className="flex-grow min-h-0">
-                      <WeatherTable
-                        data={stations}
-                        columns={stationColumns}
-                        onRowDoubleClick={handleStationDoubleClick}
-                        searchPlaceholder="Search stations by name or WIGOS ID..."
-                        searchKey="name"
+          {activeTab === "map" && <div className="absolute left-2.5 top-[130px] z-30">
+            <button
+              type="button"
+              aria-label="Choose map style"
+              aria-expanded={mapStylesOpen}
+              aria-controls="map-styles-menu"
+              onClick={() => setMapStylesOpen((open) => !open)}
+              className="flex min-h-11 min-w-11 items-center justify-center rounded-md border border-slate-200 bg-white/95 text-slate-600 shadow-sm backdrop-blur-md transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+            >
+              <Layers size={20} aria-hidden="true" />
+            </button>
+            {mapStylesOpen && (
+              <div id="map-styles-menu" className="absolute left-[54px] top-0 w-52 rounded-xl border border-slate-200 bg-white/95 p-3.5 shadow-xl backdrop-blur-md">
+                <h2 className="mb-2 flex items-center gap-1.5 border-b border-slate-100 pb-2 text-xs font-bold uppercase tracking-wider text-slate-700">
+                  <Layers size={14} aria-hidden="true" /> Map styles
+                </h2>
+                <div className="flex flex-col gap-2">
+                  {[
+                    ["positron", "OpenFreeMap Positron"],
+                    ["bright", "OpenFreeMap Bright"],
+                    ["satellite", "Satellite imagery"],
+                  ].map(([id, label]) => (
+                    <label key={id} className="flex min-h-11 cursor-pointer items-center gap-2 text-xs font-semibold text-slate-600 hover:text-slate-900">
+                      <input
+                        type="radio"
+                        name="basemap"
+                        checked={basemap === id}
+                        onChange={() => {
+                          setBasemap(id);
+                          setMapStylesOpen(false);
+                        }}
+                        className="h-4 w-4 accent-blue-600"
                       />
-                    </div>
-                  </>
-                )}
-              </div>
-
-              {/* Tab: Dashboard charts & raw logs — always mounted, hidden when inactive */}
-              <div ref={dashboardScrollRef} className="w-full h-full overflow-y-auto custom-scrollbar flex flex-col gap-6 pr-1 pb-6 p-1 md:p-6" style={{ display: activeTab === "dashboard" ? "flex" : "none" }}>
-                  {isLoadingStations ? (
-                    <div className="flex-grow flex flex-col items-center justify-center gap-3">
-                      <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                      <p className="text-sm font-bold text-slate-500 uppercase tracking-wider animate-pulse">
-                        Loading stations...
-                      </p>
-                    </div>
-                  ) : !selectedStation ? (
-                    <div className="w-full h-[400px] flex flex-col items-center justify-center text-center gap-3">
-                      <BarChart3 className="text-slate-300" size={48} />
-                      <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">No Station Selected</h3>
-                      <p className="text-sm text-slate-400 max-w-sm leading-relaxed">
-                        Select a marker from the Map View or double-click a row in the Stations list to inspect metrics.
-                      </p>
-                    </div>
-                  ) : (
-                    <>
-                      {/* Station details banner card */}
-                      {activeStationDetails && (
-                        <div className="glass-card rounded-2xl p-6 border border-slate-100/50 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                          <div className="flex flex-col gap-1">
-                            <h2 className="text-lg font-bold text-slate-800 tracking-tight">
-                              {activeStationDetails.name}
-                            </h2>
-                            <p className="text-sm text-slate-400 font-semibold tracking-wider uppercase">
-                              WIGOS ID: {activeStationDetails.id} &bull; Country: {activeStationDetails.country}
-                            </p>
-                          </div>
-	                          <div className="flex flex-wrap items-center gap-4 text-sm font-bold text-slate-500 border-l border-slate-100 pl-0 sm:pl-6 pt-3 sm:pt-0">
-	                            <div className="flex flex-col gap-2">
-	                              <div className="flex items-center gap-2">
-	                                <button
-                                  onClick={() => downloadCSV(stationLogs, `meteo_station_${activeStationDetails.id}_${startDate}_${endDate}`)}
-                                  disabled={stationLogs.length === 0}
-                                  className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                                >
-                                  <Download size={14} /> CSV
-                                </button>
-                                <button
-                                  onClick={() => downloadExcel(stationLogs, `meteo_station_${activeStationDetails.id}_${startDate}_${endDate}`)}
-                                  disabled={stationLogs.length === 0}
-                                  className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 hover:text-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                                >
-                                  <Download size={14} /> Excel
-	                                </button>
-	                              </div>
-	                            </div>
-	                            {stationSampling?.intervalLabel && (
-	                              <div className="flex flex-col gap-0.5">
-	                                <span className="text-slate-400 flex items-center gap-1.5"><Database size={13} /> Freq</span>
-	                                <span className="text-slate-800 text-sm">
-	                                  {stationSampling.intervalLabel}
-	                                  {stationSampling.rangeLimitDays
-	                                    ? ` / ${stationSampling.rangeLimitDays} ${stationSampling.rangeLimitDays === 1 ? "day" : "days"}`
-	                                    : ""}
-	                                </span>
-	                              </div>
-	                            )}
-	                            <div className="flex flex-col gap-0.5">
-	                              <span className="text-slate-400 flex items-center gap-1.5"><Mountain size={13} /> Elev</span>
-	                              <span className="text-slate-800 text-sm">
-                                {activeStationDetails.elevation !== null ? `${activeStationDetails.elevation} m` : "Unknown"}
-                              </span>
-                            </div>
-                            <div className="flex flex-col gap-0.5">
-                              <span className="text-slate-400 flex items-center gap-1.5"><MapPin size={13} /> Lon</span>
-                              <span className="text-slate-800 text-sm">{activeStationDetails.longitude.toFixed(3)}°</span>
-                            </div>
-                            <div className="flex flex-col gap-0.5">
-                              <span className="text-slate-400 flex items-center gap-1.5"><MapPin size={13} /> Lat</span>
-                              <span className="text-slate-800 text-sm">{activeStationDetails.latitude.toFixed(3)}°</span>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Dashboard content wrapper */}
-                      <div className="relative w-full min-h-[400px]">
-                        {isLoadingLogs && (
-                          <div className="absolute inset-0 z-40 bg-slate-50/70 backdrop-blur-[1px] flex flex-col items-center justify-center gap-2 rounded-2xl">
-                            <div className="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                            <p className="text-xs font-bold text-slate-500 tracking-wider uppercase animate-pulse">
-                              {loadingMessage}
-                            </p>
-                          </div>
-                        )}
-
-                        <div className={isLoadingLogs ? "opacity-25 pointer-events-none transition-opacity duration-200" : "transition-opacity duration-200"}>
-                          {/* Dashboard Sub-tabs */}
-                          <div className="flex items-center gap-2 mb-2 border-b border-slate-200 pb-2">
-                            <button
-                              onClick={() => setDashboardSubTab("plots")}
-                              className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${dashboardSubTab === "plots" ? "bg-blue-100 text-blue-700" : "text-slate-500 hover:bg-slate-100"}`}
-                            >
-                              Plots
-                            </button>
-                            <button
-                              onClick={() => setDashboardSubTab("data")}
-                              className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${dashboardSubTab === "data" ? "bg-blue-100 text-blue-700" : "text-slate-500 hover:bg-slate-100"}`}
-                            >
-                              Data
-                            </button>
-                          </div>
-
-                          {/* Sub-tab: Plots (always mounted, cached when inactive) */}
-                          <div className={`cached-view ${dashboardSubTab === "plots" ? "is-active" : ""}`}>
-                            <DashboardCharts data={stationLogs} units={stationUnits} stationName={activeStationDetails?.name} country={activeStationDetails?.country} />
-                          </div>
-
-                          {/* Sub-tab: Data Table (always mounted, cached when inactive) */}
-                          <div
-                            className={`cached-view flex-col gap-3 min-h-[400px] ${dashboardSubTab === "data" ? "is-active" : ""}`}
-                          >
-                            {/* Land / Ocean sub-tabs (only show if both exist) */}
-                            {hasLandData && hasOceanData && (
-                              <div className="flex items-center gap-2 mb-1">
-                                <button
-                                  onClick={() => setDashboardDataTab("land")}
-                                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                                    dashboardDataTab === "land"
-                                      ? "bg-emerald-100 text-emerald-700"
-                                      : "text-slate-400 hover:bg-slate-100"
-                                  }`}
-                                >
-                                  🌍 Land
-                                </button>
-                                <button
-                                  onClick={() => setDashboardDataTab("ocean")}
-                                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                                    dashboardDataTab === "ocean"
-                                      ? "bg-cyan-100 text-cyan-700"
-                                      : "text-slate-400 hover:bg-slate-100"
-                                  }`}
-                                >
-                                  🌊 Ocean
-                                </button>
-                              </div>
-                            )}
-
-                            <div className="flex-1">
-                              {hasActiveLogData ? (
-                                <WeatherTable
-                                  data={stationLogs}
-                                  columns={activeLogColumns}
-                                  searchPlaceholder="Filter logs by hour or value..."
-                                  searchKey="datetime"
-                                  defaultSorting={[{ id: "datetime", desc: true }]}
-                                />
-                              ) : (
-                                <NoStationDataMessage />
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </>
-                  )}
+                      {label}
+                    </label>
+                  ))}
+                  <div className="mt-1 border-t border-slate-100 pt-2">
+                    <label className="flex min-h-11 cursor-pointer items-center gap-2 text-xs font-semibold text-slate-600 hover:text-slate-900">
+                      <input
+                        type="checkbox"
+                        checked={showLabels}
+                        onChange={(event) => setShowLabels(event.target.checked)}
+                        className="h-4 w-4 rounded accent-blue-600"
+                      />
+                      Show labels
+                    </label>
+                  </div>
                 </div>
+              </div>
+            )}
+          </div>}
+
+          <WeatherMap
+            product={product}
+            basemap={basemap}
+            showLabels={showLabels}
+            currentTimeIndex={currentTimeIndex}
+            frames={frames}
+            opacity={opacity}
+            minQuality={minQuality}
+            onRenderState={setRenderState}
+            onMapClick={handleMapClick}
+            selectedPixel={selectedPixel}
+          />
+          {activeTab === "map" && <MapLegend product={product} />}
+
+          {showLoader && activeTab === "map" && (
+            <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-slate-50/40 backdrop-blur-[2px]">
+              <div className="rounded-2xl border border-slate-200 bg-white/95 p-5 shadow-xl">
+                <Loader2 className="mx-auto h-8 w-8 animate-spin text-blue-600" aria-hidden="true" />
+                <p className="mt-3 text-xs font-bold text-slate-700">Rendering radar…</p>
+              </div>
             </div>
           )}
+
+          {(catalogError || renderState.status === "error" || renderState.status === "degraded") && activeTab === "map" && (
+            <div role="status" className={`absolute bottom-4 left-4 z-30 max-w-sm rounded-xl border px-4 py-3 text-sm shadow-lg ${renderState.status === "error" || catalogError ? "border-rose-300 bg-rose-50 text-rose-900" : "border-amber-300 bg-amber-50 text-amber-900"}`}>
+              {catalogError ?? renderState.message}
+            </div>
+          )}
+
+          {activeTab === "analysis" && (
+            <section className="pointer-events-none absolute inset-x-0 bottom-0 top-[66px] z-20 flex items-start justify-center p-4" aria-labelledby="pixel-heading">
+              <div className="pointer-events-auto max-h-full w-full max-w-4xl overflow-y-auto overscroll-contain rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
+                <header className="mb-2 flex items-start justify-between gap-4">
+                  <h2 id="pixel-heading" className="flex items-center text-xl font-bold text-slate-800"><BarChart3 className="mr-2 text-blue-600" aria-hidden="true" /> Pixel analysis</h2>
+                  <button type="button" onClick={closePixelAnalysis} aria-label="Close pixel analysis and clear selected point" className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+                    <X size={20} aria-hidden="true" />
+                  </button>
+                </header>
+                {selectedPixel ? (
+                  <div className="mb-4 space-y-1 text-sm font-medium text-slate-600">
+                    <p className="flex items-center gap-1.5">
+                      <MapPin size={14} className="text-blue-600" aria-hidden="true" />
+                      Selected location: <strong>{selectedPixel.lat}°, {selectedPixel.lon}°</strong>
+                    </p>
+                    <p className="text-xs text-slate-500">Showing the 24 hours ending at the selected radar frame.</p>
+                  </div>
+                ) : (
+                  <p className="mb-6 text-slate-600">Return to the map and double-click a location to retrieve its cataloged GeoZarr series.</p>
+                )}
+                {pixelError && <p role="alert" className="mb-4 rounded-lg bg-rose-50 p-3 text-sm font-medium text-rose-800">{pixelError}</p>}
+                <PixelAnalysisChart data={pixelSeries} product={product} isLoading={pixelLoading} windowStart={pixelWindow?.start} windowEnd={pixelWindow?.end} />
+                {selectedPixel && pixelSeries.length > 0 && (
+                  <button type="button" onClick={handleExportCsv} className="mt-4 flex min-h-11 items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 font-bold text-white hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+                    <Download size={16} aria-hidden="true" /> Export cataloged CSV
+                  </button>
+                )}
+              </div>
+            </section>
+          )}
+
+          {activeTab === "about" && (
+            <section className="pointer-events-none absolute inset-x-0 bottom-0 top-[66px] z-20 flex items-start justify-center p-4" aria-labelledby="about-heading">
+              <div className="pointer-events-auto max-h-full w-full max-w-5xl overflow-y-auto overscroll-contain rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl sm:p-8">
+                <header className="mb-6 flex items-start justify-between gap-4">
+                  <div>
+                    <h2 id="about-heading" className="flex items-center text-2xl font-bold text-slate-800"><Info className="mr-3 text-blue-600" aria-hidden="true" /> About OPERA Radar</h2>
+                    <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-600">
+                      OPERA composites combine weather-radar observations from participating European networks. All displayed times are UTC, and only catalog-committed frames are available to the map and analysis tools.
+                    </p>
+                  </div>
+                  <button type="button" onClick={() => setActiveTab("map")} aria-label="Close About" className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+                    <X size={20} aria-hidden="true" />
+                  </button>
+                </header>
+
+                <div className="grid gap-4 md:grid-cols-3">
+                  <article className="rounded-2xl border border-blue-100 bg-blue-50/60 p-5">
+                    <h3 className="flex items-center gap-2 text-base font-bold text-slate-800"><Radar className="text-blue-600" size={19} aria-hidden="true" /> DBZH — Reflectivity</h3>
+                    <p className="mt-2 text-sm leading-relaxed text-slate-700">
+                      Radar echo intensity expressed in <strong>dBZ</strong>. It is useful for locating precipitation and examining storm structure, but it is not a direct measurement of rainfall rate.
+                    </p>
+                  </article>
+
+                  <article className="rounded-2xl border border-cyan-100 bg-cyan-50/60 p-5">
+                    <h3 className="flex items-center gap-2 text-base font-bold text-slate-800"><CloudRain className="text-cyan-700" size={19} aria-hidden="true" /> RATE — Precipitation rate</h3>
+                    <p className="mt-2 text-sm leading-relaxed text-slate-700">
+                      Estimated precipitation intensity expressed in <strong>mm/h</strong>. It describes the rate associated with the selected composite and must not be interpreted as accumulated rainfall.
+                    </p>
+                  </article>
+
+                  <article className="rounded-2xl border border-indigo-100 bg-indigo-50/60 p-5">
+                    <h3 className="flex items-center gap-2 text-base font-bold text-slate-800"><TimerReset className="text-indigo-600" size={19} aria-hidden="true" /> ACRR — Accumulation</h3>
+                    <p className="mt-2 text-sm leading-relaxed text-slate-700">
+                      Estimated rainfall accumulated over the displayed interval, expressed in <strong>mm</strong>. The current product represents one hour; its exact start and end times are preserved and displayed.
+                    </p>
+                  </article>
+
+                  <article className="rounded-2xl border border-emerald-100 bg-emerald-50/50 p-5 md:col-span-2">
+                    <h3 className="flex items-center gap-2 text-base font-bold text-slate-800"><ShieldCheck className="text-emerald-700" size={19} aria-hidden="true" /> Quality and observation status</h3>
+                    <div className="mt-2 space-y-2 text-sm leading-relaxed text-slate-700">
+                      <p>Normalized total quality values range from <strong>0 to 1</strong>; higher values indicate greater confidence in the radar estimate.</p>
+                      <p>The optional DBZH quality filter hides only pixels with a known quality value below the selected threshold. It never rewrites COGs, GeoZarr measurements, pixel-analysis values, or exported data. Missing, non-finite, or out-of-range quality remains classified as unknown rather than being treated as zero.</p>
+                      <p><strong>Nodata</strong> means the pixel was not observed or is outside available coverage. <strong>Undetect</strong> means it was observed but the signal was below the radar detection threshold. These states are preserved separately.</p>
+                      <p>Map quality filtering is currently available only for DBZH. RATE and ACRR quality layers remain preserved in GeoZarr for analysis and future product-specific filtering.</p>
+                    </div>
+                  </article>
+
+                  <article className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                    <h3 className="flex items-center gap-2 text-base font-bold text-slate-800"><Database className="text-slate-600" size={19} aria-hidden="true" /> Data delivery</h3>
+                    <p className="mt-2 text-sm leading-relaxed text-slate-700">
+                      Recent map frames use the rolling COG cache. Older cataloged frames transparently use the permanent GeoZarr archive. Pixel analysis always reads GeoZarr, including quality, status, provenance, and ACRR interval bounds.
+                    </p>
+                  </article>
+                </div>
+
+                <aside className="mt-4 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm leading-relaxed text-amber-950" aria-label="Radar interpretation limitations">
+                  <TriangleAlert className="mt-0.5 shrink-0 text-amber-600" size={20} aria-hidden="true" />
+                  <div>
+                    <h3 className="font-bold">Interpret with care</h3>
+                    <p className="mt-1">Radar-derived precipitation is an estimate. Ground clutter, beam blockage, anomalous propagation, attenuation, distance from radar sites, and composite processing can introduce artifacts or uncertainty. Use official warnings and local observations for safety-critical decisions.</p>
+                  </div>
+                </aside>
+              </div>
+            </section>
+          )}
         </div>
-      </main>
-    </div>
-  );
-}
-
-export default function Page() {
-  return (
-    <Suspense fallback={
-      <div className="h-[100dvh] w-screen flex flex-col items-center justify-center gap-3 bg-slate-50">
-        <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-        <p className="text-sm font-bold text-slate-400 tracking-wider uppercase animate-pulse">
-          Initializing EuroMeteo...
-        </p>
       </div>
-    }>
-      <EuroMeteoUrlState />
-    </Suspense>
+    </main>
   );
-}
-
-function EuroMeteoUrlState() {
-  const searchParams = useSearchParams();
-  const initialUrlState = useMemo<InitialUrlState>(() => {
-    const defaults = getDefaultDateRange();
-    const station = searchParams.get("station") || "";
-
-    return {
-      country: searchParams.get("country") || "",
-      station,
-      stationSlug: station ? "" : searchParams.get("stationSlug") || "",
-      startDate: searchParams.get("start") || defaults.startDate,
-      endDate: searchParams.get("end") || defaults.endDate,
-      parameter: searchParams.get("parameter") || "air_temperature",
-      activeTab: searchParams.get("tab") || "map",
-    };
-  }, [searchParams]);
-
-  return <EuroMeteoApp initialUrlState={initialUrlState} />;
 }

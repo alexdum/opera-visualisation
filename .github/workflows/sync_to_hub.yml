@@ -1,20 +1,30 @@
-name: Sync to Hugging Face hub
+name: Deploy to Hugging Face Space
+
 on:
   push:
     branches: [main]
-
-  # to run this workflow manually from the Actions tab
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-hugging-face-space
+  cancel-in-progress: true
+
 jobs:
-  sync-to-hub:
+  deploy:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v3
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+
+      - name: Sync to Hugging Face
+        uses: huggingface/hub-sync@6fbce0a787a7146710e588abe7a4fd5eca07f47c
         with:
-          fetch-depth: 0
-          lfs: true
-      - name: Push to hub
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: git push --force https://climateexploer:$HF_TOKEN@huggingface.co/spaces/climateexploer/eurometeo main
+          github_repo_id: ${{ github.repository }}
+          huggingface_repo_id: alexdum/opera-visualisation
+          repo_type: space
+          space_sdk: docker
+          hf_token: ${{ secrets.HF_SPACE_DEPLOY_TOKEN }}

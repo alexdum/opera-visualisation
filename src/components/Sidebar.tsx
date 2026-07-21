@@ -1,484 +1,321 @@
-import React, { useMemo, useState, useRef, useEffect } from "react";
-import { 
-  Search, 
-  Calendar, 
-  CloudRain, 
-  Thermometer, 
-  Wind, 
-  Database,
-  Info,
-  Menu,
-  X,
-  ChevronDown
+import React, { useMemo } from "react";
+import {
+  Activity,
+  Calendar,
+  Clock,
+  CloudRain,
+  Pause,
+  Play,
+  Radar,
+  RotateCw,
+  ShieldCheck,
+  SkipBack,
+  SkipForward,
+  TimerReset,
 } from "lucide-react";
-import { countryMatches } from "@/utils/country";
 
-interface Station {
-  id: string;
-  name: string;
-  country: string;
-  longitude: number;
-  latitude: number;
-  elevation: number | null;
-  available_params: string;
-}
+import type { MapRenderState, RadarFrame, RadarProduct } from "@/types/radar";
+import { formatRadarCadence, inferRadarCadenceMs } from "@/utils/radar";
+
 
 interface SidebarProps {
-  stations: Station[];
-  selectedCountry: string;
-  setSelectedCountry: (country: string) => void;
-  selectedStation: string;
-  setSelectedStation: (stationId: string) => void;
-  startDate: string;
-  setStartDate: (date: string) => void;
-  endDate: string;
-  setEndDate: (date: string) => void;
-  parameter: string;
-  setParameter: (param: string) => void;
-  isOpen: boolean;
-  setIsOpen: (isOpen: boolean) => void;
-  selectedHour: number;
-  observations?: Record<string, number[]>;
+  product: RadarProduct;
+  setProduct: (product: RadarProduct) => void;
+  selectedDate: string;
+  setSelectedDate: (date: string) => void;
+  frames: RadarFrame[];
+  currentTimeIndex: number;
+  setCurrentTimeIndex: (index: number | ((previous: number) => number)) => void;
+  opacity: number;
+  setOpacity: (opacity: number) => void;
+  minQuality: number | null;
+  setMinQuality: (quality: number | null) => void;
+  renderState: MapRenderState;
+  isPlaying: boolean;
+  setIsPlaying: (playing: boolean) => void;
+  speed: number;
+  setSpeed: (speed: number) => void;
+  loop: boolean;
+  setLoop: (loop: boolean) => void;
+  stepForward: () => void;
+  stepBackward: () => void;
 }
 
-const FilterLabel = ({
-  id,
-  label,
-  help,
-}: {
-  id: string;
-  label: string;
-  help: string;
-}) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const wrapperRef = useRef<HTMLDivElement>(null);
+const FilterLabel = ({ label, help, htmlFor }: { label: string; help: string; htmlFor?: string }) => (
+  <div className="mb-1.5 flex flex-col gap-0.5">
+    <label htmlFor={htmlFor} className="text-xs font-bold uppercase tracking-wider text-slate-700">
+      {label}
+    </label>
+    <p className="text-[0.65rem] leading-tight text-slate-500">{help}</p>
+  </div>
+);
 
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handlePointerDown = (event: MouseEvent | TouchEvent) => {
-      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setIsOpen(false);
-      }
-    };
-
-    document.addEventListener("mousedown", handlePointerDown);
-    document.addEventListener("touchstart", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", handlePointerDown);
-      document.removeEventListener("touchstart", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [isOpen]);
-
-  const handleBlur = (event: React.FocusEvent<HTMLDivElement>) => {
-    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-      setIsOpen(false);
-    }
-  };
-
-  return (
-    <div
-      ref={wrapperRef}
-      onMouseEnter={() => setIsOpen(true)}
-      onMouseLeave={() => setIsOpen(false)}
-      onFocus={() => setIsOpen(true)}
-      onBlur={handleBlur}
-      className="relative w-full text-sm font-semibold text-slate-500 tracking-wider uppercase flex items-center gap-1.5"
-    >
-      <span>{label}</span>
-      <button
-        type="button"
-        onClick={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          setIsOpen(true);
-        }}
-        aria-label={`Explain ${label}`}
-        aria-expanded={isOpen}
-        aria-controls={id}
-        className="inline-flex min-h-[24px] min-w-[24px] items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-      >
-        <Info size={12} />
-      </button>
-      {isOpen && (
-        <div
-          id={id}
-          role="tooltip"
-          className="absolute left-0 top-7 z-[70] w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium leading-relaxed text-slate-600 shadow-lg normal-case tracking-normal"
-        >
-          {help}
-        </div>
-      )}
-    </div>
-  );
+const formatUtc = (value?: string | null) => {
+  if (!value) return "Unavailable";
+  return new Intl.DateTimeFormat(undefined, {
+    timeZone: "UTC",
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date(value));
 };
 
-// Custom Searchable Dropdown for Stations
-const SearchableStationSelect = ({ 
-  stations, 
-  selectedStation, 
-  setSelectedStation 
-}: { 
-  stations: Station[], 
-  selectedStation: string, 
-  setSelectedStation: (id: string) => void 
-}) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const [search, setSearch] = useState("");
-  const dropdownRef = useRef<HTMLDivElement>(null);
-
-  // Close when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
+export function Sidebar({
+  product,
+  setProduct,
+  selectedDate,
+  setSelectedDate,
+  frames,
+  currentTimeIndex,
+  setCurrentTimeIndex,
+  opacity,
+  setOpacity,
+  minQuality,
+  setMinQuality,
+  renderState,
+  isPlaying,
+  setIsPlaying,
+  speed,
+  setSpeed,
+  loop,
+  setLoop,
+  stepForward,
+  stepBackward,
+}: SidebarProps) {
+  const currentFrame = frames[currentTimeIndex];
+  const cadenceMs = useMemo(() => inferRadarCadenceMs(frames, product), [frames, product]);
+  const cadenceLabel = formatRadarCadence(cadenceMs);
+  const gapPercentages = useMemo(() => {
+    if (frames.length < 2) return [];
+    const gaps: number[] = [];
+    for (let index = 1; index < frames.length; index += 1) {
+      const previous = new Date(frames[index - 1].nominal_time).getTime();
+      const current = new Date(frames[index].nominal_time).getTime();
+      if (current - previous > cadenceMs * 1.5) {
+        gaps.push((index / (frames.length - 1)) * 100);
       }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  const selected = stations.find(s => s.id === selectedStation);
-  
-  const filtered = useMemo(() => {
-    if (!search) return stations;
-    const lower = search.toLowerCase();
-    return stations.filter(s => 
-      s.name.toLowerCase().includes(lower) || 
-      s.id.toLowerCase().includes(lower) ||
-      s.country.toLowerCase().includes(lower)
-    );
-  }, [stations, search]);
+    }
+    return gaps;
+  }, [cadenceMs, frames]);
 
   return (
-    <div className="relative" ref={dropdownRef}>
-      <button
-        type="button"
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-full bg-white/70 border border-slate-200 rounded-xl pl-9 pr-8 py-2.5 text-base md:text-sm text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer text-left flex items-center justify-between"
-      >
-        <div className="truncate pr-2">
-          {selected ? `${selected.name} (${selected.country})` : <span className="text-slate-400">Select a station...</span>}
-        </div>
-        <ChevronDown size={15} className={`text-slate-400 transition-transform ${isOpen ? "rotate-180" : ""}`} />
-      </button>
-      <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={15} />
+    <aside className="relative z-50 flex h-full flex-col bg-white/90 text-slate-800" aria-label="Radar controls">
+      <div className="border-b border-slate-200 p-6">
+        <h1 className="flex items-center text-xl font-bold tracking-tight text-slate-800">
+          <Activity className="mr-2 h-6 w-6 text-blue-500" aria-hidden="true" /> OPERA Radar
+        </h1>
+      </div>
 
-      {isOpen && (
-        <div className="absolute z-50 mt-1 w-full bg-white/95 backdrop-blur-md border border-slate-200 rounded-xl shadow-xl overflow-hidden flex flex-col">
-          <div className="p-2 border-b border-slate-100">
+      <div className="custom-scrollbar flex-1 space-y-6 overflow-y-auto p-6">
+        <section aria-labelledby="product-heading" className="flex flex-col gap-2">
+          <div id="product-heading">
+            <FilterLabel label="Radar product" help="Choose reflectivity, precipitation rate, or hourly accumulation." />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            {([
+              ["DBZH", "DBZH (Reflectivity)", Radar],
+              ["RATE", "RATE (Precipitation)", CloudRain],
+              ["ACRR", "ACRR (Accumulation)", TimerReset],
+            ] as const).map(([id, label, ProductIcon]) => (
+              <button
+                key={id}
+                type="button"
+                aria-pressed={product === id}
+                onClick={() => setProduct(id)}
+                className={`flex min-h-11 w-full items-center gap-3 rounded-xl border px-3.5 py-3 text-left text-sm font-medium transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${
+                  product === id
+                    ? "border-blue-200 bg-blue-50 text-blue-700 ring-2 ring-blue-500/10"
+                    : "border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                }`}
+              >
+                <ProductIcon size={18} aria-hidden="true" />
+                {label}
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section className="flex flex-col gap-2" aria-labelledby="view-mode-heading">
+          <div id="view-mode-heading">
+            <FilterLabel label="View mode" help="Latest provides a rolling 24-hour catalog; historical selects one UTC day." />
+          </div>
+          <div className="flex rounded-xl border border-slate-200 bg-slate-50/50 p-1 shadow-sm">
+            <button
+              type="button"
+              aria-pressed={!selectedDate}
+              onClick={() => setSelectedDate("")}
+              className={`min-h-11 flex-1 rounded-lg px-3 py-2 text-sm font-medium ${!selectedDate ? "border border-slate-200 bg-white text-blue-700 shadow" : "text-slate-600"}`}
+            >
+              Latest
+            </button>
+            <button
+              type="button"
+              aria-pressed={Boolean(selectedDate)}
+              onClick={() => setSelectedDate(new Date().toISOString().slice(0, 10))}
+              className={`min-h-11 flex-1 rounded-lg px-3 py-2 text-sm font-medium ${selectedDate ? "border border-slate-200 bg-white text-blue-700 shadow" : "text-slate-600"}`}
+            >
+              Historical
+            </button>
+          </div>
+        </section>
+
+        {selectedDate && (
+          <div>
+            <FilterLabel htmlFor="historical-date" label="UTC date" help="Select a published daily catalog." />
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
               <input
-                autoFocus
-                type="text"
-                placeholder="Search name, ID or country..."
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 text-base md:text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                id="historical-date"
+                type="date"
+                value={selectedDate}
+                max={new Date().toISOString().slice(0, 10)}
+                onChange={(event) => setSelectedDate(event.target.value)}
+                className="min-h-11 w-full rounded-xl border border-slate-300 bg-white py-2.5 pl-9 pr-3.5 text-sm font-medium text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              />
+              <Calendar className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" size={15} aria-hidden="true" />
+            </div>
+          </div>
+        )}
+
+        {frames.length > 0 && currentFrame && (
+          <section className="border-t border-slate-100 pt-4" aria-labelledby="timeline-heading">
+            <div id="timeline-heading">
+              <FilterLabel label="Timeline" help="Only catalog-committed frames are available for playback." />
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <span className="flex items-center text-xs font-bold uppercase tracking-wider text-slate-600">
+                  <Clock size={12} className="mr-1" aria-hidden="true" /> Frame {currentTimeIndex + 1}/{frames.length}
+                </span>
+                <span className="rounded-md bg-blue-100 px-2 py-0.5 text-xs font-bold text-blue-700">
+                  {formatUtc(currentFrame.nominal_time)} UTC
+                </span>
+              </div>
+              <p className="mb-2 text-[0.65rem] font-medium text-slate-500">
+                {product} native step: <span className="font-bold text-slate-700">{cadenceLabel}</span>
+              </p>
+              <label htmlFor="timeline-slider" className="sr-only">Selected radar frame</label>
+              <input
+                id="timeline-slider"
+                type="range"
+                min="0"
+                max={frames.length - 1}
+                step="1"
+                value={currentTimeIndex}
+                aria-valuetext={`${formatUtc(currentFrame.nominal_time)} UTC; one ${cadenceLabel} ${product} step`}
+                onChange={(event) => {
+                  setIsPlaying(false);
+                  setCurrentTimeIndex(Number(event.target.value));
+                }}
+                className="h-2 w-full cursor-pointer accent-blue-600"
+              />
+              <div className="relative mt-2 h-1 w-full overflow-hidden rounded-full bg-slate-200" aria-hidden="true">
+                {gapPercentages.map((percentage) => (
+                  <div key={percentage} className="absolute h-full w-1 -translate-x-1/2 bg-rose-500" style={{ left: `${percentage}%` }} />
+                ))}
+              </div>
+              {gapPercentages.length > 0 && (
+                <p className="mt-2 text-[0.65rem] font-medium text-rose-700">{gapPercentages.length} catalog gap(s) in this range</p>
+              )}
+              <div className="mt-4 border-t border-slate-200 pt-4">
+                <div className="grid grid-cols-4 gap-1.5">
+                  <button type="button" onClick={stepBackward} aria-label="Previous frame" className="min-h-11 min-w-11 rounded-lg border border-slate-300 bg-white p-2 text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600">
+                    <SkipBack size={16} aria-hidden="true" />
+                  </button>
+                  <button type="button" onClick={() => setIsPlaying(!isPlaying)} aria-label={isPlaying ? "Pause animation" : "Play animation"} className="min-h-11 min-w-11 rounded-lg bg-blue-600 p-2 text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+                    {isPlaying ? <Pause size={18} aria-hidden="true" /> : <Play size={18} aria-hidden="true" />}
+                  </button>
+                  <button type="button" onClick={stepForward} aria-label="Next frame" className="min-h-11 min-w-11 rounded-lg border border-slate-300 bg-white p-2 text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600">
+                    <SkipForward size={16} aria-hidden="true" />
+                  </button>
+                  <button type="button" onClick={() => setLoop(!loop)} aria-label={loop ? "Disable animation loop" : "Enable animation loop"} aria-pressed={loop} className={`min-h-11 min-w-11 rounded-lg border p-2 ${loop ? "border-blue-300 bg-blue-50 text-blue-700" : "border-slate-300 bg-white text-slate-600"}`}>
+                    <RotateCw size={16} aria-hidden="true" />
+                  </button>
+                </div>
+                <label className="mt-3 flex min-h-11 items-center justify-between gap-3 text-[0.65rem] font-bold uppercase text-slate-600">
+                  Animation speed
+                  <select aria-label="Animation speed" value={speed} onChange={(event) => setSpeed(Number(event.target.value))} className="w-24 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800">
+                    <option value="0.5">0.5×</option>
+                    <option value="1">1×</option>
+                    <option value="2">2×</option>
+                    <option value="4">4×</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {product === "DBZH" && (
+          <section className="border-t border-slate-100 pt-4" aria-labelledby="quality-heading">
+            <div id="quality-heading">
+              <FilterLabel
+                label="DBZH quality mask"
+                help="Masks only pixels with known normalized quality below the threshold. Raw data remains unchanged."
               />
             </div>
+            <label className="flex min-h-11 items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold">
+              <span className="flex items-center gap-2">
+                <ShieldCheck size={17} className="text-blue-600" aria-hidden="true" />
+                Filter low quality
+              </span>
+              <input
+                type="checkbox"
+                checked={minQuality !== null}
+                onChange={(event) => setMinQuality(event.target.checked ? 0.1 : null)}
+                className="h-5 w-5 accent-blue-600"
+              />
+            </label>
+            <label htmlFor="quality-threshold" className="mt-3 block text-xs font-semibold text-slate-700">
+              Minimum quality: {minQuality === null ? "Off — original composite" : minQuality.toFixed(2)}
+            </label>
+            <input
+              id="quality-threshold"
+              type="range"
+              min="0"
+              max="1"
+              step="0.05"
+              disabled={minQuality === null}
+              value={minQuality ?? 0.1}
+              onChange={(event) => setMinQuality(Number(event.target.value))}
+              className="mt-2 h-2 w-full cursor-pointer accent-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
+            />
+          </section>
+        )}
+
+        <section className="border-t border-slate-100 pt-4">
+          <FilterLabel htmlFor="radar-opacity" label="Radar opacity" help="Adjust the map overlay without modifying source data." />
+          <div className="flex items-center gap-3">
+            <input
+              id="radar-opacity"
+              type="range"
+              min="0.1"
+              max="1"
+              step="0.05"
+              value={opacity}
+              onChange={(event) => setOpacity(Number(event.target.value))}
+              className="h-2 flex-1 cursor-pointer accent-blue-600"
+            />
+            <output htmlFor="radar-opacity" className="w-10 text-right text-xs font-bold text-slate-700">
+              {Math.round(opacity * 100)}%
+            </output>
           </div>
-          <div className="max-h-[250px] overflow-y-auto custom-scrollbar p-1">
-            {filtered.length === 0 ? (
-              <div className="px-3 py-4 text-center text-sm text-slate-400">No stations found</div>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedStation("");
-                    setIsOpen(false);
-                    setSearch("");
-                  }}
-                  className={`w-full text-left px-3 py-2 text-sm rounded-lg transition-colors ${
-                    !selectedStation ? "bg-blue-50 text-blue-700 font-bold" : "text-slate-600 hover:bg-slate-50"
-                  }`}
-                >
-                  Clear Selection
-                </button>
-                {filtered.map(st => (
-                  <button
-                    key={st.id}
-                    type="button"
-                    onClick={() => {
-                      setSelectedStation(st.id);
-                      setIsOpen(false);
-                      setSearch("");
-                    }}
-                    className={`w-full text-left px-3 py-2 text-sm rounded-lg transition-colors ${
-                      selectedStation === st.id ? "bg-blue-50 text-blue-700 font-bold" : "text-slate-700 hover:bg-slate-50"
-                    }`}
-                  >
-                    <div className="truncate font-medium">{st.name}</div>
-                    <div className="text-xs text-slate-400 flex justify-between">
-                      <span>{st.id}</span>
-                      <span>{st.country}</span>
-                    </div>
-                  </button>
-                ))}
-              </>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
+        </section>
+
+        <section className="border-t border-slate-100 pt-4">
+          <FilterLabel label="Current frame" help="Published storage and rendering state for the selected frame." />
+          <dl className="space-y-2 rounded-xl border border-slate-200 bg-white p-3 text-xs">
+            <div className="flex justify-between gap-3"><dt className="text-slate-500">Product</dt><dd className="font-bold">{product}</dd></div>
+            <div className="flex justify-between gap-3"><dt className="text-slate-500">Backend</dt><dd className="font-bold uppercase">{currentFrame?.backend ?? "—"}</dd></div>
+            <div className="flex justify-between gap-3"><dt className="text-slate-500">Map state</dt><dd className="font-bold capitalize">{renderState.status}</dd></div>
+            {currentFrame?.start_time && <div><dt className="text-slate-500">Interval start</dt><dd className="font-semibold">{formatUtc(currentFrame.start_time)} UTC</dd></div>}
+            {currentFrame?.end_time && <div><dt className="text-slate-500">Interval end</dt><dd className="font-semibold">{formatUtc(currentFrame.end_time)} UTC</dd></div>}
+            {currentFrame && <div><dt className="text-slate-500">Revision</dt><dd className="break-all font-mono text-[0.6rem]">{currentFrame.revision}</dd></div>}
+          </dl>
+        </section>
+
+      </div>
+    </aside>
   );
-};
-
-export const Sidebar: React.FC<SidebarProps> = ({
-  stations,
-  selectedCountry,
-  setSelectedCountry,
-  selectedStation,
-  setSelectedStation,
-  startDate,
-  setStartDate,
-  endDate,
-  setEndDate,
-  parameter,
-  setParameter,
-  isOpen,
-  setIsOpen,
-  selectedHour,
-  observations
-}) => {
-  // Extract unique countries sorted alphabetically
-  const countries = useMemo(() => {
-    const unique = new Set(stations.map(st => st.country).filter(Boolean));
-    return Array.from(unique).sort();
-  }, [stations]);
-
-  // Filter stations based on selected country for the station dropdown
-  const filteredStations = useMemo(() => {
-    if (!selectedCountry) return stations;
-    return stations.filter(st => countryMatches(st.country, selectedCountry));
-  }, [stations, selectedCountry]);
-
-  // Count stations that have actual valid observations for the selected hour
-  const activeCount = useMemo(() => {
-    if (!observations || Object.keys(observations).length === 0) {
-      return filteredStations.length;
-    }
-    let count = 0;
-    filteredStations.forEach((st) => {
-      const val = observations[st.id]?.[selectedHour];
-      if (val !== undefined && val !== null && !isNaN(val)) {
-        count++;
-      }
-    });
-    return count;
-  }, [filteredStations, observations, selectedHour]);
-
-  const hoursAgo = useMemo(() => {
-    const selectedDateStr = `${endDate}T${selectedHour.toString().padStart(2, "0")}:00:00Z`;
-    const selectedTime = new Date(selectedDateStr).getTime();
-    const now = new Date().getTime();
-    const diff = now - selectedTime;
-    return Math.max(0, Math.floor(diff / (1000 * 60 * 60)));
-  }, [endDate, selectedHour]);
-
-  // Date range constraints (max 31 days)
-  const handleStartDateChange = (newStart: string) => {
-    setStartDate(newStart);
-    const startObj = new Date(newStart);
-    const endObj = new Date(endDate);
-    
-    // Auto-adjust end date if range exceeds 31 days
-    if (endObj.getTime() - startObj.getTime() > 31 * 24 * 60 * 60 * 1000) {
-      const newEnd = new Date(startObj.getTime() + 31 * 24 * 60 * 60 * 1000);
-      // Ensure we don't set future dates
-      const maxDate = new Date();
-      if (newEnd > maxDate) {
-        setEndDate(maxDate.toISOString().split("T")[0]);
-      } else {
-        setEndDate(newEnd.toISOString().split("T")[0]);
-      }
-    } else if (startObj > endObj) {
-      setEndDate(newStart);
-    }
-  };
-
-  const handleEndDateChange = (newEnd: string) => {
-    setEndDate(newEnd);
-    const startObj = new Date(startDate);
-    const endObj = new Date(newEnd);
-    
-    // Auto-adjust start date if range exceeds 31 days
-    if (endObj.getTime() - startObj.getTime() > 31 * 24 * 60 * 60 * 1000) {
-      const newStart = new Date(endObj.getTime() - 31 * 24 * 60 * 60 * 1000);
-      setStartDate(newStart.toISOString().split("T")[0]);
-    } else if (startObj > endObj) {
-      setStartDate(newEnd);
-    }
-  };
-
-  return (
-    <>
-      {/* Mobile Toggle Button */}
-      <button 
-        onClick={() => setIsOpen(!isOpen)}
-        className="lg:hidden fixed top-4 left-4 z-50 p-2.5 bg-white/90 backdrop-blur-md border border-slate-200 rounded-xl shadow-md text-slate-700 hover:text-slate-900 transition-all active:scale-95 min-w-[44px] min-h-[44px] flex items-center justify-center"
-        aria-label="Toggle navigation menu"
-      >
-        {isOpen ? <X size={20} /> : <Menu size={20} />}
-      </button>
-
-      {/* Sidebar Container */}
-      <aside 
-        className={`fixed top-0 left-0 z-40 h-full w-[280px] glass-sidebar flex flex-col justify-between p-6 transition-transform duration-300 ease-in-out lg:translate-x-0 ${
-          isOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
-      >
-        {/* Header Branding */}
-        <div className="flex flex-col gap-1 mt-10 lg:mt-2">
-          <h2 className="text-lg font-bold tracking-tight text-slate-800">
-            Filters
-          </h2>
-        </div>
-
-        {/* Scrollable Filters Block */}
-        <div className="flex-1 my-6 overflow-y-auto custom-scrollbar pr-1 flex flex-col gap-6">
-          {/* Zoom to Country */}
-          <div className="flex flex-col gap-2">
-            <FilterLabel
-              id="filter-help-country"
-              label="Zoom to Country"
-              help="Filters the station list to the selected country and moves the map to that country's station area. All Countries shows every available station."
-            />
-            <div className="relative">
-              <select
-                value={selectedCountry}
-                onChange={(e) => {
-                  setSelectedCountry(e.target.value);
-                  setSelectedStation(""); // Reset station on country change
-                }}
-                className="w-full bg-white/70 border border-slate-200 rounded-xl px-3.5 py-2.5 text-base md:text-sm text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer appearance-none"
-              >
-                <option value="">All Countries</option>
-                {countries.map((country) => (
-                  <option key={country} value={country}>
-                    {country}
-                  </option>
-                ))}
-              </select>
-              <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none border-l-4 border-r-4 border-t-4 border-transparent border-t-slate-400 w-0 h-0" />
-            </div>
-          </div>
-
-          {/* Find Station */}
-          <div className="flex flex-col gap-2">
-            <FilterLabel
-              id="filter-help-station"
-              label="Find Station"
-              help="Searches by station name, WIGOS ID, or country. Selecting a station focuses it on the map and loads its detailed observation dashboard."
-            />
-            <SearchableStationSelect 
-              stations={filteredStations} 
-              selectedStation={selectedStation} 
-              setSelectedStation={setSelectedStation} 
-            />
-          </div>
-
-          {/* Date Picker Range */}
-          <div className="flex flex-col gap-2">
-            <FilterLabel
-              id="filter-help-period"
-              label="Select Period"
-              help="Sets the observation date range used for station logs, charts, and map values. The range is limited to 31 days and cannot go into the future."
-            />
-            <div className="flex flex-col gap-2">
-              <div className="relative">
-                <input
-                  type="date"
-                  value={startDate}
-                  min="2026-03-05"
-                  max={endDate || new Date().toISOString().split("T")[0]}
-                  onChange={(e) => handleStartDateChange(e.target.value)}
-                  className="w-full bg-white/70 border border-slate-200 rounded-xl pl-9 pr-3.5 py-2 text-base md:text-sm text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer"
-                />
-                <Calendar className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
-              </div>
-              <div className="relative">
-                <input
-                  type="date"
-                  value={endDate}
-                  min={startDate || "2026-03-05"}
-                  max={new Date().toISOString().split("T")[0]}
-                  onChange={(e) => handleEndDateChange(e.target.value)}
-                  className="w-full bg-white/70 border border-slate-200 rounded-xl pl-9 pr-3.5 py-2 text-base md:text-sm text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all cursor-pointer"
-                />
-                <Calendar className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={15} />
-              </div>
-            </div>
-          </div>
-
-          {/* Weather Parameter Selector */}
-          <div className="flex flex-col gap-2">
-            <FilterLabel
-              id="filter-help-parameter"
-              label="Map Parameter"
-              help="Chooses the weather variable shown by marker colors on the map. From the Dashboard, selecting a parameter returns to the initial broad Map View so the spatial distribution is visible."
-            />
-            <div className="flex flex-col gap-1.5">
-              {[
-                { id: "air_temperature", label: "Air Temperature", icon: Thermometer, color: "text-rose-500 bg-rose-50 border-rose-100" },
-                { id: "precipitation_amount", label: "Precipitation", icon: CloudRain, color: "text-blue-500 bg-blue-50 border-blue-100" },
-                { id: "air_pressure_at_mean_sea_level", label: "Sea Level Pressure", icon: Database, color: "text-emerald-500 bg-emerald-50 border-emerald-100" },
-                { id: "wind_speed", label: "Wind Speed", icon: Wind, color: "text-amber-500 bg-amber-50 border-amber-100" }
-              ].map((item) => {
-                const Icon = item.icon;
-                const isSelected = parameter === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => setParameter(item.id)}
-                    className={`flex items-center gap-3 px-3.5 py-3 rounded-xl border text-sm font-medium transition-all text-left w-full cursor-pointer ${
-                      isSelected 
-                        ? `${item.color} shadow-sm border-blue-200 ring-2 ring-blue-500/10` 
-                        : "border-slate-100 hover:border-slate-200 hover:bg-slate-50 text-slate-600"
-                    }`}
-                  >
-                    <Icon size={18} className={isSelected ? "" : "text-slate-400"} />
-                    {item.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-
-        {/* Footer info & stats */}
-        <div className="border-t border-slate-100 pt-4 flex flex-col gap-3">
-          <div className="bg-slate-50 border border-slate-100 rounded-xl p-4 flex flex-col gap-1.5 text-sm font-medium text-slate-600">
-            <div><span className="font-bold text-slate-800">{stations.length}</span> stations found</div>
-            <div className="text-blue-600 font-semibold border-b border-slate-200 pb-2 mb-1">Showing: {activeCount} stations</div>
-            <div className="text-slate-800 font-bold">{endDate} {selectedHour.toString().padStart(2, "0")}:00 UTC</div>
-            <div className="text-slate-500 text-xs">{hoursAgo} hour(s) ago</div>
-          </div>
-
-          <div className="bg-blue-50/50 border border-blue-100/50 rounded-xl p-3 flex gap-2 items-start text-xs font-medium text-slate-600">
-            <Info size={14} className="text-blue-500 shrink-0 mt-0.5" />
-            <p>Tip: Click map points to view detailed weather plots.</p>
-          </div>
-        </div>
-      </aside>
-
-      {/* Backdrop overlay for mobile */}
-      {isOpen && (
-        <div 
-          onClick={() => setIsOpen(false)}
-          className="lg:hidden fixed inset-0 bg-slate-900/20 backdrop-blur-sm z-30 transition-opacity" 
-        />
-      )}
-    </>
-  );
-};
+}

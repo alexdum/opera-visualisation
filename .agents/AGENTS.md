@@ -119,7 +119,7 @@ When refactoring or updating charting components (e.g., Recharts), preserve the 
 ## React MapLibre GL: Loading and Performance Synchronization
 
 When implementing or modifying MapLibre GL map components and layer rendering:
-1. **Loader Synchronization**: Never dismiss loading overlays or spinners immediately in the `finally` block of a data fetch query. Instead, synchronize loader dismissal with MapLibre's `'idle'` event (using `map.once('idle', ...)` or checking `map.isIdle()`) so newly supplied data has rendered. Register synchronization only after the relevant source/layer update has been applied, so an `'idle'` event from the previous map state cannot dismiss the loader early. Always clean up listeners when the fetch is aborted or the component unmounts. Also handle map errors and provide a bounded fallback for cases where `'idle'` never fires; the fallback must expose a degraded/error state rather than falsely reporting successful rendering.
+1. **Loader Synchronization**: Never dismiss loading overlays or spinners immediately in the `finally` block of a data fetch query. For OPERA raster frames, determine readiness from the visible radar source with `map.isSourceLoaded(activeSourceId)` and source-specific events after the relevant source/layer update has been applied. Do **not** require global map `'idle'` or `areTilesLoaded()` for the ready state: the basemap and the hidden adjacent preloaded frame may still be loading and must not block the visible frame. A global `'idle'` listener may be used only as an additional opportunity to re-check the active source. Always clean up source, idle, style, and error listeners when an effect is superseded or the component unmounts. Also provide a bounded fallback for cases where the active source never finishes; the fallback must expose a degraded/error state rather than falsely reporting successful rendering.
 2. **Avoid Arbitrary Timers for Style/Source Updates**: Do not use `setTimeout` or other custom timers to coordinate updating a map source after changing the map style (e.g. basemap). Rely on MapLibre's native `'style.load'` event listener to re-add layers and update states.
 3. **Synchronous Processing for Small Datasets**: Prefer synchronous construction of GeoJSON and statistics for the project's current station datasets (normally under 5,000 items) instead of `setTimeout(..., 0)` yielding loops. Treat the item count as a current default, not a universal performance guarantee. Re-profile when dataset size, geometry complexity, target devices, or processing work changes, and use measured evidence to justify chunking or worker-based processing.
 4. **Derived Map Statistics**: Calculate map-related statistics (e.g. averages/mins/maxes of visible stations) synchronously using React `useMemo` hooks derived from the current bounds and observations, rather than writing to state variables in a `useEffect` that triggers additional re-renders.
@@ -133,6 +133,219 @@ When implementing or refactoring dashboards, data loaders, and chart visualisati
 2. **Double-Seeding Adjusted Cache Ranges**: When a fetch hook queries data based on user range selections, but the backend adjusts the parameters to fit physical limits (e.g. returning `effectiveRange.adjusted = true` with a shorter date range), updating state variables triggers the fetch hook to re-run. To prevent a duplicate API call and loading flicker, you MUST seed the cache under both the requested parameters and the adjusted parameters, so the subsequent run results in a synchronous cache hit.
 <!-- END:react-dashboard-loading-rules -->
 
+<!-- BEGIN:opera-dbzh-quality-filter-rule -->
+## OPERA DBZH Quality Filtering
+
+The rectangular or tail-like echoes visible around Romania in some OPERA DBZH
+frames are present in the upstream EUMETNET COG. They are not introduced by the
+harvester, Hugging Face upload, MapLibre, Web Mercator reprojection, or tile
+boundaries. Do not attempt to correct them with geographic masks, Romania-only
+rules, image morphology, or modifications to the archived source data.
+
+The DBZH COG uses band 1 for reflectivity and band 2 for its quality indicator.
+Apply the following visualization policy:
+
+1. **Default DBZH threshold:** The map MUST enable quality filtering by default
+   with `min_quality=0.10`, applied uniformly across the full DBZH coverage.
+2. **Preserve the authoritative view:** Users MUST be able to disable the
+   filter and view the original OPERA composite. Filtering is a display mask;
+   it MUST NOT rewrite source COGs, GeoZarr measurements, pixel-analysis values,
+   or exported data.
+3. **Known versus unknown quality:** Mask a DBZH pixel only when its quality is
+   known, lies in the normalized `[0, 1]` range, and is strictly below the
+   selected threshold. Preserve pixels with masked, nodata, non-finite, or
+   out-of-range quality as **unknown quality** rather than treating them as
+   quality zero.
+4. **Product scope:** Do not automatically apply the DBZH threshold to RATE or
+   ACRR. Their quality distributions and product semantics must be evaluated
+   separately before introducing a default filter.
+5. **Cache and URL identity:** Include the selected threshold in the tile URL
+   (`min_quality`) and in every frontend/backend tile cache or MapLibre source
+   identity. Raw and differently filtered tiles MUST never share a cache key.
+   Validate public thresholds server-side as finite values from `0` through
+   `1`.
+6. **Visible state:** Keep the active threshold and filtered/unfiltered state
+   visible and accessible in the DBZH sidebar. Preserve shareable URL state;
+   use `min_quality=off` for the raw view.
+7. **Regression verification:** Tests MUST cover low known quality, accepted
+   quality, quality nodata/unknown, invalid thresholds, and at least one real
+   DBZH tile comparison demonstrating that filtering removes pixels while
+   retaining valid coverage.
+
+The current implementation is in `backend/api/tiles.py`,
+`src/components/Map.tsx`, `src/components/Sidebar.tsx`, and
+`src/app/page.tsx`. Preserve these semantics if the implementation is moved or
+refactored.
+<!-- END:opera-dbzh-quality-filter-rule -->
+
+<!-- BEGIN:opera-visualization-architecture-rules -->
+## OPERA Visualization Architecture
+
+### Catalog authority and product isolation
+
+- Treat daily catalogs as the sole authority for consumer-visible frames. A
+  GeoZarr time slot is not visible merely because its chunks exist.
+- Never use DBZH as a shared timeline for RATE or ACRR. Each product has its
+  own cadence, revisions, interval semantics, and available frames.
+- Key catalog caches by both UTC date and product.
+- Every frame identity MUST include `(product, nominal_time, revision)`.
+- Reject tile requests whose timestamp and revision do not appear in the
+  authoritative catalog for the requested product.
+- Catalog tests MUST use deterministic fixtures. Live bucket checks belong in
+  explicitly identified integration or smoke tests.
+
+### Hot COG and GeoZarr routing
+
+- In Latest mode, use a COG only when its catalog entry has
+  `hot_cog_ready: true` and its timestamp is inside the current
+  `hot_window_start` boundary.
+- Historical mode MUST explicitly request the permanent GeoZarr backend, even
+  when the selected timestamp remains inside the hot COG window. Historical
+  catalog responses must advertise `backend: geozarr`, clear the consumer-side
+  hot COG pointer, and leave internal authoritative frame resolution intact for
+  Latest-mode requests.
+- Include the catalog-selected backend in revision-safe tile URLs. The tile
+  server MUST honor an explicit `source=geozarr` request and MUST NOT silently
+  switch an explicitly historical request back to COG.
+- A catalog may retain `hot_cog_ready: true` after rolling retention removes
+  the object. `hot_window_start` therefore determines current Latest-mode COG
+  eligibility; `hot_cog_ready` alone is insufficient.
+- When an eligible COG cannot be opened and `archive_ready: true`, fall back to
+  the catalog-referenced GeoZarr store.
+- Return or display the selected backend (`cog` or `geozarr`) so archive
+  rendering and degraded fallback are distinguishable from failure.
+- Do not infer COG or GeoZarr paths by listing bucket objects when the catalog
+  supplies those paths.
+- A valid Web Mercator tile outside the finite OPERA raster footprint is a
+  successful transparent tile. Return an empty image with `200`, and never
+  treat `TileOutsideBounds` as a storage failure or trigger GeoZarr fallback.
+- Do not issue remote COG range requests independently for every MapLibre tile.
+  Download each immutable `(product, nominal_time, revision)` COG once into a
+  bounded local cache, use a per-frame lock so concurrent tiles share that
+  download, publish cache files atomically, and evict by explicit file/byte
+  limits.
+- Send Hugging Face credentials only from the server. Use a server-side
+  read-only `HF_TOKEN` for catalog, COG, and GeoZarr access to avoid anonymous
+  resolver limits; never expose it through `NEXT_PUBLIC_*`, URLs, responses, or
+  logs.
+- Treat an isolated tile `503` as a symptom, not proof that a cataloged frame is
+  missing. Re-request the exact product, timestamp, revision, zoom, x, y,
+  quality, and source URL and distinguish renderer saturation from catalog,
+  storage, or schema failure before changing data routing.
+- Bound tile-render concurrency and queue wait time. If the queue remains full,
+  return a retryable response such as `503` with `Retry-After`; never publish a
+  transient failure as an immutable successful tile.
+- Give GeoZarr archive rendering a longer user-visible loading allowance than
+  hot COG rendering because it requires remote chunk reads and reprojection.
+
+### MapLibre animation constraints
+
+- Keep at most the current frame and one adjacent preloaded frame in the
+  MapLibre style. Never create one source and layer for every timestamp in a
+  24-hour animation.
+- Preload the adjacent frame only when both the visible and adjacent frames use
+  COG. Never preload a hidden GeoZarr archive frame: doing so doubles remote
+  reads and renderer pressure without improving the visible frame.
+- Include product, timestamp, revision, rendering options, and quality
+  threshold in MapLibre source and tile-cache identities.
+- Advance playback only after the current frame reaches MapLibre `idle` or an
+  explicitly reported degraded state. For OPERA raster sources, "reaches
+  idle" means the **active source** is loaded; it does not require the entire
+  style or hidden preloaded source to become idle.
+- Stop playback when the document is hidden and honor
+  `prefers-reduced-motion`.
+- On every product or date transition, abort the superseded catalog request,
+  clear frames and the selected index from the previous catalog, and enter a
+  loading state before requesting the replacement catalog. Never temporarily
+  render DBZH frames under RATE/ACRR state, or frames from the prior date under
+  a new historical selection.
+- A stale async response or MapLibre event must not overwrite the state of a
+  newer transition. Guard render callbacks by a generation/identity and ignore
+  callbacks after their effect has been cleaned up.
+
+### Coordinate contracts
+
+- Use `lon` and `lat` consistently at React component and API boundaries.
+- A map-click callback accepts either one documented object or two positional
+  values. Never mix those contracts.
+- Do not suppress TypeScript errors to hide coordinate or component-contract
+  mismatches.
+- Missing query parameters are not numeric zero. Check that both `lon` and
+  `lat` are present before converting them; `Number(null) === 0` must never
+  silently select `(0, 0)` or start a pixel request.
+
+### Pixel-analysis semantics
+
+- Pixel queries MUST read only catalog-committed timestamps.
+- Return measurement, observation status, quality variables, and source
+  revision separately.
+- Preserve `detected`, `undetect`, and `nodata`; never collapse all three into
+  `null` or measured zero.
+- ACRR responses, charts, and exports MUST include `start_time` and `end_time`.
+- Remote GeoZarr reads are blocking operations and MUST NOT run directly on the
+  asynchronous FastAPI event loop.
+- Pixel-series GeoZarr reads are expensive foreground work. Start them only
+  when Pixel Analysis is visible and a valid location is selected. Abort or
+  ignore superseded in-flight requests when the product, date, location, or
+  analysis window changes; never compete with user-visible map transitions
+  through unnecessary background pixel queries.
+- Treat ordinary tab navigation and explicit dismissal as different actions.
+  Switching between Map, Pixel Analysis, and About MUST preserve the selected
+  point, map marker, and successfully completed pixel-series result.
+- Cache a successful pixel-series result by product, longitude, latitude,
+  start time, and end time. Returning to Pixel Analysis with the same request
+  key MUST reuse that result without repeating the GeoZarr extraction.
+- Closing Pixel Analysis with its X button MUST clear the selected point, map
+  marker, cached series, loading state, and errors. Selecting another point or
+  changing the product or analysis window MUST invalidate the prior request
+  key and retrieve the correct series.
+- UI exports MUST serialize data already loaded in the browser rather than
+  calling the GeoZarr extraction endpoint again merely to convert JSON into
+  CSV. Keep the server CSV endpoint available for API consumers and fallback
+  workflows, not as the default UI export path.
+- CSV and JSON exports MUST preserve the same scientific semantics as the API,
+  including time bounds, values, units, observation status, status codes,
+  quality JSON, and source revision. CSV generation must correctly quote
+  commas, quotes, and newlines, neutralize spreadsheet formulas in string
+  cells, include an Excel-compatible UTF-8 encoding, and revoke temporary
+  object URLs after starting the download.
+
+### Product-aware timeline rules
+
+- The timeline range represents indexes into catalog-committed frames, not a
+  generated sequence of timestamps. A slider position MUST never select an
+  uncommitted or synthetic map frame.
+- Infer the native update cadence independently for each selected product from
+  its catalog timestamps. Use documented per-product defaults only for empty
+  or single-frame catalogs.
+- Missing frames produce multiples of the native cadence; cadence inference,
+  labels, accessible slider text, and gap detection must remain correct across
+  those gaps.
+- Do not confuse ACRR's accumulation interval with its publication cadence.
+  Preserve and display `start_time` and `end_time` separately from the slider's
+  update step.
+
+### Build, deployment, and security gates
+
+- The backend requires Python 3.12 with the current pinned Zarr stack.
+- Never disable TypeScript or ESLint validation in the production build.
+- Docker build contexts MUST exclude local virtual environments, caches, test
+  rasters, and debugging artifacts through `.dockerignore`.
+- Run the production container as a non-root user and provide a health check.
+- Do not combine wildcard CORS origins with credentialed requests.
+- Never disable TLS certificate verification for public bucket access.
+
+### Performance and dependency rules
+
+- Dynamically load MapLibre and chart libraries when practical and monitor the
+  initial JavaScript payload after dependency changes.
+- Bound tile-rendering concurrency and tile caches.
+- Treat GeoZarr fallback as a slower archive path and expose that state to the
+  user.
+- Do not add a dependency unless production code imports it or an executable
+  test requires it.
+<!-- END:opera-visualization-architecture-rules -->
+
 <!-- BEGIN:ui-ux-fullscreen-layout-rule -->
 ## UI/UX: Fullscreen Layouts
 
@@ -142,15 +355,59 @@ When implementing fullscreen or immersive modes:
 3. **Dedicated Presentation Toggles:** If a "presentation" or "immersive" mode is required, implement it via an explicit user-controlled UI toggle (e.g., a collapsible sidebar button) that operates independently of the browser's fullscreen state.
 <!-- END:ui-ux-fullscreen-layout-rule -->
 
+<!-- BEGIN:off-canvas-controls-rule -->
+## UI/UX: Off-canvas Controls
+
+When a responsive sidebar, drawer, or control panel is translated off-screen:
+
+1. Its controls MUST also be removed from keyboard, pointer, and accessibility
+   interaction until the panel is opened. Visual translation alone is not a
+   closed state.
+2. Prefer the platform `inert` attribute on the closed panel, paired with the
+   appropriate `aria-hidden`/dialog semantics for the component. Do not leave
+   invisible product buttons, inputs, or links focusable behind the map.
+3. Verify mobile interactions against the visible UI. A test or automation
+   action targeting a hidden sidebar control can otherwise pass through to the
+   MapLibre canvas and be misdiagnosed as a map-coordinate selection.
+
+<!-- END:off-canvas-controls-rule -->
+
 <!-- BEGIN:verification-rules -->
 ## Verification Requirements
 
 Match verification effort to the affected rule and report commands that could not be run.
 
-1. For code changes, run `npm run lint` and `npm run build` unless the user explicitly limits verification or the environment prevents it.
+1. For code changes, run `npm test`, `npm run typecheck`, `npm run lint`, and
+   `npm run build` unless the user explicitly limits verification or the
+   environment prevents it. For backend changes, also run
+   `backend/venv/bin/python -m pytest -q backend` from the repository root.
 2. For meteorological QC changes, add or update focused tests covering the affected parameter and filtering path. Relevant regression cases include high-altitude station pressure, Antarctic winter temperatures, geographically diverse stations at one timestamp, raw MeteoGate parameter names such as `wind_speed`, negative values for non-negative parameters, and spikes separated by both short and long time gaps.
 3. Tests added to the repository MUST be executable through a documented package script or the project's configured test runner; a test file that cannot be resolved or run is not considered verification.
 4. For country or station normalization changes, test canonical display labels, SEO slugs, URL parameters, and iframe messages. Cold-load at least one non-default parameterized URL and confirm that React reports no hydration error. Test station IDs and station slugs selected before station metadata finishes loading, and confirm that the country filter, generated URL, and iframe state message use the station's canonical country.
 5. For tooltip, scroll-snapping, chart-loading, or MapLibre-control changes, verify the affected interaction at desktop and mobile widths. Include keyboard/touch behavior where relevant, and verify MapLibre control icons on mobile WebKit when the control CSS changes.
-6. For adjusted date-range caching changes, verify that both requested and effective cache keys are populated and that the state update does not trigger a duplicate request.
+6. For OPERA product/date transition changes, verify at minimum latest DBZH →
+   historical RATE → historical DBZH. Confirm the final visible source reaches
+   `ready`, the rendering overlay clears, no old-product frame is displayed,
+   and Pixel Analysis does not issue GeoZarr requests while its view is closed.
+   Also request a map tile outside the OPERA footprint and confirm it returns a
+   transparent `200` response.
+7. For OPERA storage-routing changes, verify Latest and Historical catalog
+   responses independently. Latest should retain an eligible COG; Historical
+   must advertise only GeoZarr, including for a timestamp inside the last 24
+   hours. Confirm the revision-safe tile URL carries the selected source.
+8. For pixel-analysis state changes, test Analysis → About → Map → Analysis and
+   confirm the marker and completed graph are preserved without a duplicate
+   request. Then close Analysis with X and confirm the marker, selected point,
+   series, error, and loading state are cleared.
+9. For browser-side export changes, verify the exported rows and headers against
+   the API schema and assert that clicking Export does not call the pixel CSV or
+   GeoZarr extraction endpoint again. Include regression cases for null values,
+   quality JSON containing CSV metacharacters, and formula-like strings.
+10. For timeline changes, test every product's cadence, a missing catalog frame,
+    a single-frame fallback, keyboard-accessible slider text, and the rule that
+    only cataloged frame indexes can be selected.
+11. For adjusted date-range caching changes, verify that both requested and effective cache keys are populated and that the state update does not trigger a duplicate request.
+12. Before handoff, run `git diff --check`. For deployment changes, resolve the
+   Python 3.12 requirements and run the Docker build and health smoke test when
+   a Docker daemon is available; explicitly report when it is not.
 <!-- END:verification-rules -->

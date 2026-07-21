@@ -1,35 +1,32 @@
 {
-  "name": "eurometeo",
+  "name": "app-tmp",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --webpack",
-    "build": "next build --webpack",
+    "dev": "next dev",
+    "build": "next build",
     "start": "next start",
-    "lint": "eslint",
-    "test": "node --experimental-strip-types src/utils/__tests__/qc.test.ts"
+    "lint": "eslint src --ext .ts,.tsx",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
-    "@tanstack/react-table": "^8.21.3",
-    "duckdb": "^1.4.4",
-    "lucide-react": "^1.17.0",
+    "lucide-react": "^1.25.0",
     "maplibre-gl": "^5.24.0",
-    "next": "16.2.6",
-    "node-cache": "^5.1.2",
-    "react": "19.2.4",
-    "react-dom": "19.2.4",
-    "react-map-gl": "^8.1.1",
-    "recharts": "^3.8.1",
-    "xlsx": "^0.18.5"
+    "next": "15.5.20",
+    "react": "^18",
+    "react-dom": "^18",
+    "recharts": "^3.9.2"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "eslint": "^9",
-    "eslint-config-next": "16.2.6",
-    "tailwindcss": "^4",
-    "typescript": "^5"
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "eslint": "^8",
+    "eslint-config-next": "15.5.20",
+    "postcss": "^8",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5",
+    "vitest": "^4.1.10"
   }
 }

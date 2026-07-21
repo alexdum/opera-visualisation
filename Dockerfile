@@ -1,43 +1,42 @@
-# --- Stage 1: Dependencies ---
-FROM node:20-slim AS deps
-# Debian slim already includes glibc, no need for compat packages
+FROM python:3.12-slim AS backend-builder
+
 WORKDIR /app
-COPY package.json package-lock.json ./
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+FROM node:20 AS frontend-builder
+
+WORKDIR /app
+COPY package*.json ./
 RUN npm ci
 
-# --- Stage 2: Builder ---
-FROM node:20-slim AS builder
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-# Disable telemetry during build
-ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
-# --- Stage 3: Runner (Production) ---
-FROM node:20-slim AS runner
+FROM python:3.12-slim
+
 WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
-ENV NODE_ENV=production
-ENV NEXT_TELEMETRY_DISABLED=1
+# Copy python packages
+COPY --from=backend-builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+COPY --from=backend-builder /usr/local/bin /usr/local/bin
 
-# Hugging Face Spaces standard port is 7860
-ENV PORT=7860
-ENV HOSTNAME="0.0.0.0"
+# Copy backend files
+COPY backend /app/backend/
+# Copy static frontend build
+COPY --from=frontend-builder /app/out /app/out
 
-# The node image already has a built-in user 'node' with UID 1000.
-# Hugging Face Spaces requires running as UID 1000, so we use that directly.
+# Switch to the backend directory so uvicorn can find the modules
+WORKDIR /app/backend
 
-# Set up Next.js standalone output copy
-COPY --from=builder /app/public ./public
-COPY --from=builder --chown=1000:1000 /app/.next/standalone ./
-COPY --from=builder --chown=1000:1000 /app/.next/static ./.next/static
-# Copy runtime data files (CSV fallbacks used by API routes via fs.readFileSync)
-COPY --from=builder --chown=1000:1000 /app/src/data ./src/data
-
-USER 1000
+RUN useradd --create-home --uid 1000 appuser && chown -R appuser:appuser /app
+USER appuser
 
 EXPOSE 7860
 
-# Start Next.js server
-CMD ["node", "server.js"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:7860/api/health', timeout=3)"
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860"]
