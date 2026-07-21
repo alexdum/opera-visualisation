@@ -67,6 +67,7 @@ Calling `/api/stations` may rewrite `src/data/meteogate_stations_cache.csv` as a
 When implementing CSS scroll snapping (`snap-y` / `snap-x`) for tactile scrolling (e.g., dashboards, carousels):
 1. **Prefer `snap-proximity` over `snap-mandatory`**: Use `snap-proximity` on the scroll container unless strictly building a full-screen carousel. `snap-mandatory` can aggressively pull users past content if item heights vary.
 2. **Assign snap points to ALL major content blocks**: Do not only add `snap-center` or `snap-start` to the main repeatable items (e.g., charts). You MUST also add a snap point (e.g., `snap-start scroll-mt-2`) to metadata headers, summary grids, and banners at the top/bottom of the container. If you leave top-level content without a snap point, the browser will skip over it when the user scrolls, hiding it from view.
+3. **Reset scroll position on visibility toggle**: Always-mounted containers hidden with `display: none` retain their `scrollTop` across visibility changes. When revealing such a container (e.g., tab switch), imperatively reset `scrollTop = 0` via a ref. Without this, `scroll-snap-type` re-engages at the stale position and can land on the wrong (often last) snap point. Do not rely on removing `scroll-behavior: smooth` as a substitute — that only makes the mis-snap instant instead of animated.
 <!-- END:ui-ux-scroll-snapping-rule -->
 
 <!-- BEGIN:tailwind-maplibre-conflict-rule -->
