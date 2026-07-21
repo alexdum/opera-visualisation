@@ -396,15 +396,18 @@ def get_tile(
     )
 
 
-def _render_cog_frame(frame: CatalogFrame, min_quality: float | None, max_size: int = 1024) -> ImageData:
-    """Render the full OPERA extent from a COG as a single image."""
+def _render_cog_frame(
+    frame: CatalogFrame, min_quality: float | None,
+    max_size: int = 1024, bounds: tuple[float, ...] = OPERA_WGS84_BOUNDS,
+) -> ImageData:
+    """Render a region of the OPERA COG as a single image."""
     if not frame.hot_cog:
         raise FileNotFoundError("Catalog does not advertise a hot COG")
     cog_path = local_cog(frame.product, frame.timestamp, frame.revision, frame.hot_cog)
     with Reader(str(cog_path)) as cog:
         indexes = (1, 2) if frame.product == "DBZH" and min_quality is not None and cog.dataset.count >= 2 else 1
         image = cog.part(
-            OPERA_WGS84_BOUNDS,
+            bounds,
             bounds_crs=CRS.from_epsg(4326),
             dst_crs=CRS.from_epsg(4326),
             max_size=max_size,
@@ -415,8 +418,11 @@ def _render_cog_frame(frame: CatalogFrame, min_quality: float | None, max_size: 
     return image
 
 
-def _render_geozarr_frame(frame: CatalogFrame, min_quality: float | None, max_size: int = 1024) -> ImageData:
-    """Render the full OPERA extent from GeoZarr as a single image."""
+def _render_geozarr_frame(
+    frame: CatalogFrame, min_quality: float | None,
+    max_size: int = 1024, bounds: tuple[float, ...] = OPERA_WGS84_BOUNDS,
+) -> ImageData:
+    """Render a region of the OPERA GeoZarr archive as a single image."""
     group = _open_geozarr(frame.geozarr)
     metadata = _geozarr_metadata(frame.geozarr, frame.product)
     
@@ -438,9 +444,9 @@ def _render_geozarr_frame(frame: CatalogFrame, min_quality: float | None, max_si
     src_h, src_w = slab.shape
 
     out_w = min(max_size, src_w)
-    out_h = int(out_w * (OPERA_WGS84_BOUNDS[3] - OPERA_WGS84_BOUNDS[1]) / (OPERA_WGS84_BOUNDS[2] - OPERA_WGS84_BOUNDS[0]))
+    out_h = int(out_w * (bounds[3] - bounds[1]) / (bounds[2] - bounds[0]))
     
-    dst_transform = from_bounds(*OPERA_WGS84_BOUNDS, out_w, out_h)
+    dst_transform = from_bounds(*bounds, out_w, out_h)
     dst_data = np.full((1, out_h, out_w), np.nan, dtype=np.float32)
     
     reproject(
@@ -484,8 +490,18 @@ def _render_geozarr_frame(frame: CatalogFrame, min_quality: float | None, max_si
     
     return ImageData(
         masked_data,
-        bounds=OPERA_WGS84_BOUNDS,
+        bounds=bounds,
         crs=CRS.from_epsg(4326),
+    )
+
+
+def _clamp_bounds(bbox: tuple[float, ...]) -> tuple[float, ...]:
+    """Clamp a WGS84 bbox to the OPERA radar extent."""
+    return (
+        max(bbox[0], OPERA_WGS84_BOUNDS[0]),
+        max(bbox[1], OPERA_WGS84_BOUNDS[1]),
+        min(bbox[2], OPERA_WGS84_BOUNDS[2]),
+        min(bbox[3], OPERA_WGS84_BOUNDS[3]),
     )
 
 
@@ -493,9 +509,18 @@ def _render_geozarr_frame(frame: CatalogFrame, min_quality: float | None, max_si
 def _render_frame_cached(
     product: str, timestamp: str, revision: str,
     min_quality_key: str, source: str, max_size: int,
+    bbox_key: str,
 ) -> bytes:
     frame = resolve_catalog_frame(product, timestamp, revision)
     min_quality = parse_min_quality(product, min_quality_key)
+    bounds = OPERA_WGS84_BOUNDS
+    if bbox_key:
+        try:
+            parts = tuple(float(x) for x in bbox_key.split(","))
+            if len(parts) == 4 and parts[0] < parts[2] and parts[1] < parts[3]:
+                bounds = _clamp_bounds(parts)
+        except ValueError:
+            pass
     
     use_cog = (
         source != "geozarr"
@@ -505,12 +530,12 @@ def _render_frame_cached(
     
     try:
         if use_cog:
-            image = _render_cog_frame(frame, min_quality, max_size)
+            image = _render_cog_frame(frame, min_quality, max_size, bounds)
         else:
-            image = _render_geozarr_frame(frame, min_quality, max_size)
+            image = _render_geozarr_frame(frame, min_quality, max_size, bounds)
     except Exception:
         if frame.archive_ready and frame.geozarr:
-            image = _render_geozarr_frame(frame, min_quality, max_size)
+            image = _render_geozarr_frame(frame, min_quality, max_size, bounds)
         else:
             raise
     
@@ -525,10 +550,11 @@ def get_frame(
     min_quality: str = Query("0.10"),
     source: str = Query("auto", pattern="^(auto|cog|geozarr)$"),
     max_size: int = Query(1024, ge=256, le=2048),
+    bbox: str = Query(""),
 ) -> Response:
     try:
         content = _render_frame_cached(
-            product, timestamp, revision, min_quality, source, max_size,
+            product, timestamp, revision, min_quality, source, max_size, bbox,
         )
     except HTTPException:
         raise

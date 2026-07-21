@@ -96,10 +96,15 @@ export const buildFrameUrl = (
   frame: RadarFrame,
   minQuality: number | null,
   apiBase = "",
+  bbox?: { west: number; south: number; east: number; north: number },
 ) => {
   const quality = qualityKeyForProduct(frame.product, minQuality);
   const normalizedBase = apiBase.replace(/\/$/, "");
-  return `${normalizedBase}/tiles/frame/${encodeURIComponent(frame.product)}/${frame.timestamp}/${encodeURIComponent(frame.revision)}.webp?min_quality=${encodeURIComponent(quality)}&source=${encodeURIComponent(frame.backend)}`;
+  let url = `${normalizedBase}/tiles/frame/${encodeURIComponent(frame.product)}/${frame.timestamp}/${encodeURIComponent(frame.revision)}.webp?min_quality=${encodeURIComponent(quality)}&source=${encodeURIComponent(frame.backend)}`;
+  if (bbox) {
+    url += `&bbox=${bbox.west.toFixed(4)},${bbox.south.toFixed(4)},${bbox.east.toFixed(4)},${bbox.north.toFixed(4)}`;
+  }
+  return url;
 };
 
 export const parseQualityUrlValue = (value: string | null): number | null | undefined => {
