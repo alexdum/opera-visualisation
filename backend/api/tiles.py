@@ -417,6 +417,16 @@ def _render_cog_frame(
         )
         if frame.product == "DBZH" and min_quality is not None and image.count == 2:
             image = apply_quality_filter(image, min_quality)
+    # The COG uses -9999000 as nodata (outside composite) and NaN for
+    # "radar scanned, no echo" (the scanning areas).  After reprojection,
+    # rio-tiler returns a plain ndarray where both still exist.
+    # - NaN → replace with -10 sentinel → renders as faint scanning area
+    # - -9999000 → replace with NaN → renders as transparent (outside coverage)
+    d = image.data
+    nodata_mask = np.isclose(d[0], -9999000.0)
+    nan_mask = np.isnan(d[0])
+    d[0][nan_mask] = -10.0            # scanning area sentinel
+    d[0][nodata_mask] = np.nan         # true nodata stays transparent
     return image
 
 
