@@ -306,7 +306,7 @@ def _render_cog_image(frame: CatalogFrame, z: int, x: int, y: int, min_quality: 
     cog_path = local_cog(
         frame.product, frame.timestamp, frame.revision, frame.hot_cog
     )
-    with Reader(str(cog_path)) as cog:
+    with Reader(str(cog_path), options={"OVERVIEW_LEVEL": "NONE"}) as cog:
         indexes = (1, 2) if frame.product == "DBZH" and min_quality is not None and cog.dataset.count >= 2 else 1
         try:
             image = cog.tile(x, y, z, indexes=indexes, resampling_method="max")
@@ -440,7 +440,7 @@ def _render_cog_frame(
     if not frame.hot_cog:
         raise FileNotFoundError("Catalog does not advertise a hot COG")
     cog_path = local_cog(frame.product, frame.timestamp, frame.revision, frame.hot_cog)
-    with Reader(str(cog_path)) as cog:
+    with Reader(str(cog_path), options={"OVERVIEW_LEVEL": "NONE"}) as cog:
         indexes = (1, 2) if frame.product == "DBZH" and min_quality is not None and cog.dataset.count >= 2 else 1
         image = cog.part(
             bounds,
@@ -692,7 +692,7 @@ def _get_raw_cog_frame(
         raise FileNotFoundError("Catalog does not advertise a hot COG")
     cog_path = local_cog(frame.product, frame.timestamp, frame.revision, frame.hot_cog)
     try:
-        with Reader(str(cog_path)) as cog:
+        with Reader(str(cog_path), options={"OVERVIEW_LEVEL": "NONE"}) as cog:
             has_quality = frame.product == "DBZH" and cog.dataset.count >= 2
             indexes = (1, 2) if has_quality else (1,)
             image = cog.part(
