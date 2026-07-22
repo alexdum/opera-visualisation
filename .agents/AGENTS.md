@@ -125,6 +125,15 @@ When implementing or modifying MapLibre GL map components and layer rendering:
 4. **Derived Map Statistics**: Calculate map-related statistics (e.g. averages/mins/maxes of visible stations) synchronously using React `useMemo` hooks derived from the current bounds and observations, rather than writing to state variables in a `useEffect` that triggers additional re-renders.
 <!-- END:react-maplibre-sync-rule -->
 
+<!-- BEGIN:react-maplibre-texture-geometry-rule -->
+## React MapLibre GL: WebGL Texture Geometry & Bounding Boxes
+
+When generating bounding box coordinates (`bboxCoords`, `bboxBounds`) for custom WebGL textures or MapLibre image sources:
+1. **Always Clamp to Native Limits**: You MUST explicitly clamp the frontend coordinate quad to the native dataset boundaries (e.g., `OPERA_WGS84_BOUNDS`). 
+2. **Prevent Texture Stretching**: The backend will automatically clamp out-of-bounds requests and return an image representing the valid data extent. If the frontend maps this image onto an unclamped geographic quad (such as one snapped to a 10° map grid that extends beyond the poleward data limit), MapLibre will stretch the texture to fill the quad, causing severe visual distortion and shifted coordinates. 
+3. **Synchronize Client and Server Bounds**: Ensure that the `bboxKey` requested from the API precisely matches the exact coordinates of the four corners drawn by the WebGL layer.
+<!-- END:react-maplibre-texture-geometry-rule -->
+
 <!-- BEGIN:react-dashboard-loading-rules -->
 ## React Dashboards: Chart Mounting & State-Sync Cache Seeding
 

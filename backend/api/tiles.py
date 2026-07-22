@@ -740,6 +740,9 @@ def _get_raw_geozarr_frame(
     merc_h = merc_bounds[3] - merc_bounds[1]
     out_w = min(max_size, src_w)
     out_h = max(1, int(out_w * merc_h / merc_w))
+    if out_h > max_size:
+        out_w = max(1, int(out_w * max_size / out_h))
+        out_h = max_size
     
     dst_transform = from_bounds(*merc_bounds, out_w, out_h)
     dst_data = np.full((1, out_h, out_w), np.nan, dtype=np.float32)

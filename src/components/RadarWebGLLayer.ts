@@ -155,6 +155,7 @@ export class RadarWebGLLayer implements CustomLayerInterface {
 
     this.colormapTexture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this.colormapTexture);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 256, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, colormapData);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
@@ -205,6 +206,7 @@ export class RadarWebGLLayer implements CustomLayerInterface {
       }
 
       gl.bindTexture(gl.TEXTURE_2D, this.colormapTexture);
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 256, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, colormapData);
     }
 
@@ -291,6 +293,7 @@ export class RadarWebGLLayer implements CustomLayerInterface {
       const texture = gl.createTexture();
       if (!texture) return;
       gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG8, width, height, 0, gl.RG, gl.UNSIGNED_BYTE, rawBinaryBuffer);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
