@@ -34,10 +34,9 @@ export default function OperaRadarPage() {
   const [frames, setFrames] = useState<RadarFrame[]>([]);
   const [currentTimeIndex, setCurrentTimeIndex] = useState(0);
   const [opacity, setOpacity] = useState(0.7);
-  // The authoritative OPERA composite is the default view. Quality masking
-  // remains opt-in and an explicit min_quality URL parameter still overrides
-  // this default for shareable filtered views.
-  const [minQuality, setMinQuality] = useState<number | null>(null);
+  // Low-known-quality DBZH pixels are masked by default. Users can still opt
+  // into the authoritative raw composite with min_quality=off.
+  const [minQuality, setMinQuality] = useState<number | null>(0.1);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [renderState, setRenderState] = useState<MapRenderState>({ status: "idle" });
@@ -231,6 +230,7 @@ export default function OperaRadarPage() {
           status: "degraded",
           frameKey: expectedFrameKey,
           message: "Radar tiles are still loading; the visible map may be incomplete.",
+          backend: current.backend,
         };
       });
     }, 15_000);

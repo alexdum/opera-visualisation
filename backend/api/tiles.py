@@ -673,6 +673,7 @@ def _get_raw_cog_frame(
 ) -> bytes:
     if not frame.hot_cog:
         raise FileNotFoundError("Catalog does not advertise a hot COG")
+    cog_path = local_cog(frame.product, frame.timestamp, frame.revision, frame.hot_cog)
     try:
         with Reader(str(cog_path)) as cog:
             has_quality = frame.product == "DBZH" and cog.dataset.count >= 2
@@ -780,8 +781,9 @@ def _get_raw_geozarr_frame(
 
 @functools.lru_cache(maxsize=256)
 def _get_raw_frame_cached(
-    product: str, timestamp: str, revision: str, source: str, max_size: int, bbox_key: str
-) -> bytes:
+    product: str, timestamp: str, revision: str, source: str, max_size: int,
+    bbox_key: str, allow_archive_fallback: bool,
+) -> tuple[bytes, str]:
     frame = resolve_catalog_frame(product, timestamp, revision)
     bounds = OPERA_WGS84_BOUNDS
     if bbox_key:
@@ -795,12 +797,12 @@ def _get_raw_frame_cached(
     use_cog = (source != "geozarr" and frame.hot_cog and frame.hot_cog_ready)
     try:
         if use_cog:
-            return _get_raw_cog_frame(frame, max_size, bounds)
+            return _get_raw_cog_frame(frame, max_size, bounds), "cog"
         else:
-            return _get_raw_geozarr_frame(frame, max_size, bounds)
+            return _get_raw_geozarr_frame(frame, max_size, bounds), "geozarr"
     except Exception:
-        if frame.archive_ready and frame.geozarr:
-            return _get_raw_geozarr_frame(frame, max_size, bounds)
+        if allow_archive_fallback and frame.archive_ready and frame.geozarr:
+            return _get_raw_geozarr_frame(frame, max_size, bounds), "geozarr"
         raise
 
 @router.get("/raw/{product}/{timestamp}/{revision}.bin")
@@ -811,9 +813,12 @@ def get_raw_frame(
     source: str = Query("auto", pattern="^(auto|cog|geozarr)$"),
     max_size: int = Query(1024, ge=256, le=2048),
     bbox: str = Query(""),
+    allow_archive_fallback: bool = Query(True),
 ) -> Response:
     try:
-        content = _get_raw_frame_cached(product, timestamp, revision, source, max_size, bbox)
+        content, backend = _get_raw_frame_cached(
+            product, timestamp, revision, source, max_size, bbox, allow_archive_fallback,
+        )
     except HTTPException:
         raise
     except Exception as exc:
@@ -823,6 +828,7 @@ def get_raw_frame(
         media_type="application/octet-stream",
         headers={
             "Cache-Control": "public, max-age=31536000, immutable",
+            "X-OPERA-Backend": backend,
+            "X-OPERA-Revision": revision,
         },
     )
-

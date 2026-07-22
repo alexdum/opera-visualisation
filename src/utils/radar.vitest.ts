@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 import type { RadarFrame } from "@/types/radar";
 import {
   buildTileUrl,
+  buildRawFrameUrl,
   frameIdentity,
   formatRadarCadence,
   inferRadarCadenceMs,
+  getEuropeanScalePyramid,
   parseQualityUrlValue,
   radarOverlayBeforeId,
   radarOverlayInsertionIndex,
@@ -52,6 +54,44 @@ describe("radar tile identity", () => {
   it("includes the catalog-selected archive backend in historical tile URLs", () => {
     const frame = { ...makeFrame("DBZH", "202607210000", "revision"), backend: "geozarr" as const };
     expect(buildTileUrl(frame, null)).toContain("source=geozarr");
+  });
+
+  it("separates COG and GeoZarr cache identities", () => {
+    const cog = makeFrame("DBZH", "202607210000", "revision");
+    const archive = { ...cog, backend: "geozarr" as const };
+    expect(frameIdentity(cog, 0.1)).not.toBe(frameIdentity(archive, 0.1));
+  });
+
+  it("can forbid archive fallback for a hidden COG preload", () => {
+    const frame = makeFrame("DBZH", "202607210000", "revision");
+    expect(buildRawFrameUrl(frame, "", undefined, 1024, false)).toContain("allow_archive_fallback=false");
+  });
+});
+
+describe("zoom-aware radar resolution", () => {
+  const bounds = {
+    getWest: () => 5.12,
+    getSouth: () => 45.12,
+    getEast: () => 14.88,
+    getNorth: () => 54.88,
+  };
+
+  it("uses the fast continental texture below zoom 6", () => {
+    const pyramid = getEuropeanScalePyramid(5.99, bounds, { width: 2000, height: 1400 });
+    expect(pyramid.bboxKey).toBeUndefined();
+    expect(pyramid.maxSize).toBe(1024);
+  });
+
+  it("snaps regional requests and sizes them for device pixels", () => {
+    const pyramid = getEuropeanScalePyramid(6, bounds, { width: 1300, height: 900 });
+    expect(pyramid.bboxKey).toBe("5.00,45.00,15.00,55.00");
+    expect(pyramid.maxSize).toBe(1536);
+  });
+
+  it("caps high-resolution local requests at the backend limit", () => {
+    const pyramid = getEuropeanScalePyramid(8, bounds, { width: 3000, height: 2000 });
+    expect(pyramid.bboxKey).toBe("5.00,45.00,15.00,55.00");
+    expect(pyramid.maxSize).toBe(2048);
   });
 });
 

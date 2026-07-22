@@ -14,7 +14,6 @@ import {
   isAdministrativeBoundaryLayer,
   isPlaceLabelLayer,
   OPERA_IMAGE_COORDINATES,
-  OPERA_WGS84_BOUNDS,
   radarOverlayBeforeId,
   radarOverlayInsertionIndex,
   selectAnimationFrames,
@@ -32,6 +31,51 @@ const STYLE_URLS: Record<string, string> = {
 const TILE_API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ??
   (process.env.NODE_ENV === "development" ? "http://localhost:7860" : "");
+const SINGLE_WEBGL_LAYER_ID = "radar-layer-webgl";
+const MAX_RAW_BUFFER_CACHE_SIZE = 8;
+
+interface RawRadarBuffer {
+  data: Uint8Array;
+  width: number;
+  height: number;
+  minVal: number;
+  maxVal: number;
+  bounds: { west: number; south: number; east: number; north: number };
+}
+
+const boundsFromCoordinates = (
+  coordinates: [[number, number], [number, number], [number, number], [number, number]],
+) => ({
+  west: Math.min(...coordinates.map(([lon]) => lon)),
+  south: Math.min(...coordinates.map(([, lat]) => lat)),
+  east: Math.max(...coordinates.map(([lon]) => lon)),
+  north: Math.max(...coordinates.map(([, lat]) => lat)),
+});
+
+const parseRawRadarResponse = async (response: Response) => {
+  if (!response.ok) {
+    const detail = await response.json().catch(() => ({})) as { detail?: string };
+    throw new Error(detail.detail ?? `Radar frame request failed (${response.status})`);
+  }
+  const buffer = await response.arrayBuffer();
+  if (buffer.byteLength < 16) throw new Error("Radar frame response header is incomplete");
+  const view = new DataView(buffer);
+  const width = view.getUint16(0, true);
+  const height = view.getUint16(2, true);
+  const expectedBytes = 16 + width * height * 2;
+  if (width === 0 || height === 0 || buffer.byteLength !== expectedBytes) {
+    throw new Error("Radar frame response dimensions do not match its payload");
+  }
+  const backendHeader = response.headers.get("X-OPERA-Backend")?.toLowerCase();
+  return {
+    data: new Uint8Array(buffer, 16, width * height * 2),
+    width,
+    height,
+    minVal: view.getFloat32(4, true),
+    maxVal: view.getFloat32(8, true),
+    backend: backendHeader === "geozarr" ? "geozarr" as const : "cog" as const,
+  };
+};
 
 // WGS84 envelope of the authoritative OPERA composite grid, derived from the
 // harvested 3800 × 4400 LAEA COG. RATE and ACRR use the same footprint at a
@@ -90,10 +134,11 @@ export function WeatherMap({
   const basemapRef = useRef(basemap);
   const showLabelsRef = useRef(showLabels);
   const appliedBasemapRef = useRef(basemap);
-  const rawBufferMapRef = useRef<Map<string, { data: Uint8Array; width: number; height: number; minVal: number; maxVal: number; bbox: [[number, number], [number, number], [number, number], [number, number]] }>>(new Map());
+  const rawBufferMapRef = useRef<Map<string, RawRadarBuffer>>(new Map());
   /** Track actual RadarWebGLLayer instances because getLayer() returns
    *  MapLibre's CustomStyleLayer wrapper, not our class instance. */
   const webglLayersRef = useRef<Map<string, RadarWebGLLayer>>(new Map());
+  const minQualityRef = useRef(minQuality);
   const [mapReady, setMapReady] = useState(false);
   const [styleRevision, setStyleRevision] = useState(0);
 
@@ -112,6 +157,14 @@ export function WeatherMap({
   useEffect(() => {
     showLabelsRef.current = showLabels;
   }, [showLabels]);
+
+  useEffect(() => {
+    minQualityRef.current = minQuality;
+  }, [minQuality]);
+
+  useEffect(() => {
+    rawBufferMapRef.current.clear();
+  }, [product]);
 
   useEffect(() => {
     if (!mapContainer.current || map.current) return;
@@ -137,14 +190,13 @@ export function WeatherMap({
       let valueStr = "";
       
       if (isWebGLSupported(instance)) {
-        // Read value from rawBufferMapRef
-        const activeIdentity = frameIdentity(frames[currentTimeIndex], minQuality);
-        const bufferInfo = rawBufferMapRef.current.get(activeIdentity);
+        const activeIdentity = webglLayersRef.current.get(SINGLE_WEBGL_LAYER_ID)?.visibleFrameId();
+        const bufferInfo = activeIdentity ? rawBufferMapRef.current.get(activeIdentity) : undefined;
         if (bufferInfo) {
-          const { data, width, height, minVal, maxVal, bbox } = bufferInfo;
+          const { data, width, height, minVal, maxVal, bounds } = bufferInfo;
           // Interpolate coordinate to pixel
-          const nw = maplibregl.MercatorCoordinate.fromLngLat({lng: bbox[0][0], lat: bbox[0][1]});
-          const se = maplibregl.MercatorCoordinate.fromLngLat({lng: bbox[2][0], lat: bbox[2][1]});
+          const nw = maplibregl.MercatorCoordinate.fromLngLat({lng: bounds.west, lat: bounds.north});
+          const se = maplibregl.MercatorCoordinate.fromLngLat({lng: bounds.east, lat: bounds.south});
           const mc = maplibregl.MercatorCoordinate.fromLngLat({lng, lat});
           
           if (mc.x >= nw.x && mc.x <= se.x && mc.y >= nw.y && mc.y <= se.y) {
@@ -159,7 +211,7 @@ export function WeatherMap({
               const qualByte = data[idx + 1];
               const quality = qualByte >= 254 ? 1.0 : qualByte / 254.0;
               
-              if (quality >= (minQuality || 0) && byteVal > 0) {
+              if (quality >= (minQualityRef.current ?? 0) && byteVal > 0) {
                 const val = minVal + ((byteVal - 1) / 254.0) * (maxVal - minVal);
                 valueStr = ` (${val.toFixed(2)})`;
               }
@@ -311,6 +363,8 @@ export function WeatherMap({
     let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
     let activeSourceId: string | undefined;
     let layersReconciled = false;
+    let viewportGeneration = 0;
+    let loadController = new AbortController();
     const desiredFrames = selectAnimationFrames(frames, currentTimeIndex);
 
     const finish = (state: MapRenderState) => {
@@ -322,14 +376,18 @@ export function WeatherMap({
       instance.off("error", handleError);
       renderHandlerRef.current(state);
     };
-    const finishReady = () => {
+    const finishReady = (backend: "cog" | "geozarr") => {
+      const usedArchiveFallback = currentFrame.backend === "cog" && backend === "geozarr";
       finish({
-        status: currentFrame.backend === "geozarr" ? "degraded" : "ready",
+        status: backend === "geozarr" ? "degraded" : "ready",
         message:
-          currentFrame.backend === "geozarr"
-            ? "Rendered from the permanent GeoZarr archive."
-            : "Frame rendered from the rolling COG cache.",
+          usedArchiveFallback
+            ? "The hot COG was unavailable; rendered from the permanent GeoZarr archive."
+            : backend === "geozarr"
+              ? "Rendered from the permanent GeoZarr archive."
+              : "Frame rendered from the rolling COG cache.",
         frameKey: frameIdentity(currentFrame, minQuality),
+        backend,
       });
     };
     const activeSourceIsLoaded = () =>
@@ -350,147 +408,208 @@ export function WeatherMap({
         event.sourceId === activeSourceId &&
         (event.isSourceLoaded || activeTileContentArrived)
       ) {
-        finishReady();
+        finishReady(currentFrame.backend);
       }
     };
     const handleIdle = () => {
-      if (activeSourceIsLoaded()) finishReady();
+      if (activeSourceIsLoaded()) finishReady(currentFrame.backend);
     };
     const handleRender = () => {
       // Layer/source replacement during a fast slider gesture can race past
       // the last sourcedata notification. MapLibre still renders the settled
       // style, so re-check the active source on its native render event.
-      if (activeSourceIsLoaded()) finishReady();
+      if (activeSourceIsLoaded()) finishReady(currentFrame.backend);
     };
     const handleError = (event: maplibregl.ErrorEvent & { sourceId?: string }) => {
       const activeIdentity = frameIdentity(currentFrame, minQuality);
       if (event.sourceId?.includes(activeIdentity)) {
-        finish({ status: "error", message: "The selected radar frame could not be rendered." });
+        finish({ status: "error", message: "The selected radar frame could not be rendered.", backend: currentFrame.backend });
       }
+    };
+
+    const scheduleFallbackTimer = () => {
+      if (fallbackTimer) clearTimeout(fallbackTimer);
+      fallbackTimer = setTimeout(() => {
+        finish({
+          status: "degraded",
+          message: "Radar loading is taking longer than expected; the visible map may be incomplete.",
+          frameKey: frameIdentity(currentFrame, minQuality),
+          backend: currentFrame.backend,
+        });
+      }, tileLoadTimeoutMs(currentFrame));
     };
 
     const reconcileLayers = () => {
       if (layersReconciled || !instance.isStyleLoaded() || generation !== renderGeneration.current) return;
       layersReconciled = true;
+      const activeViewportGeneration = ++viewportGeneration;
+      const signal = loadController.signal;
       instance.off("style.load", reconcileLayers);
       instance.off("styledata", reconcileLayers);
       renderHandlerRef.current({
         status: "loading",
         message: "Rendering radar frame…",
         frameKey: frameIdentity(currentFrame, minQuality),
+        backend: currentFrame.backend,
       });
 
       const desiredLayerIds: string[] = [];
       const desiredSourceIds: string[] = [];
       const radarBeforeId = radarOverlayBeforeId(instance.getStyle().layers);
       const webGLAvailable = isWebGLSupported(instance);
-      desiredFrames.forEach((frame, index) => {
-        const identity = frameIdentity(frame, minQuality);
-        const layerId = `radar-layer-${identity}`;
-        const sourceId = `radar-source-${identity}`;
-        desiredLayerIds.push(layerId);
-        
-        if (webGLAvailable) {
-          const SINGLE_WEBGL_LAYER_ID = "radar-layer-webgl";
-          activeSourceId = SINGLE_WEBGL_LAYER_ID;
-          if (!desiredLayerIds.includes(SINGLE_WEBGL_LAYER_ID)) {
-            desiredLayerIds.push(SINGLE_WEBGL_LAYER_ID);
+      if (webGLAvailable) {
+        desiredLayerIds.push(SINGLE_WEBGL_LAYER_ID);
+        let webglLayer = webglLayersRef.current.get(SINGLE_WEBGL_LAYER_ID);
+        if (!webglLayer || !instance.getLayer(SINGLE_WEBGL_LAYER_ID)) {
+          webglLayer = new RadarWebGLLayer(SINGLE_WEBGL_LAYER_ID, currentFrame.product);
+          webglLayersRef.current.set(SINGLE_WEBGL_LAYER_ID, webglLayer);
+          instance.addLayer(webglLayer, radarBeforeId);
+        }
+
+        webglLayer.opacity = opacity;
+        webglLayer.minQuality = minQuality ?? 0;
+        webglLayer.setProduct(currentFrame.product);
+
+        const canvas = instance.getCanvas();
+        const pyramid = getEuropeanScalePyramid(instance.getZoom(), instance.getBounds(), {
+          width: canvas.width,
+          height: canvas.height,
+        });
+        const currentIdentity = frameIdentity(currentFrame, minQuality, pyramid.bboxKey, pyramid.maxSize);
+        const fallbackIdentity = frameIdentity(currentFrame, minQuality);
+        const isCurrentRequest = () =>
+          !signal.aborted &&
+          generation === renderGeneration.current &&
+          activeViewportGeneration === viewportGeneration;
+
+        const uploadRawFrame = async (
+          frame: RadarFrame,
+          identity: string,
+          coordinates: [[number, number], [number, number], [number, number], [number, number]],
+          bboxKey: string | undefined,
+          maxSize: number,
+          activate: boolean,
+          allowArchiveFallback = true,
+        ) => {
+          const response = await fetch(
+            buildRawFrameUrl(frame, TILE_API_BASE, bboxKey, maxSize, allowArchiveFallback),
+            { signal },
+          );
+          const parsed = await parseRawRadarResponse(response);
+          if (!isCurrentRequest()) return;
+          const mercatorCoordinates = coordinates.map(([lng, lat]) => {
+            const coordinate = maplibregl.MercatorCoordinate.fromLngLat({ lng, lat });
+            return [coordinate.x, coordinate.y] as [number, number];
+          });
+          webglLayer!.setFrameData(
+            identity,
+            parsed.data,
+            parsed.width,
+            parsed.height,
+            mercatorCoordinates,
+            parsed.backend,
+            activate,
+          );
+          rawBufferMapRef.current.delete(identity);
+          rawBufferMapRef.current.set(identity, {
+            data: parsed.data,
+            width: parsed.width,
+            height: parsed.height,
+            minVal: parsed.minVal,
+            maxVal: parsed.maxVal,
+            bounds: boundsFromCoordinates(coordinates),
+          });
+          while (rawBufferMapRef.current.size > MAX_RAW_BUFFER_CACHE_SIZE) {
+            const oldestIdentity = rawBufferMapRef.current.keys().next().value;
+            if (!oldestIdentity) break;
+            rawBufferMapRef.current.delete(oldestIdentity);
+          }
+          return parsed.backend;
+        };
+
+        if (webglLayer.hasFrame(currentIdentity)) {
+          webglLayer.showFrame(currentIdentity);
+          finishReady(webglLayer.frameBackend(currentIdentity) ?? currentFrame.backend);
+        } else {
+          if (webglLayer.hasFrame(fallbackIdentity)) webglLayer.showFrame(fallbackIdentity);
+          else webglLayer.clearFrame();
+
+          if (pyramid.bboxKey && !webglLayer.hasFrame(fallbackIdentity)) {
+            void uploadRawFrame(
+              currentFrame,
+              fallbackIdentity,
+              OPERA_IMAGE_COORDINATES,
+              undefined,
+              1024,
+              false,
+            ).then(() => {
+              if (isCurrentRequest() && !webglLayer!.hasFrame(currentIdentity)) {
+                webglLayer!.showFrame(fallbackIdentity);
+              }
+            }).catch((error: unknown) => {
+              if (!(error instanceof DOMException && error.name === "AbortError")) {
+                console.warn("Continental radar fallback failed", error);
+              }
+            });
           }
 
-          let webglLayer = webglLayersRef.current.get(SINGLE_WEBGL_LAYER_ID);
-          if (!webglLayer) {
-            webglLayer = new RadarWebGLLayer(SINGLE_WEBGL_LAYER_ID, currentFrame.product);
-            webglLayersRef.current.set(SINGLE_WEBGL_LAYER_ID, webglLayer);
-            instance.addLayer(webglLayer, radarBeforeId);
-          }
-
-          webglLayer.opacity = opacity;
-          webglLayer.minQuality = minQuality ?? 0;
-          webglLayer.setProduct(currentFrame.product);
-
-          const pyramid = getEuropeanScalePyramid(instance.getZoom(), instance.getBounds());
-
-          const currentIdentity = frameIdentity(currentFrame, minQuality, pyramid.bboxKey, pyramid.maxSize);
-          const fallbackIdentity = frameIdentity(currentFrame, minQuality);
-
-          if (webglLayer.hasFrame(currentIdentity)) {
-            webglLayer.showFrame(currentIdentity);
-            finishReady();
-          } else if (webglLayer.hasFrame(fallbackIdentity)) {
-            // Keep Level 0 continental texture displayed as seamless fallback
-            // while the zoomed sub-region buffer downloads.
-            webglLayer.showFrame(fallbackIdentity);
-          }
-
-          desiredFrames.forEach((frame, index) => {
-            const identity = frameIdentity(frame, minQuality, pyramid.bboxKey, pyramid.maxSize);
-            const fallbackIdentity = frameIdentity(frame, minQuality);
-            const isCurrent = index === 0;
-
-            // Ensure Level 0 base frame is cached as instant fallback
-            if (pyramid.bboxKey && !webglLayer!.hasFrame(fallbackIdentity)) {
-              const baseRawUrl = buildRawFrameUrl(frame, TILE_API_BASE);
-              fetch(baseRawUrl)
-                .then((res) => res.arrayBuffer())
-                .then((buffer) => {
-                  const view = new DataView(buffer);
-                  const width = view.getUint16(0, true);
-                  const height = view.getUint16(2, true);
-                  const minVal = view.getFloat32(4, true);
-                  const maxVal = view.getFloat32(8, true);
-                  const payload = new Uint8Array(buffer, 16);
-                  const coords = OPERA_IMAGE_COORDINATES.map((c) => {
-                    const mc = maplibregl.MercatorCoordinate.fromLngLat({ lng: c[0], lat: c[1] });
-                    return [mc.x, mc.y] as [number, number];
-                  });
-                  webglLayer!.setFrameData(fallbackIdentity, payload, width, height, coords);
-                  rawBufferMapRef.current.set(fallbackIdentity, {
-                    data: payload,
-                    width,
-                    height,
-                    minVal,
-                    maxVal,
-                    bbox: OPERA_IMAGE_COORDINATES,
-                  });
-                })
-                .catch(console.error);
-            }
-
-            if (!webglLayer!.hasFrame(identity)) {
-              const rawUrl = buildRawFrameUrl(frame, TILE_API_BASE, pyramid.bboxKey, pyramid.maxSize);
-              fetch(rawUrl)
-                .then((res) => res.arrayBuffer())
-                .then((buffer) => {
-                  const view = new DataView(buffer);
-                  const width = view.getUint16(0, true);
-                  const height = view.getUint16(2, true);
-                  const minVal = view.getFloat32(4, true);
-                  const maxVal = view.getFloat32(8, true);
-                  const payload = new Uint8Array(buffer, 16);
-                  const coords = pyramid.bboxCoords.map((c) => {
-                    const mc = maplibregl.MercatorCoordinate.fromLngLat({ lng: c[0], lat: c[1] });
-                    return [mc.x, mc.y] as [number, number];
-                  });
-
-                  webglLayer!.setFrameData(identity, payload, width, height, coords);
-                  rawBufferMapRef.current.set(identity, {
-                    data: payload,
-                    width,
-                    height,
-                    minVal,
-                    maxVal,
-                    bbox: pyramid.bboxBounds,
-                  });
-
-                  if (isCurrent) {
-                    webglLayer!.showFrame(identity);
-                    finishReady();
-                  }
-                })
-                .catch(console.error);
+          void uploadRawFrame(
+            currentFrame,
+            currentIdentity,
+            pyramid.bboxCoords,
+            pyramid.bboxKey,
+            pyramid.maxSize,
+            true,
+          ).then((backend) => {
+            if (backend && isCurrentRequest()) finishReady(backend);
+          }).catch((error: unknown) => {
+            if (error instanceof DOMException && error.name === "AbortError") return;
+            if (!isCurrentRequest()) return;
+            if (webglLayer!.hasFrame(fallbackIdentity)) {
+              webglLayer!.showFrame(fallbackIdentity);
+              finish({
+                status: "degraded",
+                message: "The detailed radar view failed; showing the same frame at continental resolution.",
+                frameKey: frameIdentity(currentFrame, minQuality),
+                backend: webglLayer!.frameBackend(fallbackIdentity) ?? currentFrame.backend,
+              });
+            } else {
+              finish({
+                status: "error",
+                message: error instanceof Error ? error.message : "The selected radar frame could not be rendered.",
+                frameKey: frameIdentity(currentFrame, minQuality),
+                backend: currentFrame.backend,
+              });
             }
           });
-        } else {
+          scheduleFallbackTimer();
+        }
+
+        const adjacentFrame = desiredFrames[1];
+        if (adjacentFrame) {
+          const adjacentIdentity = frameIdentity(adjacentFrame, minQuality, pyramid.bboxKey, pyramid.maxSize);
+          if (!webglLayer.hasFrame(adjacentIdentity)) {
+            void uploadRawFrame(
+              adjacentFrame,
+              adjacentIdentity,
+              pyramid.bboxCoords,
+              pyramid.bboxKey,
+              pyramid.maxSize,
+              false,
+              false,
+            ).catch((error: unknown) => {
+              if (!(error instanceof DOMException && error.name === "AbortError")) {
+                console.warn("Adjacent radar preload failed", error);
+              }
+            });
+          }
+        }
+      } else {
+        desiredFrames.forEach((frame, index) => {
+          const identity = frameIdentity(frame, minQuality);
+          const layerId = `radar-layer-${identity}`;
+          const sourceId = `radar-source-${identity}`;
+          desiredLayerIds.push(layerId);
           // Raster fallback
           if (index === 0) activeSourceId = sourceId;
           desiredSourceIds.push(sourceId);
@@ -516,8 +635,8 @@ export function WeatherMap({
           } else {
              instance.setPaintProperty(layerId, "raster-opacity", index === 0 ? opacity : 0);
           }
-        }
-      });
+        });
+      }
 
       // Keep the style graph bounded to the current and one preloaded frame.
       instance.getStyle()?.layers?.forEach((layer) => {
@@ -533,31 +652,23 @@ export function WeatherMap({
         }
       });
 
-      instance.off("idle", handleIdle);
-      instance.off("render", handleRender);
-      instance.off("sourcedata", handleSourceData);
-      instance.off("error", handleError);
-      instance.on("idle", handleIdle);
-      instance.on("render", handleRender);
-      instance.on("sourcedata", handleSourceData);
-      instance.on("error", handleError);
-      // The hidden next frame may still be preloading. The user-visible frame
-      // is ready as soon as its own source is loaded; global map idleness is
-      // neither necessary nor reliable for this state transition.
-      if (activeSourceIsLoaded()) {
-        finishReady();
-      } else {
-        fallbackTimer = setTimeout(() => {
-          finish({
-            status: "degraded",
-            message: "Tile loading is taking longer than expected; the visible map may be incomplete.",
-            frameKey: frameIdentity(currentFrame, minQuality),
-          });
-        }, tileLoadTimeoutMs(currentFrame));
+      if (!webGLAvailable) {
+        instance.off("idle", handleIdle);
+        instance.off("render", handleRender);
+        instance.off("sourcedata", handleSourceData);
+        instance.off("error", handleError);
+        instance.on("idle", handleIdle);
+        instance.on("render", handleRender);
+        instance.on("sourcedata", handleSourceData);
+        instance.on("error", handleError);
+        if (activeSourceIsLoaded()) finishReady(currentFrame.backend);
+        else scheduleFallbackTimer();
       }
     };
 
     const handleMoveEnd = () => {
+      loadController.abort();
+      loadController = new AbortController();
       layersReconciled = false;
       reconcileLayers();
     };
@@ -570,6 +681,7 @@ export function WeatherMap({
     instance.on("styledata", reconcileLayers);
     instance.on("moveend", handleMoveEnd);
     return () => {
+      loadController.abort();
       if (fallbackTimer) clearTimeout(fallbackTimer);
       instance.off("style.load", reconcileLayers);
       instance.off("styledata", reconcileLayers);

@@ -22,6 +22,8 @@ from api.tiles import (
     COLORMAPS,
     _apply_geozarr_status,
     _frame_time_index,
+    _get_raw_cog_frame,
+    _get_raw_frame_cached,
     _render_cog_image,
     _render_geozarr_image,
     apply_quality_filter,
@@ -878,11 +880,90 @@ def test_raw_route_returns_binary_header_and_data(monkeypatch):
         # W=2, H=2, min=10, max=20, nodata=-9999
         header = struct.pack('<HHfff', 2, 2, 10.0, 20.0, -9999.0)
         payload = b'\x00' * 8 # 4 pixels * 2 channels = 8 bytes
-        return header + payload
+        return header + payload, "cog"
         
     monkeypatch.setattr("api.tiles._get_raw_frame_cached", fake_render)
     response = client.get("/tiles/raw/DBZH/202607200000/revision-1.bin")
     
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/octet-stream"
+    assert response.headers["x-opera-backend"] == "cog"
+    assert response.headers["x-opera-revision"] == "revision-1"
     assert len(response.content) == 16 + 8
+
+
+def test_raw_cog_reader_resolves_the_cataloged_cog_path(monkeypatch):
+    published = CatalogFrame(
+        product="DBZH",
+        timestamp="202607200000",
+        nominal_time="2026-07-20T00:00:00Z",
+        revision="revision-1",
+        archive_ready=True,
+        hot_cog_ready=True,
+        hot_cog="hot-cog/DBZH/2026/07/20/0000.tif",
+        geozarr="geozarr/DBZH/2026/2026-07.zarr",
+        quality_variables=["DBZH_quality_qi_total"],
+        backend="cog",
+    )
+    opened_paths: list[str] = []
+
+    class FakeDataset:
+        count = 2
+
+    class FakeImage:
+        array = np.array([[[20.0]], [[0.8]]], dtype=np.float32)
+
+    class FakeReader:
+        dataset = FakeDataset()
+
+        def __init__(self, path: str):
+            opened_paths.append(path)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def part(self, *_args, **_kwargs):
+            return FakeImage()
+
+    monkeypatch.setattr("api.tiles.local_cog", lambda *_args: "/tmp/cataloged-frame.tif")
+    monkeypatch.setattr("api.tiles.Reader", FakeReader)
+
+    content = _get_raw_cog_frame(published, max_size=256)
+
+    assert opened_paths == ["/tmp/cataloged-frame.tif"]
+    assert len(content) == 18
+
+
+def test_hidden_cog_preload_never_falls_back_to_geozarr(monkeypatch):
+    published = CatalogFrame(
+        product="DBZH",
+        timestamp="202607200000",
+        nominal_time="2026-07-20T00:00:00Z",
+        revision="revision-1",
+        archive_ready=True,
+        hot_cog_ready=True,
+        hot_cog="hot-cog/DBZH/2026/07/20/0000.tif",
+        geozarr="geozarr/DBZH/2026/2026-07.zarr",
+        quality_variables=["DBZH_quality_qi_total"],
+        backend="cog",
+    )
+    archive_reads: list[bool] = []
+    monkeypatch.setattr("api.tiles.resolve_catalog_frame", lambda *_args: published)
+    monkeypatch.setattr("api.tiles._get_raw_cog_frame", lambda *_args: (_ for _ in ()).throw(OSError("missing COG")))
+    monkeypatch.setattr("api.tiles._get_raw_geozarr_frame", lambda *_args: archive_reads.append(True) or b"archive")
+    _get_raw_frame_cached.cache_clear()
+
+    with pytest.raises(OSError, match="missing COG"):
+        _get_raw_frame_cached("DBZH", published.timestamp, published.revision, "cog", 1024, "", False)
+    assert archive_reads == []
+
+    content, backend = _get_raw_frame_cached(
+        "DBZH", published.timestamp, published.revision, "cog", 1024, "", True,
+    )
+    assert content == b"archive"
+    assert backend == "geozarr"
+    assert archive_reads == [True]
+    _get_raw_frame_cached.cache_clear()

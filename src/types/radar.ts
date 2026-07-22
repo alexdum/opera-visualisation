@@ -33,4 +33,5 @@ export interface MapRenderState {
   status: MapRenderStatus;
   message?: string;
   frameKey?: string;
+  backend?: "cog" | "geozarr";
 }

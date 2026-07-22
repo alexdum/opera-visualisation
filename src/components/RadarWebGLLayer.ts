@@ -27,7 +27,7 @@ export class RadarWebGLLayer implements CustomLayerInterface {
   public renderingMode = "2d" as const;
 
   private program: WebGLProgram | null = null;
-  private gl: WebGLRenderingContext | null = null;
+  private gl: WebGL2RenderingContext | null = null;
   private buffer: WebGLBuffer | null = null;
 
   private aPos: number = -1;
@@ -39,11 +39,16 @@ export class RadarWebGLLayer implements CustomLayerInterface {
   private colormapTexture: WebGLTexture | null = null;
   
   // VRAM ring-buffer cache
-  private textureCache: Map<string, WebGLTexture> = new Map();
+  private textureCache: Map<string, {
+    texture: WebGLTexture;
+    quadCoords: Float32Array;
+    backend: "cog" | "geozarr";
+  }> = new Map();
   private maxCacheSize = 8;
   private cacheKeys: string[] = [];
 
   private currentTexture: WebGLTexture | null = null;
+  private currentFrameId: string | null = null;
   private quadCoords: Float32Array = new Float32Array(0);
 
   public opacity: number = 1.0;
@@ -56,18 +61,20 @@ export class RadarWebGLLayer implements CustomLayerInterface {
     this.product = product;
   }
 
-  private compileShader(gl: WebGLRenderingContext, type: number, source: string): WebGLShader {
+  private compileShader(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
     const shader = gl.createShader(type);
     if (!shader) throw new Error("Cannot create shader");
     gl.shaderSource(shader, source);
     gl.compileShader(shader);
     if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-      throw new Error("Shader compile error: " + gl.getShaderInfoLog(shader));
+      const message = gl.getShaderInfoLog(shader);
+      gl.deleteShader(shader);
+      throw new Error("Shader compile error: " + message);
     }
     return shader;
   }
 
-  public onAdd(map: MapLibreMap, gl: WebGLRenderingContext) {
+  public onAdd(map: MapLibreMap, gl: WebGL2RenderingContext) {
     this.map = map;
     this.gl = gl;
     const vertexShader = this.compileShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
@@ -81,6 +88,10 @@ export class RadarWebGLLayer implements CustomLayerInterface {
     if (!gl.getProgramParameter(this.program, gl.LINK_STATUS)) {
       throw new Error("Program link error: " + gl.getProgramInfoLog(this.program));
     }
+    gl.detachShader(this.program, vertexShader);
+    gl.detachShader(this.program, fragmentShader);
+    gl.deleteShader(vertexShader);
+    gl.deleteShader(fragmentShader);
 
     this.aPos = gl.getAttribLocation(this.program, "a_pos");
     this.aTexCoord = gl.getAttribLocation(this.program, "a_texcoord");
@@ -198,13 +209,15 @@ export class RadarWebGLLayer implements CustomLayerInterface {
     }
 
     if (gl) {
-      for (const tex of this.textureCache.values()) {
-        gl.deleteTexture(tex);
+      for (const entry of this.textureCache.values()) {
+        gl.deleteTexture(entry.texture);
       }
     }
     this.textureCache.clear();
     this.cacheKeys = [];
     this.currentTexture = null;
+    this.currentFrameId = null;
+    this.quadCoords = new Float32Array(0);
   }
 
   public hasFrame(frameId: string): boolean {
@@ -212,14 +225,34 @@ export class RadarWebGLLayer implements CustomLayerInterface {
   }
 
   public showFrame(frameId: string): boolean {
-    if (this.textureCache.has(frameId)) {
-      this.currentTexture = this.textureCache.get(frameId)!;
+    const entry = this.textureCache.get(frameId);
+    if (entry) {
+      this.currentTexture = entry.texture;
+      this.currentFrameId = frameId;
+      this.quadCoords = entry.quadCoords;
+      this.cacheKeys = this.cacheKeys.filter((key) => key !== frameId);
+      this.cacheKeys.push(frameId);
       if (this.map) {
         this.map.triggerRepaint();
       }
       return true;
     }
     return false;
+  }
+
+  public clearFrame() {
+    this.currentTexture = null;
+    this.currentFrameId = null;
+    this.quadCoords = new Float32Array(0);
+    this.map?.triggerRepaint();
+  }
+
+  public visibleFrameId(): string | null {
+    return this.currentFrameId;
+  }
+
+  public frameBackend(frameId: string): "cog" | "geozarr" | undefined {
+    return this.textureCache.get(frameId)?.backend;
   }
 
   /**
@@ -231,58 +264,56 @@ export class RadarWebGLLayer implements CustomLayerInterface {
     rawBinaryBuffer: Uint8Array,
     width: number,
     height: number,
-    bboxCoordinates: [number, number][] // [ [nw_x, nw_y], [ne_x, ne_y], [se_x, se_y], [sw_x, sw_y] ] using Web Mercator coordinates
+    bboxCoordinates: [number, number][], // [ [nw_x, nw_y], [ne_x, ne_y], [se_x, se_y], [sw_x, sw_y] ] using Web Mercator coordinates
+    backend: "cog" | "geozarr",
+    activate = false,
   ) {
     const gl = this.gl;
     if (!gl) return;
+    if (width <= 0 || height <= 0 || rawBinaryBuffer.byteLength !== width * height * 2) {
+      throw new Error("Invalid OPERA raw texture dimensions");
+    }
+
+    const quadCoords = new Float32Array([
+      bboxCoordinates[0][0], bboxCoordinates[0][1], 0, 0,
+      bboxCoordinates[1][0], bboxCoordinates[1][1], 1, 0,
+      bboxCoordinates[2][0], bboxCoordinates[2][1], 1, 1,
+      bboxCoordinates[0][0], bboxCoordinates[0][1], 0, 0,
+      bboxCoordinates[2][0], bboxCoordinates[2][1], 1, 1,
+      bboxCoordinates[3][0], bboxCoordinates[3][1], 0, 1,
+    ]);
 
     if (this.textureCache.has(frameId)) {
-      this.currentTexture = this.textureCache.get(frameId)!;
+      const cached = this.textureCache.get(frameId)!;
+      cached.quadCoords = quadCoords;
+      cached.backend = backend;
     } else {
       const texture = gl.createTexture();
       if (!texture) return;
       gl.bindTexture(gl.TEXTURE_2D, texture);
-      // Assuming Luminance Alpha (2 channels)
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE_ALPHA, width, height, 0, gl.LUMINANCE_ALPHA, gl.UNSIGNED_BYTE, rawBinaryBuffer);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG8, width, height, 0, gl.RG, gl.UNSIGNED_BYTE, rawBinaryBuffer);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
-      this.textureCache.set(frameId, texture);
+      this.textureCache.set(frameId, { texture, quadCoords, backend });
       this.cacheKeys.push(frameId);
 
       if (this.cacheKeys.length > this.maxCacheSize) {
         const oldest = this.cacheKeys.shift();
         if (oldest) {
-          const oldTex = this.textureCache.get(oldest);
-          if (oldTex) gl.deleteTexture(oldTex);
+          const oldEntry = this.textureCache.get(oldest);
+          if (oldEntry) gl.deleteTexture(oldEntry.texture);
           this.textureCache.delete(oldest);
         }
       }
-      this.currentTexture = texture;
     }
-
-    // Quad: 2 triangles, 6 vertices. Each vertex is (x, y, u, v)
-    // MapLibre gives custom layers the Mercator coordinate space
-    this.quadCoords = new Float32Array([
-      // Triangle 1
-      bboxCoordinates[0][0], bboxCoordinates[0][1], 0, 0, // NW
-      bboxCoordinates[1][0], bboxCoordinates[1][1], 1, 0, // NE
-      bboxCoordinates[2][0], bboxCoordinates[2][1], 1, 1, // SE
-      
-      // Triangle 2
-      bboxCoordinates[0][0], bboxCoordinates[0][1], 0, 0, // NW
-      bboxCoordinates[2][0], bboxCoordinates[2][1], 1, 1, // SE
-      bboxCoordinates[3][0], bboxCoordinates[3][1], 0, 1  // SW
-    ]);
-
-    if (this.map) {
-      this.map.triggerRepaint();
-    }
+    if (activate) this.showFrame(frameId);
   }
 
-  public render(gl: WebGLRenderingContext | WebGL2RenderingContext, options: unknown): void {
+  public render(glContext: WebGLRenderingContext | WebGL2RenderingContext, options: unknown): void {
+    const gl = glContext as WebGL2RenderingContext;
     // MapLibre v5 passes CustomRenderMethodInput. For custom layers that
     // supply Mercator [0..1] coordinates, the correct matrix is
     // `defaultProjectionData.mainMatrix` — it is pre-scaled by EXTENT so
@@ -323,15 +354,19 @@ export class RadarWebGLLayer implements CustomLayerInterface {
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 
-  public onRemove(map: MapLibreMap, gl: WebGLRenderingContext) {
+  public onRemove(_map: MapLibreMap, glContext: WebGLRenderingContext | WebGL2RenderingContext) {
+    const gl = glContext as WebGL2RenderingContext;
     if (this.program) gl.deleteProgram(this.program);
     if (this.buffer) gl.deleteBuffer(this.buffer);
     if (this.colormapTexture) gl.deleteTexture(this.colormapTexture);
     
-    for (const tex of this.textureCache.values()) {
-      gl.deleteTexture(tex);
+    for (const entry of this.textureCache.values()) {
+      gl.deleteTexture(entry.texture);
     }
     this.textureCache.clear();
     this.cacheKeys = [];
+    this.currentTexture = null;
+    this.currentFrameId = null;
+    this.quadCoords = new Float32Array(0);
   }
 }

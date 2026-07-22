@@ -307,7 +307,7 @@ export function Sidebar({
           <FilterLabel label="Current frame" help="Published storage and rendering state for the selected frame." />
           <dl className="space-y-2 rounded-xl border border-slate-200 bg-white p-3 text-xs">
             <div className="flex justify-between gap-3"><dt className="text-slate-500">Product</dt><dd className="font-bold">{product}</dd></div>
-            <div className="flex justify-between gap-3"><dt className="text-slate-500">Backend</dt><dd className="font-bold uppercase">{currentFrame?.backend ?? "—"}</dd></div>
+            <div className="flex justify-between gap-3"><dt className="text-slate-500">Backend</dt><dd className="font-bold uppercase">{renderState.backend ?? currentFrame?.backend ?? "—"}</dd></div>
             <div className="flex justify-between gap-3"><dt className="text-slate-500">Map state</dt><dd className="font-bold capitalize">{renderState.status}</dd></div>
             {currentFrame?.start_time && <div><dt className="text-slate-500">Interval start</dt><dd className="font-semibold">{formatUtc(currentFrame.start_time)} UTC</dd></div>}
             {currentFrame?.end_time && <div><dt className="text-slate-500">Interval end</dt><dd className="font-semibold">{formatUtc(currentFrame.end_time)} UTC</dd></div>}

@@ -71,7 +71,7 @@ export const qualityKeyForProduct = (product: RadarProduct, minQuality: number |
   product === "DBZH" ? (minQuality === null ? "off" : minQuality.toFixed(2)) : "off";
 
 export const frameIdentity = (frame: RadarFrame, minQuality: number | null, bbox?: string, maxSize?: number) =>
-  `${frame.product}-${frame.timestamp}-${frame.revision}-${qualityKeyForProduct(frame.product, minQuality)}${bbox ? `-${bbox}` : ""}${maxSize ? `-m${maxSize}` : ""}`;
+  `${frame.product}-${frame.timestamp}-${frame.revision}-${frame.backend}-${qualityKeyForProduct(frame.product, minQuality)}${bbox ? `-${bbox}` : ""}${maxSize ? `-m${maxSize}` : ""}`;
 
 export const tileLoadTimeoutMs = (frame: RadarFrame) =>
   frame.backend === "geozarr" ? 35_000 : 10_000;
@@ -132,7 +132,8 @@ export interface EuropeanScalePyramid {
 
 export const getEuropeanScalePyramid = (
   zoom: number,
-  bounds?: { getWest: () => number; getSouth: () => number; getEast: () => number; getNorth: () => number }
+  bounds?: { getWest: () => number; getSouth: () => number; getEast: () => number; getNorth: () => number },
+  viewport?: { width: number; height: number },
 ): EuropeanScalePyramid => {
   // Level 0: Full Continental view (Zoom < 6.0)
   if (zoom < 6.0 || !bounds) {
@@ -165,7 +166,13 @@ export const getEuropeanScalePyramid = (
   // Level 1: Country / Regional scale (Zoom 6.0 - 8.0) -> 0.5° grid snapping (~2.5km)
   // Level 2: High-res local scale (Zoom >= 8.0) -> 0.25° grid snapping (~1km native COG)
   const step = zoom >= 8.0 ? 0.25 : 0.5;
-  const maxSize = zoom >= 8.0 ? 1536 : 1024;
+  const viewportPixels = Math.max(viewport?.width ?? 0, viewport?.height ?? 0);
+  const baseSize = zoom >= 8.0 ? 1536 : 1024;
+  const maximumSize = zoom >= 8.0 ? 2048 : 1536;
+  const maxSize = Math.min(
+    maximumSize,
+    Math.max(baseSize, Math.ceil(viewportPixels / 256) * 256),
+  );
 
   const minLon = Math.floor(west / step) * step;
   const minLat = Math.floor(south / step) * step;
@@ -201,10 +208,12 @@ export const buildRawFrameUrl = (
   apiBase = "",
   bbox?: string,
   maxSize?: number,
+  allowArchiveFallback = true,
 ) => {
   const normalizedBase = apiBase.replace(/\/$/, "");
   let url = `${normalizedBase}/tiles/raw/${encodeURIComponent(frame.product)}/${frame.timestamp}/${encodeURIComponent(frame.revision)}.bin?source=${encodeURIComponent(frame.backend)}`;
   if (maxSize) url += `&max_size=${maxSize}`;
   if (bbox) url += `&bbox=${encodeURIComponent(bbox)}`;
+  if (!allowArchiveFallback) url += "&allow_archive_fallback=false";
   return url;
 };
