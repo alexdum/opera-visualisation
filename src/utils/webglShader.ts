@@ -51,6 +51,11 @@ export const fragmentShaderSource = `#version 300 es
       vec2 pixelPos = v_texcoord * vec2(texSize) - 0.5;
       vec2 f = fract(pixelPos);
       
+      // Make the smoothing "less aggressive" by steepening the interpolation curve.
+      // A multiplier of 1.0 is standard linear (blurry). 
+      // A multiplier of 3.0 leaves the center of the pixel flat and only blurs the very edges.
+      f = clamp((f - 0.5) * 3.0 + 0.5, 0.0, 1.0);
+      
       vec2 p00 = (floor(pixelPos) + 0.5) * texelSize;
       vec2 p10 = p00 + vec2(texelSize.x, 0.0);
       vec2 p01 = p00 + vec2(0.0, texelSize.y);
