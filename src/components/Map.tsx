@@ -10,8 +10,11 @@ import {
   buildTileUrl,
   buildRawFrameUrl,
   frameIdentity,
+  getEuropeanScalePyramid,
   isAdministrativeBoundaryLayer,
   isPlaceLabelLayer,
+  OPERA_IMAGE_COORDINATES,
+  OPERA_WGS84_BOUNDS,
   radarOverlayBeforeId,
   radarOverlayInsertionIndex,
   selectAnimationFrames,
@@ -36,14 +39,6 @@ const TILE_API_BASE =
 export const OPERA_RADAR_BOUNDS: maplibregl.LngLatBoundsLike = [
   [-39.552438, 31.749398],
   [57.81137, 73.931257],
-];
-
-/** Four corners of the OPERA extent for MapLibre image sources [lng, lat]. */
-const OPERA_IMAGE_COORDINATES: [[number, number], [number, number], [number, number], [number, number]] = [
-  [-39.552438, 73.931257],  // top-left
-  [57.81137, 73.931257],    // top-right
-  [57.81137, 31.749398],    // bottom-right
-  [-39.552438, 31.749398],  // bottom-left
 ];
 
 
@@ -413,18 +408,20 @@ export function WeatherMap({
           webglLayer.minQuality = minQuality ?? 0;
           webglLayer.product = currentFrame.product;
 
-          const currentIdentity = frameIdentity(currentFrame, minQuality);
+          const pyramid = getEuropeanScalePyramid(instance.getZoom(), instance.getBounds());
+
+          const currentIdentity = frameIdentity(currentFrame, minQuality, pyramid.bboxKey, pyramid.maxSize);
           if (webglLayer.hasFrame(currentIdentity)) {
             webglLayer.showFrame(currentIdentity);
             finishReady();
           }
 
           desiredFrames.forEach((frame, index) => {
-            const identity = frameIdentity(frame, minQuality);
+            const identity = frameIdentity(frame, minQuality, pyramid.bboxKey, pyramid.maxSize);
             const isCurrent = index === 0;
 
             if (!webglLayer!.hasFrame(identity)) {
-              const rawUrl = buildRawFrameUrl(frame, TILE_API_BASE);
+              const rawUrl = buildRawFrameUrl(frame, TILE_API_BASE, pyramid.bboxKey, pyramid.maxSize);
               fetch(rawUrl)
                 .then((res) => res.arrayBuffer())
                 .then((buffer) => {
@@ -434,7 +431,7 @@ export function WeatherMap({
                   const minVal = view.getFloat32(4, true);
                   const maxVal = view.getFloat32(8, true);
                   const payload = new Uint8Array(buffer, 16);
-                  const coords = OPERA_IMAGE_COORDINATES.map((c) => {
+                  const coords = pyramid.bboxCoords.map((c) => {
                     const mc = maplibregl.MercatorCoordinate.fromLngLat({ lng: c[0], lat: c[1] });
                     return [mc.x, mc.y] as [number, number];
                   });
@@ -446,7 +443,7 @@ export function WeatherMap({
                     height,
                     minVal,
                     maxVal,
-                    bbox: OPERA_IMAGE_COORDINATES,
+                    bbox: pyramid.bboxBounds,
                   });
 
                   if (isCurrent) {
@@ -524,16 +521,23 @@ export function WeatherMap({
       }
     };
 
+    const handleMoveEnd = () => {
+      layersReconciled = false;
+      reconcileLayers();
+    };
+
     if (instance.isStyleLoaded()) reconcileLayers();
     instance.on("style.load", reconcileLayers);
     // style.load means the style JSON has been installed, but its sprite and
     // source graph may not yet satisfy isStyleLoaded(). styledata is the
     // native follow-up signal used to retry without timing guesses.
     instance.on("styledata", reconcileLayers);
+    instance.on("moveend", handleMoveEnd);
     return () => {
       if (fallbackTimer) clearTimeout(fallbackTimer);
       instance.off("style.load", reconcileLayers);
       instance.off("styledata", reconcileLayers);
+      instance.off("moveend", handleMoveEnd);
       instance.off("idle", handleIdle);
       instance.off("render", handleRender);
       instance.off("sourcedata", handleSourceData);

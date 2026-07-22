@@ -1,5 +1,14 @@
 import type { RadarFrame, RadarProduct } from "@/types/radar";
 
+export const OPERA_WGS84_BOUNDS: [number, number, number, number] = [-39.552438, 31.749398, 57.81137, 73.931257];
+
+export const OPERA_IMAGE_COORDINATES: [[number, number], [number, number], [number, number], [number, number]] = [
+  [-39.552438, 73.931257],  // top-left
+  [57.81137, 73.931257],    // top-right
+  [57.81137, 31.749398],    // bottom-right
+  [-39.552438, 31.749398],  // bottom-left
+];
+
 const DEFAULT_PRODUCT_CADENCE_MS: Record<RadarProduct, number> = {
   DBZH: 5 * 60_000,
   RATE: 15 * 60_000,
@@ -61,8 +70,8 @@ export const radarOverlayBeforeId = (layers: readonly MapStyleLayerLike[]) =>
 export const qualityKeyForProduct = (product: RadarProduct, minQuality: number | null) =>
   product === "DBZH" ? (minQuality === null ? "off" : minQuality.toFixed(2)) : "off";
 
-export const frameIdentity = (frame: RadarFrame, minQuality: number | null) =>
-  `${frame.product}-${frame.timestamp}-${frame.revision}-${qualityKeyForProduct(frame.product, minQuality)}`;
+export const frameIdentity = (frame: RadarFrame, minQuality: number | null, bbox?: string, maxSize?: number) =>
+  `${frame.product}-${frame.timestamp}-${frame.revision}-${qualityKeyForProduct(frame.product, minQuality)}${bbox ? `-${bbox}` : ""}${maxSize ? `-m${maxSize}` : ""}`;
 
 export const tileLoadTimeoutMs = (frame: RadarFrame) =>
   frame.backend === "geozarr" ? 35_000 : 10_000;
@@ -114,10 +123,88 @@ export const parseQualityUrlValue = (value: string | null): number | null | unde
   return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1 ? parsed : undefined;
 };
 
+export interface EuropeanScalePyramid {
+  bboxKey?: string;
+  maxSize: number;
+  bboxCoords: [[number, number], [number, number], [number, number], [number, number]];
+  bboxBounds: [[number, number], [number, number], [number, number], [number, number]];
+}
+
+export const getEuropeanScalePyramid = (
+  zoom: number,
+  bounds?: { getWest: () => number; getSouth: () => number; getEast: () => number; getNorth: () => number }
+): EuropeanScalePyramid => {
+  // Level 0: Full Continental view (Zoom < 6.0)
+  if (zoom < 6.0 || !bounds) {
+    return {
+      maxSize: 1024,
+      bboxCoords: OPERA_IMAGE_COORDINATES,
+      bboxBounds: OPERA_IMAGE_COORDINATES,
+    };
+  }
+
+  let west = bounds.getWest();
+  let south = bounds.getSouth();
+  let east = bounds.getEast();
+  let north = bounds.getNorth();
+
+  // Clamp to OPERA bounds
+  west = Math.max(west, OPERA_WGS84_BOUNDS[0]);
+  south = Math.max(south, OPERA_WGS84_BOUNDS[1]);
+  east = Math.min(east, OPERA_WGS84_BOUNDS[2]);
+  north = Math.min(north, OPERA_WGS84_BOUNDS[3]);
+
+  if (west >= east || south >= north) {
+    return {
+      maxSize: 1024,
+      bboxCoords: OPERA_IMAGE_COORDINATES,
+      bboxBounds: OPERA_IMAGE_COORDINATES,
+    };
+  }
+
+  // Level 1: Country / Regional scale (Zoom 6.0 - 8.0) -> 0.5° grid snapping (~2.5km)
+  // Level 2: High-res local scale (Zoom >= 8.0) -> 0.25° grid snapping (~1km native COG)
+  const step = zoom >= 8.0 ? 0.25 : 0.5;
+  const maxSize = zoom >= 8.0 ? 1536 : 1024;
+
+  const minLon = Math.floor(west / step) * step;
+  const minLat = Math.floor(south / step) * step;
+  const maxLon = Math.ceil(east / step) * step;
+  const maxLat = Math.ceil(north / step) * step;
+
+  const bboxKey = `${minLon.toFixed(2)},${minLat.toFixed(2)},${maxLon.toFixed(2)},${maxLat.toFixed(2)}`;
+
+  const bboxBounds: [[number, number], [number, number], [number, number], [number, number]] = [
+    [minLon, minLat],
+    [maxLon, minLat],
+    [maxLon, maxLat],
+    [minLon, maxLat],
+  ];
+
+  const bboxCoords: [[number, number], [number, number], [number, number], [number, number]] = [
+    [minLon, maxLat], // NW
+    [maxLon, maxLat], // NE
+    [maxLon, minLat], // SE
+    [minLon, minLat], // SW
+  ];
+
+  return {
+    bboxKey,
+    maxSize,
+    bboxCoords,
+    bboxBounds,
+  };
+};
+
 export const buildRawFrameUrl = (
   frame: RadarFrame,
   apiBase = "",
+  bbox?: string,
+  maxSize?: number,
 ) => {
   const normalizedBase = apiBase.replace(/\/$/, "");
-  return `${normalizedBase}/tiles/raw/${encodeURIComponent(frame.product)}/${frame.timestamp}/${encodeURIComponent(frame.revision)}.bin?source=${encodeURIComponent(frame.backend)}`;
+  let url = `${normalizedBase}/tiles/raw/${encodeURIComponent(frame.product)}/${frame.timestamp}/${encodeURIComponent(frame.revision)}.bin?source=${encodeURIComponent(frame.backend)}`;
+  if (maxSize) url += `&max_size=${maxSize}`;
+  if (bbox) url += `&bbox=${encodeURIComponent(bbox)}`;
+  return url;
 };
