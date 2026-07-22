@@ -119,5 +119,5 @@ export const buildRawFrameUrl = (
   apiBase = "",
 ) => {
   const normalizedBase = apiBase.replace(/\/$/, "");
-  return `${normalizedBase}/tiles/raw/frame/${encodeURIComponent(frame.product)}/${frame.timestamp}/${encodeURIComponent(frame.revision)}.bin?source=${encodeURIComponent(frame.backend)}`;
+  return `${normalizedBase}/tiles/raw/${encodeURIComponent(frame.product)}/${frame.timestamp}/${encodeURIComponent(frame.revision)}.bin?source=${encodeURIComponent(frame.backend)}`;
 };

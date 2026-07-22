@@ -13,6 +13,8 @@ from api.pixel import (
     _extract_store_frames,
     _open_group,
     _read_time_coords,
+    _read_time_window,
+    _read_time_window_cached,
     _store_metadata,
     _validate_request,
 )
@@ -316,6 +318,33 @@ def test_pixel_time_coordinate_refreshes_after_metadata_ttl(monkeypatch):
         assert _read_time_coords("growing-store").tolist() == [100, 200]
     finally:
         _read_time_coords.cache_clear()
+
+
+def test_pixel_reads_only_the_requested_time_coordinate_window(monkeypatch):
+    class TrackingTimeArray:
+        def __init__(self):
+            self.values = np.arange(0, 1_000, 10, dtype=np.int64)
+            self.shape = self.values.shape
+            self.reads: list[object] = []
+
+        def __getitem__(self, item):
+            self.reads.append(item)
+            return self.values[item]
+
+    time_array = TrackingTimeArray()
+    monkeypatch.setattr("api.pixel._open_group", lambda _path: {"time": time_array})
+    monkeypatch.setattr("api.pixel._metadata_cache_bucket", lambda: 5)
+    _read_time_window_cached.cache_clear()
+    try:
+        first_index, values = _read_time_window("windowed-store", 400, 500)
+    finally:
+        _read_time_window_cached.cache_clear()
+
+    assert first_index == 40
+    assert values.tolist() == list(range(400, 501, 10))
+    slices = [read for read in time_array.reads if isinstance(read, slice)]
+    assert slices == [slice(40, 51)]
+    assert len(time_array.reads) < 20
 
 
 def test_pixel_caches_results_for_the_same_snapped_cell(monkeypatch):
