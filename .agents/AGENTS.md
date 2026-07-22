@@ -192,8 +192,8 @@ refactored.
 ## OPERA Radar Data Resampling
 
 When generating or downsampling meteorological radar data (like DBZH reflectivity) for map tiles or zoom pyramids:
-1. **Use Bilinear Interpolation**: Use `bilinear` resampling to create smooth transitions when downscaling or reprojecting the data. While it can cause slight blurring, it prevents the severe data dropping (aliasing) caused by nearest neighbor downsampling and provides a visually continuous field.
-2. **Avoid Nearest Neighbor**: Never use `nearest` neighbor resampling for continuous values, as downsampling sparse radar data with it drops intermediate pixels, making higher zoom levels look sparser or "less detailed" than lower zoom levels.
+1. **Avoid Nearest Neighbor Downsampling**: Never use `nearest` neighbor resampling. Downsampling sparse radar data with `nearest` drops intermediate pixels (aliasing). This causes high-resolution radar echoes to randomly disappear and counter-intuitively makes higher zoom levels look sparser or "less detailed" than lower zoom levels.
+2. **Preserve Maximum Intensity**: Use `max` resampling to preserve severe storms without blurring, or `bilinear`/`average` for continuous fields.
 3. **Status Layers**: Use `nearest` only for categorical observation status layers or when exactly matching the native 1:1 resolution.
 <!-- END:opera-radar-resampling-rule -->
 
