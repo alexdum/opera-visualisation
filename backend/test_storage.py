@@ -6,6 +6,7 @@ import time
 from api import cog_cache
 from api import bucket
 from api.bucket import auth_headers, fsspec_storage_options
+from api.raster_runtime import CogReaderPool
 
 
 def test_bucket_auth_is_server_side_and_optional(monkeypatch):
@@ -25,6 +26,43 @@ def test_storage_description_reports_mount_without_credentials(monkeypatch):
     monkeypatch.setattr(bucket, "BUCKET_MOUNT", "/data/opera")
     assert bucket.storage_mode() == "mount"
     assert bucket.storage_description() == "mounted filesystem (/data/opera)"
+
+
+def test_cog_reader_pool_reuses_sequentially_but_not_concurrently():
+    pool = CogReaderPool(max_idle=2)
+    created = []
+
+    class FakeReader:
+        def __init__(self, path):
+            self.path = path
+            self.closed = False
+            created.append(self)
+
+        def close(self):
+            self.closed = True
+
+    first, first_hit = pool.acquire("/data/frame.tif", FakeReader)
+    second, second_hit = pool.acquire("/data/frame.tif", FakeReader)
+    assert first is not second
+    assert first_hit is False
+    assert second_hit is False
+
+    pool.release("/data/frame.tif", FakeReader, first)
+    reused, reused_hit = pool.acquire("/data/frame.tif", FakeReader)
+    assert reused is first
+    assert reused_hit is True
+
+    pool.release("/data/frame.tif", FakeReader, second)
+    pool.release("/data/frame.tif", FakeReader, reused)
+    assert pool.stats() == {
+        "hits": 1,
+        "misses": 2,
+        "active": 0,
+        "idle": 2,
+        "max_idle": 2,
+    }
+    pool.close()
+    assert all(reader.closed for reader in created)
 
 
 def test_concurrent_tiles_download_one_revision_once(monkeypatch, tmp_path: Path):

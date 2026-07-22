@@ -122,6 +122,10 @@ from one origin on port 7860.
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | Comma-separated development origins; production is same-origin |
 | `TILE_RENDER_CONCURRENCY` | `4` | Maximum concurrent raster render operations |
 | `TILE_RENDER_QUEUE_TIMEOUT_SECONDS` | `30` | Maximum time a tile waits for a bounded renderer slot before returning 503 |
+| `GDAL_CACHEMAX` | `256` | Shared GDAL raster block cache, in MiB |
+| `GDAL_NUM_THREADS` | `1` | GDAL workers per render; total potential workers are this value × render concurrency |
+| `COG_READER_POOL_SIZE` | `8` | Maximum idle, reusable COG readers per backend process |
+| `COG_IO_DIAGNOSTICS` | `false` | Log COG path, render time, reader-pool hit, file size, and Linux mount type |
 | `PIXEL_METADATA_CACHE_SECONDS` | `30` | Refresh interval for growing GeoZarr group and time metadata |
 | `PIXEL_RESPONSE_CACHE_SECONDS` | `300` | Lifetime of server-side pixel-series results |
 | `PIXEL_RESPONSE_CACHE_ENTRIES` | `128` | Maximum cached pixel-series results per backend process |
@@ -131,6 +135,16 @@ A public bucket can be read anonymously, but a server-side read-only
 `HF_TOKEN` is recommended because map rendering can otherwise exhaust the
 anonymous resolver rate limit. Add it as a backend/Space secret and never
 expose it through `NEXT_PUBLIC_*` variables or frontend responses.
+
+The production image defaults to four concurrent renders with one GDAL worker
+per render. Increase `GDAL_NUM_THREADS` only together with a reduction in
+`TILE_RENDER_CONCURRENCY`, and benchmark both cold and warm reads. For example,
+`2 × 2` keeps the same upper bound of four active GDAL workers. Set
+`COG_IO_DIAGNOSTICS=true` temporarily to distinguish reader reuse and compare
+first-read versus repeated-read latency. These logs identify the filesystem
+driver behind `/data/opera-radar`, but object-store GET/cache-hit counts must be
+obtained from the mount daemon or storage provider because POSIX file reads do
+not expose that information to this application.
 
 ## API contract
 

@@ -17,7 +17,11 @@ FROM python:3.12-slim
 
 WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    GDAL_CACHEMAX=256 \
+    GDAL_NUM_THREADS=1 \
+    TILE_RENDER_CONCURRENCY=4 \
+    COG_READER_POOL_SIZE=8
 
 # Install runtime system dependencies required by rasterio/GDAL
 RUN apt-get update && \
