@@ -113,3 +113,11 @@ export const parseQualityUrlValue = (value: string | null): number | null | unde
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1 ? parsed : undefined;
 };
+
+export const buildRawFrameUrl = (
+  frame: RadarFrame,
+  apiBase = "",
+) => {
+  const normalizedBase = apiBase.replace(/\/$/, "");
+  return `${normalizedBase}/tiles/raw/frame/${encodeURIComponent(frame.product)}/${frame.timestamp}/${encodeURIComponent(frame.revision)}.bin?source=${encodeURIComponent(frame.backend)}`;
+};

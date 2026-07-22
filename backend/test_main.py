@@ -727,3 +727,34 @@ def test_frame_rendering_cog_and_geozarr_alignment(monkeypatch):
     cog_bytes = cog_frame.render(img_format="WEBP", colormap=COLORMAPS["DBZH"])
     geozarr_bytes = geozarr_frame.render(img_format="WEBP", colormap=COLORMAPS["DBZH"])
     assert cog_bytes == geozarr_bytes
+
+
+def test_raw_route_returns_binary_header_and_data(monkeypatch):
+    import struct
+    
+    published = CatalogFrame(
+        product="DBZH",
+        timestamp="202607200000",
+        nominal_time="2026-07-20T00:00:00Z",
+        revision="revision-1",
+        archive_ready=True,
+        hot_cog_ready=True,
+        hot_cog="hot-cog/DBZH/2026/07/20/0000.tif",
+        geozarr="geozarr/DBZH/2026/2026-07.zarr",
+        quality_variables=["DBZH_quality_qi_total"],
+        backend="cog",
+    )
+    monkeypatch.setattr("api.tiles.resolve_catalog_frame", lambda *_args: published)
+    
+    def fake_render(*args):
+        # W=2, H=2, min=10, max=20, nodata=-9999
+        header = struct.pack('<HHfff', 2, 2, 10.0, 20.0, -9999.0)
+        payload = b'\x00' * 8 # 4 pixels * 2 channels = 8 bytes
+        return header + payload
+        
+    monkeypatch.setattr("api.tiles._get_raw_frame_cached", fake_render)
+    response = client.get("/tiles/raw/DBZH/202607200000/revision-1.bin")
+    
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/octet-stream"
+    assert len(response.content) == 16 + 8

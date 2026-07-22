@@ -310,6 +310,31 @@ refactored.
   cells, include an Excel-compatible UTF-8 encoding, and revoke temporary
   object URLs after starting the download.
 
+### GeoZarr time and observation-state rendering
+
+- GeoZarr `time` coordinates use Unix epoch seconds. Convert
+  `frame.nominal_time` to epoch seconds through the canonical shared helper and
+  require one exact match. NEVER parse compact `YYYYMMDDHHMM` strings directly
+  with `np.datetime64`, compare nanoseconds with epoch seconds, or select a
+  frame using nearest-time `argmin`.
+- A missing or duplicated catalog timestamp is a storage-consistency error and
+  MUST fail explicitly. It must not silently select index 0 or another nearby
+  frame.
+- For every product, treat `{PRODUCT}_status` as the authoritative observation
+  state: `0=detected`, `1=undetect`, and `2=nodata`.
+- Render `undetect` as the shared shaded scanning-area sentinel and keep
+  `nodata` transparent. Do not infer both states solely from `NaN` measurement
+  values. The measurement variable's `undetect_value` may remain a fallback
+  when the status layer is unavailable.
+- Reproject categorical status using nearest-neighbor sampling. Never apply
+  bilinear interpolation to status codes. Apply observation state before final
+  color classification so interpolation cannot invent status categories.
+- COG/GeoZarr parity means the same product, nominal timestamp, revision, and
+  observation-state semantics. Do not require byte-identical output because
+  their storage and reprojection paths may differ.
+- Regression tests for GeoZarr rendering MUST cover a nonzero time index and
+  detected, undetect, and nodata cells for DBZH, RATE, and ACRR.
+
 ### Product-aware timeline rules
 
 - The timeline range represents indexes into catalog-committed frames, not a

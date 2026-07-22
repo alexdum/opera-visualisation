@@ -9,6 +9,7 @@ import type { MapRenderState, RadarFrame, RadarProduct } from "@/types/radar";
 import {
   buildFrameUrl,
   buildTileUrl,
+  buildRawFrameUrl,
   frameIdentity,
   isAdministrativeBoundaryLayer,
   isPlaceLabelLayer,
@@ -17,7 +18,8 @@ import {
   selectAnimationFrames,
   tileLoadTimeoutMs,
 } from "@/utils/radar";
-
+import { isWebGLSupported, RadarWebGLLayer } from "./RadarWebGLLayer";
+import { OPERA_DBZH_PALETTE, OPERA_PRECIP_PALETTE } from "@/utils/colors";
 
 const STYLE_URLS: Record<string, string> = {
   positron: "https://tiles.openfreemap.org/styles/positron",
@@ -121,6 +123,7 @@ export function WeatherMap({
   const basemapRef = useRef(basemap);
   const showLabelsRef = useRef(showLabels);
   const appliedBasemapRef = useRef(basemap);
+  const rawBufferMapRef = useRef<Map<string, { data: Uint8Array; width: number; height: number; bbox: [[number, number], [number, number], [number, number], [number, number]] }>>(new Map());
   const [mapReady, setMapReady] = useState(false);
   const [styleRevision, setStyleRevision] = useState(0);
 
@@ -158,10 +161,49 @@ export function WeatherMap({
       // navigation cannot open it accidentally. Prevent the same gesture from
       // also activating MapLibre's default double-click zoom.
       event.preventDefault();
+      
+      const lng = event.lngLat.lng;
+      const lat = event.lngLat.lat;
+      let valueStr = "";
+      
+      if (isWebGLSupported(instance)) {
+        // Read value from rawBufferMapRef
+        const activeIdentity = frameIdentity(frames[currentTimeIndex], minQuality);
+        const bufferInfo = rawBufferMapRef.current.get(activeIdentity);
+        if (bufferInfo) {
+          const { data, width, height, bbox } = bufferInfo;
+          // Interpolate coordinate to pixel
+          const nw = maplibregl.MercatorCoordinate.fromLngLat({lng: bbox[0][0], lat: bbox[0][1]});
+          const se = maplibregl.MercatorCoordinate.fromLngLat({lng: bbox[2][0], lat: bbox[2][1]});
+          const mc = maplibregl.MercatorCoordinate.fromLngLat({lng, lat});
+          
+          if (mc.x >= nw.x && mc.x <= se.x && mc.y >= nw.y && mc.y <= se.y) {
+            const u = (mc.x - nw.x) / (se.x - nw.x);
+            const v = (mc.y - nw.y) / (se.y - nw.y);
+            const pixelX = Math.floor(u * width);
+            const pixelY = Math.floor(v * height);
+            
+            if (pixelX >= 0 && pixelX < width && pixelY >= 0 && pixelY < height) {
+              const idx = (pixelY * width + pixelX) * 2;
+              const byteVal = data[idx];
+              const quality = data[idx + 1] / 255.0;
+              
+              if (quality >= (minQuality || 0) && byteVal > 0) {
+                const palette = product === "RATE" || product === "ACRR" ? OPERA_PRECIP_PALETTE : OPERA_DBZH_PALETTE;
+                const minVal = palette[0].val;
+                const maxVal = palette[palette.length - 1].val;
+                const val = minVal + (byteVal / 255) * (maxVal - minVal);
+                valueStr = ` (${val.toFixed(2)})`;
+              }
+            }
+          }
+        }
+      }
+
       clickHandlerRef.current?.({
-        lon: Math.round(event.lngLat.lng * 10_000) / 10_000,
-        lat: Math.round(event.lngLat.lat * 10_000) / 10_000,
-        name: `${event.lngLat.lat.toFixed(2)}, ${event.lngLat.lng.toFixed(2)}`,
+        lon: Math.round(lng * 10_000) / 10_000,
+        lat: Math.round(lat * 10_000) / 10_000,
+        name: `${lat.toFixed(2)}, ${lng.toFixed(2)}${valueStr}`,
       });
     });
     const handleSettledStyleRender = () => {
@@ -375,39 +417,76 @@ export function WeatherMap({
       const radarBeforeId = radarOverlayBeforeId(instance.getStyle().layers);
       const viewportBbox = getViewportBbox(instance);
       const coordinates = bboxToCoordinates(viewportBbox);
+      const webGLAvailable = isWebGLSupported(instance);
       desiredFrames.forEach((frame, index) => {
         const identity = frameIdentity(frame, minQuality);
-        const sourceId = `radar-source-${identity}`;
         const layerId = `radar-layer-${identity}`;
-        if (index === 0) activeSourceId = sourceId;
-        desiredSourceIds.push(sourceId);
+        const sourceId = `radar-source-${identity}`;
         desiredLayerIds.push(layerId);
-        const frameUrl = buildFrameUrl(frame, minQuality, TILE_API_BASE, viewportBbox);
-        if (!instance.getSource(sourceId)) {
-          instance.addSource(sourceId, {
-            type: "image",
-            url: frameUrl,
-            coordinates,
-          });
-        }
-        if (!instance.getLayer(layerId)) {
-          instance.addLayer(
-            {
-              id: layerId,
-              type: "raster",
-              source: sourceId,
-              layout: { visibility: "visible" },
-              paint: {
-                "raster-opacity": index === 0 ? opacity : 0,
-                "raster-fade-duration": 0,
-                "raster-resampling": "nearest",
-              },
-            },
-            radarBeforeId,
-          );
+        
+        if (webGLAvailable) {
+          if (index === 0) activeSourceId = layerId; // Custom layer has no source
+          
+          let layer = instance.getLayer(layerId) as unknown as RadarWebGLLayer | undefined;
+          if (!layer) {
+            layer = new RadarWebGLLayer(layerId, frame.product);
+            layer.opacity = index === 0 ? opacity : 0;
+            layer.minQuality = minQuality ?? 0;
+            instance.addLayer(layer, radarBeforeId);
+            
+            const rawUrl = buildRawFrameUrl(frame, TILE_API_BASE);
+            fetch(rawUrl).then(res => res.arrayBuffer()).then(buffer => {
+              const rawBinaryBuffer = new Uint8Array(buffer);
+              const pixels = rawBinaryBuffer.length / 2;
+              const width = Math.round(Math.sqrt(pixels * 19 / 22));
+              const height = Math.round(pixels / width);
+              
+              const coords = OPERA_IMAGE_COORDINATES.map(c => {
+                 const mc = maplibregl.MercatorCoordinate.fromLngLat({lng: c[0], lat: c[1]});
+                 return [mc.x, mc.y] as [number, number];
+              });
+              
+              layer!.setFrameData(instance.painter.context.gl, identity, rawBinaryBuffer, width, height, coords);
+              rawBufferMapRef.current.set(identity, { data: rawBinaryBuffer, width, height, bbox: OPERA_IMAGE_COORDINATES });
+              
+              if (index === 0) {
+                finishReady();
+              }
+            }).catch(console.error);
+          } else {
+            layer.opacity = index === 0 ? opacity : 0;
+            layer.minQuality = minQuality ?? 0;
+            instance.triggerRepaint();
+            if (index === 0) {
+              finishReady();
+            }
+          }
         } else {
-          instance.setPaintProperty(layerId, "raster-opacity", index === 0 ? opacity : 0);
-          instance.setLayoutProperty(layerId, "visibility", "visible");
+          // Raster fallback
+          if (index === 0) activeSourceId = sourceId;
+          desiredSourceIds.push(sourceId);
+          
+          if (!instance.getSource(sourceId)) {
+             instance.addSource(sourceId, {
+                type: "raster",
+                tiles: [buildTileUrl(frame, minQuality, TILE_API_BASE)],
+                tileSize: 256,
+             });
+          }
+          if (!instance.getLayer(layerId)) {
+             instance.addLayer({
+                id: layerId,
+                type: "raster",
+                source: sourceId,
+                layout: { visibility: "visible" },
+                paint: {
+                   "raster-opacity": index === 0 ? opacity : 0,
+                   "raster-fade-duration": 0,
+                }
+             }, radarBeforeId);
+          } else {
+             instance.setPaintProperty(layerId, "raster-opacity", index === 0 ? opacity : 0);
+          }
         }
       });
 
@@ -464,54 +543,6 @@ export function WeatherMap({
       instance.off("error", handleError);
     };
   }, [currentTimeIndex, frames, mapReady, minQuality, opacity, product, styleRevision]);
-
-  // ── Viewport-aware image refresh on zoom/pan ────────────────────────
-  // When the user zooms or pans, update all active image sources to render
-  // only the visible region at high resolution.  The new image is preloaded
-  // before calling updateImage so the coordinate + content swap is atomic.
-  useEffect(() => {
-    const instance = map.current;
-    if (!instance || !mapReady) return;
-    const currentFrame = frames[currentTimeIndex];
-    if (!currentFrame) return;
-
-    let debounceTimer: ReturnType<typeof setTimeout> | undefined;
-    let aborted = false;
-
-    const updateImageForViewport = () => {
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
-        if (aborted || !instance.isStyleLoaded()) return;
-        const viewportBbox = getViewportBbox(instance);
-        const coordinates = bboxToCoordinates(viewportBbox);
-
-        const desiredFrames = selectAnimationFrames(frames, currentTimeIndex);
-        desiredFrames.forEach((frame) => {
-          const identity = frameIdentity(frame, minQuality);
-          const sourceId = `radar-source-${identity}`;
-          const source = instance.getSource(sourceId) as maplibregl.ImageSource | undefined;
-          if (!source) return;
-          const frameUrl = buildFrameUrl(frame, minQuality, TILE_API_BASE, viewportBbox);
-          // Preload the image so MapLibre can update coordinates and
-          // content atomically from the browser cache.
-          const preload = new Image();
-          preload.onload = () => {
-            if (aborted) return;
-            const s = instance.getSource(sourceId) as maplibregl.ImageSource | undefined;
-            if (s) s.updateImage({ url: frameUrl, coordinates });
-          };
-          preload.src = frameUrl;
-        });
-      }, 300);
-    };
-
-    instance.on("moveend", updateImageForViewport);
-    return () => {
-      aborted = true;
-      if (debounceTimer) clearTimeout(debounceTimer);
-      instance.off("moveend", updateImageForViewport);
-    };
-  }, [currentTimeIndex, frames, mapReady, minQuality, product]);
 
   useEffect(() => {
     const instance = map.current;

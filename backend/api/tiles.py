@@ -635,3 +635,182 @@ def get_frame(
             "Cache-Control": "public, max-age=31536000, immutable",
         },
     )
+
+import struct
+
+def _pack_raw_buffer(measurement: np.ndarray, quality: np.ndarray) -> bytes:
+    H, W = measurement.shape
+    valid_meas = measurement[np.isfinite(measurement)]
+    if len(valid_meas) > 0:
+        min_val = float(np.min(valid_meas))
+        max_val = float(np.max(valid_meas))
+    else:
+        min_val, max_val = 0.0, 1.0
+    if min_val == max_val:
+        max_val = min_val + 1.0
+        
+    nodata_val = -9999.0
+    
+    meas_norm = (measurement - min_val) / (max_val - min_val)
+    meas_norm = np.clip(meas_norm * 255, 0, 255)
+    meas_uint8 = np.where(np.isfinite(measurement), meas_norm, 0).astype(np.uint8)
+    
+    q_norm = np.clip(quality * 254, 0, 254)
+    q_uint8 = np.where(np.isfinite(quality) & (quality >= 0) & (quality <= 1), q_norm, 255).astype(np.uint8)
+    
+    header = struct.pack('<HHfff', W, H, min_val, max_val, nodata_val)
+    payload = np.empty((H, W, 2), dtype=np.uint8)
+    payload[:, :, 0] = meas_uint8
+    payload[:, :, 1] = q_uint8
+    
+    return header + payload.tobytes()
+
+def _get_raw_cog_frame(
+    frame: CatalogFrame, max_size: int = 1024, bounds: tuple[float, ...] = OPERA_WGS84_BOUNDS
+) -> bytes:
+    if not frame.hot_cog:
+        raise FileNotFoundError("Catalog does not advertise a hot COG")
+    cog_path = local_cog(frame.product, frame.timestamp, frame.revision, frame.hot_cog)
+    with Reader(str(cog_path)) as cog:
+        has_quality = frame.product == "DBZH" and cog.dataset.count >= 2
+        indexes = (1, 2) if has_quality else (1,)
+        image = cog.part(
+            bounds,
+            bounds_crs=CRS.from_epsg(4326),
+            dst_crs=CRS.from_epsg(3857),
+            max_size=max_size,
+            indexes=indexes,
+            resampling_method="nearest",
+        )
+        raw_b1 = np.asarray(image.array[0], dtype=np.float32)
+        scanning_area_mask = np.isnan(raw_b1)
+        nodata_mask = np.isclose(raw_b1, -9999000.0)
+        
+        d = raw_b1.copy()
+        d[scanning_area_mask] = -10.0
+        d[nodata_mask] = np.nan
+        
+        if has_quality:
+            q = np.asarray(image.array[1], dtype=np.float32)
+        else:
+            q = np.full(d.shape, np.nan, dtype=np.float32)
+            
+        return _pack_raw_buffer(d, q)
+
+def _get_raw_geozarr_frame(
+    frame: CatalogFrame, max_size: int = 1024, bounds: tuple[float, ...] = OPERA_WGS84_BOUNDS
+) -> bytes:
+    group = _open_geozarr(frame.geozarr)
+    metadata = _geozarr_metadata(frame.geozarr, frame.product)
+    
+    times = np.asarray(group["time"][:], dtype=np.int64) if "time" in group else metadata.get("times", np.array([], dtype=np.int64))
+    time_index = _frame_time_index(times, frame)
+
+    full_y, full_x = group[frame.product].shape[1], group[frame.product].shape[2]
+    step = max(1, max(full_y, full_x) // max_size)
+    slab = np.asarray(group[frame.product][time_index, ::step, ::step], dtype=np.float32)
+
+    undetect = group[frame.product].attrs.get("undetect_value", None)
+    if undetect is not None:
+        slab[np.isclose(slab, float(undetect))] = -10.0
+    status_name = f"{frame.product}_status"
+    if status_name in group:
+        status_slab = np.asarray(group[status_name][time_index, ::step, ::step])
+        slab = _apply_geozarr_status(slab, status_slab)
+    slab[~np.isfinite(slab)] = np.nan
+
+    src_transform = metadata["transform"] * Affine.scale(step, step)
+    src_h, src_w = slab.shape
+
+    merc_bounds = transform_bounds("EPSG:4326", "EPSG:3857", *bounds)
+    merc_w = merc_bounds[2] - merc_bounds[0]
+    merc_h = merc_bounds[3] - merc_bounds[1]
+    out_w = min(max_size, src_w)
+    out_h = max(1, int(out_w * merc_h / merc_w))
+    
+    dst_transform = from_bounds(*merc_bounds, out_w, out_h)
+    dst_data = np.full((1, out_h, out_w), np.nan, dtype=np.float32)
+    
+    reproject(
+        slab.reshape(1, src_h, src_w),
+        dst_data,
+        src_transform=src_transform,
+        src_crs=metadata["crs"],
+        dst_transform=dst_transform,
+        dst_crs="EPSG:3857",
+        resampling=Resampling.nearest,
+        src_nodata=np.nan,
+        dst_nodata=np.nan,
+    )
+
+    dst_quality = np.full((1, out_h, out_w), np.nan, dtype=np.float32)
+    if frame.product == "DBZH":
+        quality_vars = frame.quality_variables or []
+        if quality_vars:
+            q_var = quality_vars[0]
+            if q_var in group:
+                q_slab = np.asarray(group[q_var][time_index, ::step, ::step], dtype=np.float32)
+                q_slab[~np.isfinite(q_slab)] = np.nan
+                reproject(
+                    q_slab.reshape(1, src_h, src_w),
+                    dst_quality,
+                    src_transform=src_transform,
+                    src_crs=metadata["crs"],
+                    dst_transform=dst_transform,
+                    dst_crs="EPSG:3857",
+                    resampling=Resampling.nearest,
+                    src_nodata=np.nan,
+                    dst_nodata=np.nan,
+                )
+    
+    return _pack_raw_buffer(dst_data[0], dst_quality[0])
+
+
+@functools.lru_cache(maxsize=256)
+def _get_raw_frame_cached(
+    product: str, timestamp: str, revision: str, source: str, max_size: int, bbox_key: str
+) -> bytes:
+    frame = resolve_catalog_frame(product, timestamp, revision)
+    bounds = OPERA_WGS84_BOUNDS
+    if bbox_key:
+        try:
+            parts = tuple(float(x) for x in bbox_key.split(","))
+            if len(parts) == 4 and parts[0] < parts[2] and parts[1] < parts[3]:
+                bounds = _clamp_bounds(parts)
+        except ValueError:
+            pass
+            
+    use_cog = (source != "geozarr" and frame.hot_cog and frame.hot_cog_ready)
+    try:
+        if use_cog:
+            return _get_raw_cog_frame(frame, max_size, bounds)
+        else:
+            return _get_raw_geozarr_frame(frame, max_size, bounds)
+    except Exception:
+        if frame.archive_ready and frame.geozarr:
+            return _get_raw_geozarr_frame(frame, max_size, bounds)
+        raise
+
+@router.get("/raw/{product}/{timestamp}/{revision}.bin")
+def get_raw_frame(
+    product: str,
+    timestamp: str,
+    revision: str,
+    source: str = Query("auto", pattern="^(auto|cog|geozarr)$"),
+    max_size: int = Query(1024, ge=256, le=2048),
+    bbox: str = Query(""),
+) -> Response:
+    try:
+        content = _get_raw_frame_cached(product, timestamp, revision, source, max_size, bbox)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Raw frame rendering failed") from exc
+    return Response(
+        content=content,
+        media_type="application/octet-stream",
+        headers={
+            "Cache-Control": "public, max-age=31536000, immutable",
+        },
+    )
+
