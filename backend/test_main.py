@@ -10,6 +10,8 @@ from rio_tiler.models import ImageData
 from api.catalog import CatalogFrame, apply_hot_window, parse_daily_catalog
 from api.pixel import _extract_store_frames, _open_group, _store_metadata, _validate_request
 from api.tiles import (
+    COLORMAPS,
+    _apply_geozarr_status,
     _frame_time_index,
     _render_cog_image,
     _render_geozarr_image,
@@ -54,6 +56,19 @@ def test_health():
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert "storage" in response.json()
+
+
+@pytest.mark.parametrize("product", ["DBZH", "RATE", "ACRR"])
+def test_geozarr_status_shades_undetect_and_masks_nodata(product):
+    data = np.array([[20.0, np.nan, 30.0]], dtype=np.float32)
+    status = np.array([[0, 1, 2]], dtype=np.uint8)
+
+    rendered = _apply_geozarr_status(data, status)
+
+    assert rendered[0, 0] == pytest.approx(20.0)
+    assert rendered[0, 1] == pytest.approx(-10.0)
+    assert np.isnan(rendered[0, 2])
+    assert any(lower <= -10.0 < upper for (lower, upper), _color in COLORMAPS[product])
 
 
 @pytest.mark.parametrize("product", ["DBZH", "RATE", "ACRR"])
@@ -712,4 +727,3 @@ def test_frame_rendering_cog_and_geozarr_alignment(monkeypatch):
     cog_bytes = cog_frame.render(img_format="WEBP", colormap=COLORMAPS["DBZH"])
     geozarr_bytes = geozarr_frame.render(img_format="WEBP", colormap=COLORMAPS["DBZH"])
     assert cog_bytes == geozarr_bytes
-

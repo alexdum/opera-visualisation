@@ -29,6 +29,8 @@ router = APIRouter()
 TILE_SIZE = 256
 WEB_MERCATOR_LIMIT = 20037508.342789244
 OPERA_WGS84_BOUNDS = (-39.552438, 31.749398, 57.81137, 73.931257)
+STATUS_UNDETECT = 1
+STATUS_NODATA = 2
 
 
 DBZH_CMAP = [
@@ -203,6 +205,14 @@ def _empty_image() -> ImageData:
     return ImageData(values, crs=CRS.from_epsg(3857), band_names=["measurement"])
 
 
+def _apply_geozarr_status(data: np.ndarray, status: np.ndarray) -> np.ndarray:
+    """Render observed no-echo cells while keeping true nodata transparent."""
+    result = np.asarray(data, dtype=np.float32).copy()
+    result[status == STATUS_UNDETECT] = -10.0
+    result[status == STATUS_NODATA] = np.nan
+    return result
+
+
 def _render_geozarr_image(
     frame: CatalogFrame,
     z: int,
@@ -237,6 +247,12 @@ def _render_geozarr_image(
     undetect_value = measurement_array.attrs.get("undetect_value")
     if undetect_value is not None:
         data[np.isclose(data, float(undetect_value))] = -10.0
+    status_name = f"{frame.product}_status"
+    if status_name in group:
+        status = np.asarray(
+            group[status_name][time_index, y_start:y_end, x_start:x_end]
+        )
+        data = _apply_geozarr_status(data, status)
     data[~np.isfinite(data)] = np.nan
 
     source_transform = metadata["transform"] * Affine.translation(x_start, y_start)
@@ -479,6 +495,10 @@ def _render_geozarr_frame(
     undetect = group[frame.product].attrs.get("undetect_value", None)
     if undetect is not None:
         slab[np.isclose(slab, float(undetect))] = -10.0
+    status_name = f"{frame.product}_status"
+    if status_name in group:
+        status_slab = np.asarray(group[status_name][time_index, ::step, ::step])
+        slab = _apply_geozarr_status(slab, status_slab)
     slab[~np.isfinite(slab)] = np.nan
 
     src_transform = metadata["transform"] * Affine.scale(step, step)
