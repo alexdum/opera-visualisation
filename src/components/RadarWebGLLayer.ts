@@ -244,9 +244,8 @@ export class RadarWebGLLayer implements CustomLayerInterface {
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, this.colormapTexture);
 
-    // Transparency support
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    // Premultiplied alpha blending is set by MapLibre before calling render().
+    // The shader outputs premultiplied alpha to match.
 
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }

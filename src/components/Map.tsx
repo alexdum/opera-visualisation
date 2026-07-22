@@ -96,6 +96,9 @@ export function WeatherMap({
   const showLabelsRef = useRef(showLabels);
   const appliedBasemapRef = useRef(basemap);
   const rawBufferMapRef = useRef<Map<string, { data: Uint8Array; width: number; height: number; minVal: number; maxVal: number; bbox: [[number, number], [number, number], [number, number], [number, number]] }>>(new Map());
+  /** Track actual RadarWebGLLayer instances because getLayer() returns
+   *  MapLibre's CustomStyleLayer wrapper, not our class instance. */
+  const webglLayersRef = useRef<Map<string, RadarWebGLLayer>>(new Map());
   const [mapReady, setMapReady] = useState(false);
   const [styleRevision, setStyleRevision] = useState(0);
 
@@ -395,12 +398,16 @@ export function WeatherMap({
         if (webGLAvailable) {
           if (index === 0) activeSourceId = layerId; // Custom layer has no source
           
-          let layer = instance.getLayer(layerId) as unknown as RadarWebGLLayer | undefined;
-          if (!layer) {
-            layer = new RadarWebGLLayer(layerId, frame.product);
-            layer.opacity = index === 0 ? opacity : 0;
-            layer.minQuality = minQuality ?? 0;
-            instance.addLayer(layer, radarBeforeId);
+          // Use our own ref to access the actual RadarWebGLLayer instance;
+          // instance.getLayer() returns MapLibre's CustomStyleLayer wrapper
+          // whose properties don't propagate to the real implementation.
+          let webglLayer = webglLayersRef.current.get(layerId);
+          if (!webglLayer) {
+            webglLayer = new RadarWebGLLayer(layerId, frame.product);
+            webglLayer.opacity = index === 0 ? opacity : 0;
+            webglLayer.minQuality = minQuality ?? 0;
+            webglLayersRef.current.set(layerId, webglLayer);
+            instance.addLayer(webglLayer, radarBeforeId);
             
             const rawUrl = buildRawFrameUrl(frame, TILE_API_BASE);
             fetch(rawUrl).then(res => res.arrayBuffer()).then(buffer => {
@@ -417,7 +424,7 @@ export function WeatherMap({
                  return [mc.x, mc.y] as [number, number];
               });
               
-              layer!.setFrameData(identity, payload, width, height, coords);
+              webglLayer!.setFrameData(identity, payload, width, height, coords);
               rawBufferMapRef.current.set(identity, { data: payload, width, height, minVal, maxVal, bbox: OPERA_IMAGE_COORDINATES });
               
               if (index === 0) {
@@ -425,8 +432,8 @@ export function WeatherMap({
               }
             }).catch(console.error);
           } else {
-            layer.opacity = index === 0 ? opacity : 0;
-            layer.minQuality = minQuality ?? 0;
+            webglLayer.opacity = index === 0 ? opacity : 0;
+            webglLayer.minQuality = minQuality ?? 0;
             instance.triggerRepaint();
             if (index === 0) {
               finishReady();
@@ -465,6 +472,7 @@ export function WeatherMap({
       instance.getStyle()?.layers?.forEach((layer) => {
         if (layer.id.startsWith("radar-layer-") && !desiredLayerIds.includes(layer.id)) {
           instance.removeLayer(layer.id);
+          webglLayersRef.current.delete(layer.id);
         }
       });
       const style = instance.getStyle();

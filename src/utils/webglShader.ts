@@ -42,6 +42,9 @@ export const fragmentShaderSource = `
       discard;
     }
     
-    gl_FragColor = vec4(color.rgb, color.a * u_opacity);
+    // MapLibre expects premultiplied alpha output for its blend mode
+    // gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA).
+    float finalAlpha = color.a * u_opacity;
+    gl_FragColor = vec4(color.rgb * finalAlpha, finalAlpha);
   }
 `;
