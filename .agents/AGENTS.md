@@ -132,6 +132,7 @@ When generating bounding box coordinates (`bboxCoords`, `bboxBounds`) for custom
 1. **Always Clamp to Native Limits**: You MUST explicitly clamp the frontend coordinate quad to the native dataset boundaries (e.g., `OPERA_WGS84_BOUNDS`). 
 2. **Prevent Texture Stretching**: The backend will automatically clamp out-of-bounds requests and return an image representing the valid data extent. If the frontend maps this image onto an unclamped geographic quad (such as one snapped to a 10° map grid that extends beyond the poleward data limit), MapLibre will stretch the texture to fill the quad, causing severe visual distortion and shifted coordinates. 
 3. **Synchronize Client and Server Bounds**: Ensure that the `bboxKey` requested from the API precisely matches the exact coordinates of the four corners drawn by the WebGL layer.
+4. **Texture Upload Alignment**: When uploading custom binary textures (like `RG8` or `RGB8`) of arbitrary widths via `gl.texImage2D` or `gl.texSubImage2D`, always explicitly set `gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1)` immediately beforehand. WebGL defaults to 4-byte row alignment, which causes silent `DOMException` failures or browser crashes when the texture width produces a non-aligned byte length per row.
 <!-- END:react-maplibre-texture-geometry-rule -->
 
 <!-- BEGIN:react-dashboard-loading-rules -->
@@ -186,6 +187,15 @@ The current implementation is in `backend/api/tiles.py`,
 `src/app/page.tsx`. Preserve these semantics if the implementation is moved or
 refactored.
 <!-- END:opera-dbzh-quality-filter-rule -->
+
+<!-- BEGIN:opera-radar-resampling-rule -->
+## OPERA Radar Data Resampling
+
+When generating or downsampling meteorological radar data (like DBZH reflectivity) for map tiles or zoom pyramids:
+1. **Use Bilinear Interpolation**: Use `bilinear` resampling to create smooth transitions when downscaling or reprojecting the data. While it can cause slight blurring, it prevents the severe data dropping (aliasing) caused by nearest neighbor downsampling and provides a visually continuous field.
+2. **Avoid Nearest Neighbor**: Never use `nearest` neighbor resampling for continuous values, as downsampling sparse radar data with it drops intermediate pixels, making higher zoom levels look sparser or "less detailed" than lower zoom levels.
+3. **Status Layers**: Use `nearest` only for categorical observation status layers or when exactly matching the native 1:1 resolution.
+<!-- END:opera-radar-resampling-rule -->
 
 <!-- BEGIN:opera-visualization-architecture-rules -->
 ## OPERA Visualization Architecture
