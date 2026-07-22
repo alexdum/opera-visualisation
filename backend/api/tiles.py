@@ -144,14 +144,26 @@ def web_mercator_tile_bounds(z: int, x: int, y: int) -> tuple[float, float, floa
 
 
 @functools.lru_cache(maxsize=8)
-def _open_geozarr(path: str) -> Any:
+def _open_group(store_path: str) -> Any:
     if USE_LOCAL_MOUNT:
-        store = zarr.storage.LocalStore(resolve_path(path))
+        store = zarr.storage.LocalStore(resolve_path(store_path))
     else:
         store = zarr.storage.FsspecStore.from_url(
-            f"{HF_BUCKET_URL}/{path}", storage_options=fsspec_storage_options()
+            f"{HF_BUCKET_URL}/{store_path}", storage_options=fsspec_storage_options()
         )
-    return zarr.open_group(store=store, mode="r")
+    try:
+        return zarr.open_consolidated(store=store, mode="r")
+    except Exception:
+        return zarr.open_group(store=store, mode="r")
+
+
+_open_geozarr = _open_group
+
+
+@functools.lru_cache(maxsize=16)
+def _read_time_coords(path: str) -> np.ndarray:
+    group = _open_geozarr(path)
+    return np.asarray(group["time"][:], dtype=np.int64)
 
 
 @functools.lru_cache(maxsize=16)
@@ -159,7 +171,7 @@ def _geozarr_metadata(path: str, product: str) -> dict[str, Any]:
     group = _open_geozarr(path)
     x_coords = np.asarray(group["x"][:], dtype=np.float64)
     y_coords = np.asarray(group["y"][:], dtype=np.float64)
-    times = np.asarray(group["time"][:], dtype=np.int64)
+    times = _read_time_coords(path)
     crs_attrs = dict(group["crs"].attrs)
     crs = CRS.from_string(crs_attrs["proj4_params"])
     transform_values = [float(value) for value in crs_attrs["GeoTransform"].split()]
@@ -202,7 +214,8 @@ def _render_geozarr_image(
     metadata = _geozarr_metadata(frame.geozarr, frame.product)
     x_coords: np.ndarray = metadata["x"]
     y_coords: np.ndarray = metadata["y"]
-    time_index = _frame_time_index(metadata["times"], frame)
+    times = np.asarray(group["time"][:], dtype=np.int64) if "time" in group else metadata.get("times", np.array([], dtype=np.int64))
+    time_index = _frame_time_index(times, frame)
     destination_bounds = web_mercator_tile_bounds(z, x, y)
     source_bounds = transform_bounds(
         "EPSG:3857", metadata["crs"], *destination_bounds, densify_pts=21
@@ -421,19 +434,31 @@ def _render_cog_frame(
             indexes=indexes,
             resampling_method="nearest",
         )
+        raw_b1 = np.asarray(image.array[0], dtype=np.float32)
+        scanning_area_mask = np.isnan(raw_b1)
+        nodata_mask = np.isclose(raw_b1, -9999000.0)
+
         if frame.product == "DBZH" and min_quality is not None and image.count == 2:
             image = apply_quality_filter(image, min_quality)
-    # The COG uses -9999000 as nodata (outside composite) and NaN for
-    # "radar scanned, no echo" (the scanning areas).  After reprojection,
-    # rio-tiler returns a plain ndarray where both still exist.
-    # - NaN → replace with -10 sentinel → renders as faint scanning area
-    # - -9999000 → replace with NaN → renders as transparent (outside coverage)
-    d = image.data
-    nodata_mask = np.isclose(d[0], -9999000.0)
-    nan_mask = np.isnan(d[0])
-    d[0][nan_mask] = -10.0            # scanning area sentinel
-    d[0][nodata_mask] = np.nan         # true nodata stays transparent
-    return image
+            quality_filtered_mask = np.ma.getmaskarray(image.array[:1])[0]
+        else:
+            quality_filtered_mask = np.zeros(raw_b1.shape, dtype=bool)
+
+    d = np.asarray(image.array[:1], dtype=np.float32).copy()
+    d[0][scanning_area_mask] = -10.0
+    d[0][nodata_mask] = np.nan
+    d[0][quality_filtered_mask] = np.nan
+
+    mask = np.isnan(d[0])
+    masked_data = np.ma.MaskedArray(d, mask=mask[np.newaxis, :, :])
+    return ImageData(
+        masked_data,
+        bounds=image.bounds,
+        crs=image.crs,
+        assets=image.assets,
+        metadata=image.metadata,
+        band_names=[frame.product],
+    )
 
 
 def _render_geozarr_frame(
@@ -444,9 +469,8 @@ def _render_geozarr_frame(
     group = _open_geozarr(frame.geozarr)
     metadata = _geozarr_metadata(frame.geozarr, frame.product)
     
-    times = metadata["times"]
-    target_ns = np.datetime64(frame.timestamp.replace("Z", ""), "ns").astype(np.int64)
-    time_index = int(np.argmin(np.abs(times - target_ns)))
+    times = np.asarray(group["time"][:], dtype=np.int64) if "time" in group else metadata.get("times", np.array([], dtype=np.int64))
+    time_index = _frame_time_index(times, frame)
 
     full_y, full_x = group[frame.product].shape[1], group[frame.product].shape[2]
     step = max(1, max(full_y, full_x) // max_size)
@@ -454,7 +478,7 @@ def _render_geozarr_frame(
 
     undetect = group[frame.product].attrs.get("undetect_value", None)
     if undetect is not None:
-        slab[np.isclose(slab, np.float32(undetect))] = np.float32(-10.0)
+        slab[np.isclose(slab, float(undetect))] = -10.0
     slab[~np.isfinite(slab)] = np.nan
 
     src_transform = metadata["transform"] * Affine.scale(step, step)
@@ -487,25 +511,26 @@ def _render_geozarr_frame(
         quality_vars = frame.quality_variables or []
         if quality_vars:
             q_var = quality_vars[0]
-            q_slab = np.asarray(group[q_var][time_index, ::step, ::step], dtype=np.float32)
-            q_slab[~np.isfinite(q_slab)] = np.nan
-            dst_quality = np.full((1, out_h, out_w), np.nan, dtype=np.float32)
-            reproject(
-                q_slab.reshape(1, src_h, src_w),
-                dst_quality,
-                src_transform=src_transform,
-                src_crs=metadata["crs"],
-                dst_transform=dst_transform,
-                dst_crs="EPSG:3857",
-                resampling=Resampling.nearest,
-                src_nodata=np.nan,
-                dst_nodata=np.nan,
-            )
+            if q_var in group:
+                q_slab = np.asarray(group[q_var][time_index, ::step, ::step], dtype=np.float32)
+                q_slab[~np.isfinite(q_slab)] = np.nan
+                dst_quality = np.full((1, out_h, out_w), np.nan, dtype=np.float32)
+                reproject(
+                    q_slab.reshape(1, src_h, src_w),
+                    dst_quality,
+                    src_transform=src_transform,
+                    src_crs=metadata["crs"],
+                    dst_transform=dst_transform,
+                    dst_crs="EPSG:3857",
+                    resampling=Resampling.nearest,
+                    src_nodata=np.nan,
+                    dst_nodata=np.nan,
+                )
 
-            q_data = dst_quality[0]
-            quality_known = np.isfinite(q_data) & (q_data >= 0.0) & (q_data <= 1.0)
-            below_threshold = quality_known & (q_data < min_quality)
-            dst_data[0][below_threshold] = np.nan
+                q_data = dst_quality[0]
+                quality_known = np.isfinite(q_data) & (q_data >= 0.0) & (q_data <= 1.0)
+                below_threshold = quality_known & (q_data < min_quality)
+                dst_data[0][below_threshold] = np.nan
     
     mask = np.isnan(dst_data)
     masked_data = np.ma.MaskedArray(dst_data, mask=mask)
@@ -514,6 +539,7 @@ def _render_geozarr_frame(
         masked_data,
         bounds=merc_bounds,
         crs=CRS.from_epsg(3857),
+        band_names=[frame.product],
     )
 
 

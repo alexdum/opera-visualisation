@@ -34,7 +34,16 @@ def _open_group(store_path: str) -> Any:
         store = zarr.storage.FsspecStore.from_url(
             f"{HF_BUCKET_URL}/{store_path}", storage_options=fsspec_storage_options()
         )
-    return zarr.open_group(store=store, mode="r")
+    try:
+        return zarr.open_consolidated(store=store, mode="r")
+    except Exception:
+        return zarr.open_group(store=store, mode="r")
+
+
+@lru_cache(maxsize=16)
+def _read_time_coords(store_path: str) -> np.ndarray:
+    group = _open_group(store_path)
+    return np.asarray(group["time"][:], dtype=np.int64)
 
 
 @lru_cache(maxsize=16)
@@ -120,11 +129,7 @@ def _extract_store_frames(
         "pixel_center_lat": float(center_lat),
     }
 
-    # Grid geometry and CRS are immutable and safely cached, but the monthly
-    # time coordinate grows throughout the month. Read it live for every
-    # query so newly cataloged frames are immediately addressable without a
-    # backend restart.
-    time_values = np.asarray(group["time"][:], dtype=np.int64)
+    time_values = _read_time_coords(store_path)
     time_lookup = {int(epoch): index for index, epoch in enumerate(time_values)}
     status_array = group[f"{product}_status"]
     measurement_array = group[product]

@@ -1,3 +1,4 @@
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 import numpy as np
 import pytest
@@ -7,8 +8,14 @@ from rio_tiler.errors import TileOutsideBounds
 from rio_tiler.models import ImageData
 
 from api.catalog import CatalogFrame, apply_hot_window, parse_daily_catalog
-from api.pixel import _extract_store_frames, _store_metadata, _validate_request
-from api.tiles import _render_cog_image, _render_geozarr_image, apply_quality_filter, parse_min_quality
+from api.pixel import _extract_store_frames, _open_group, _store_metadata, _validate_request
+from api.tiles import (
+    _frame_time_index,
+    _render_cog_image,
+    _render_geozarr_image,
+    apply_quality_filter,
+    parse_min_quality,
+)
 from main import app
 
 
@@ -358,3 +365,351 @@ def test_geozarr_fallback_renders_cataloged_frame(monkeypatch):
     assert image.width == 256
     assert image.height == 256
     assert np.ma.count(image.array) > 0
+
+
+def test_frame_time_index_calculation():
+    # 2026-07-20T00:00:00Z -> 1784505600
+    # 2026-07-20T00:15:00Z -> 1784506500
+    # 2026-07-20T00:30:00Z -> 1784507400
+    times = np.array([1784505600, 1784506500, 1784507400], dtype=np.int64)
+
+    # 1. Exact match returns correct index
+    catalog_frame = CatalogFrame(
+        product="DBZH",
+        timestamp="202607200015",
+        nominal_time="2026-07-20T00:15:00Z",
+        revision="r1",
+        archive_ready=True,
+        hot_cog_ready=False,
+        geozarr="store.zarr",
+        quality_variables=[],
+        backend="geozarr",
+    )
+    idx = _frame_time_index(times, catalog_frame)
+    assert idx == 1
+
+    # 2. Missing timestamp raises 503 HTTPException
+    missing_frame = CatalogFrame(
+        product="DBZH",
+        timestamp="202607200045",
+        nominal_time="2026-07-20T00:45:00Z",
+        revision="r1",
+        archive_ready=True,
+        hot_cog_ready=False,
+        geozarr="store.zarr",
+        quality_variables=[],
+        backend="geozarr",
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        _frame_time_index(times, missing_frame)
+    assert exc_info.value.status_code == 503
+    assert "not uniquely present" in exc_info.value.detail
+
+    # 3. Duplicate timestamp raises 503 HTTPException
+    dup_times = np.array([1784506500, 1784506500], dtype=np.int64)
+    with pytest.raises(HTTPException) as exc_info:
+        _frame_time_index(dup_times, catalog_frame)
+    assert exc_info.value.status_code == 503
+    assert "not uniquely present" in exc_info.value.detail
+
+
+def test_open_group_consolidated_metadata_fallback(tmp_path, monkeypatch):
+    import zarr
+
+    # Create a zarr store with consolidated metadata
+    consolidated_dir = tmp_path / "consolidated.zarr"
+    store_cons = zarr.storage.LocalStore(str(consolidated_dir))
+    group_cons = zarr.create_group(store=store_cons)
+    group_cons.create_array("x", data=np.array([1.0, 2.0]))
+    group_cons.create_array("y", data=np.array([3.0, 4.0]))
+    zarr.consolidate_metadata(store=store_cons)
+
+    # Create a zarr store WITHOUT consolidated metadata
+    unconsolidated_dir = tmp_path / "unconsolidated.zarr"
+    store_uncons = zarr.storage.LocalStore(str(unconsolidated_dir))
+    group_uncons = zarr.create_group(store=store_uncons)
+    group_uncons.create_array("x", data=np.array([10.0, 20.0]))
+    group_uncons.create_array("y", data=np.array([30.0, 40.0]))
+
+    monkeypatch.setattr("api.pixel.USE_LOCAL_MOUNT", True)
+    monkeypatch.setattr("api.pixel.resolve_path", lambda p: str(p))
+
+    _open_group.cache_clear()
+
+    # 1. Store with consolidated metadata opens cleanly
+    g1 = _open_group(str(consolidated_dir))
+    assert "x" in g1
+    assert "y" in g1
+    assert np.array_equal(g1["x"][:], [1.0, 2.0])
+
+    _open_group.cache_clear()
+
+    # 2. Store without consolidated metadata falls back to zarr.open_group and opens cleanly
+    g2 = _open_group(str(unconsolidated_dir))
+    assert "x" in g2
+    assert "y" in g2
+    assert np.array_equal(g2["x"][:], [10.0, 20.0])
+
+
+def test_geozarr_frame_rendering_timestamp_alignment(monkeypatch):
+    class FakeArray:
+        def __init__(self, data, attrs=None):
+            self.data = np.asarray(data)
+            self.attrs = attrs or {}
+
+        def __getitem__(self, item):
+            return self.data[item]
+
+    limit = 20_037_508.342789244
+    time_0 = int(__import__("datetime").datetime.fromisoformat("2026-03-20T00:00:00+00:00").timestamp())
+    time_1 = int(__import__("datetime").datetime.fromisoformat("2026-03-20T00:15:00+00:00").timestamp())
+
+    data_3d = np.zeros((2, 4, 4), dtype=np.float32)
+    data_3d[0, :, :] = 10.0
+    data_3d[1, :, :] = 50.0
+
+    group = {
+        "DBZH": FakeArray(data_3d, {"undetect_value": -8_888_000.0}),
+    }
+    metadata = {
+        "x": np.linspace(-limit * 0.75, limit * 0.75, 4),
+        "y": np.linspace(limit * 0.75, -limit * 0.75, 4),
+        "times": np.array([time_0, time_1]),
+        "crs": CRS.from_epsg(3857),
+        "transform": Affine.translation(-limit, limit) * Affine.scale(limit / 2, -limit / 2),
+    }
+
+    monkeypatch.setattr("api.tiles._open_geozarr", lambda _path: group)
+    monkeypatch.setattr("api.tiles._geozarr_metadata", lambda _path, _product: metadata)
+
+    frame_time_1 = CatalogFrame(
+        product="DBZH",
+        timestamp="202603200015",
+        nominal_time="2026-03-20T00:15:00Z",
+        revision="revision",
+        archive_ready=True,
+        hot_cog_ready=False,
+        geozarr="store",
+        quality_variables=[],
+        backend="geozarr",
+    )
+
+    image = _render_geozarr_image(frame_time_1, 0, 0, 0, None)
+    valid_pixels = image.array[~image.array.mask]
+    assert len(valid_pixels) > 0
+    assert np.allclose(valid_pixels, 50.0)
+
+
+def test_frame_parity_cog_vs_geozarr(monkeypatch):
+    class FakeDataset:
+        count = 1
+
+    class FakeReader:
+        dataset = FakeDataset()
+
+        def __init__(self, _path):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def tile(self, *_args, **_kwargs):
+            arr = np.ma.masked_invalid(np.full((1, 256, 256), 25.0, dtype=np.float32))
+            return ImageData(arr, crs=CRS.from_epsg(3857), band_names=["DBZH"])
+
+    published = CatalogFrame(
+        product="DBZH",
+        timestamp="202603200000",
+        nominal_time="2026-03-20T00:00:00Z",
+        revision="revision",
+        archive_ready=True,
+        hot_cog_ready=True,
+        hot_cog="hot-cog/DBZH/frame.tif",
+        geozarr="geozarr/DBZH/2026/2026-03.zarr",
+        quality_variables=[],
+        backend="cog",
+    )
+
+    monkeypatch.setattr("api.tiles.local_cog", lambda *_args: "/tmp/cached.tif")
+    monkeypatch.setattr("api.tiles.Reader", FakeReader)
+
+    cog_image = _render_cog_image(published, 0, 0, 0, None)
+
+    class FakeArray:
+        def __init__(self, data, attrs=None):
+            self.data = np.asarray(data)
+            self.attrs = attrs or {}
+
+        def __getitem__(self, item):
+            return self.data[item]
+
+    limit = 20_037_508.342789244
+    epoch = int(__import__("datetime").datetime.fromisoformat("2026-03-20T00:00:00+00:00").timestamp())
+    group = {
+        "DBZH": FakeArray(np.full((1, 4, 4), 25.0, dtype=np.float32)),
+    }
+    metadata = {
+        "x": np.linspace(-limit * 0.75, limit * 0.75, 4),
+        "y": np.linspace(limit * 0.75, -limit * 0.75, 4),
+        "times": np.array([epoch]),
+        "crs": CRS.from_epsg(3857),
+        "transform": Affine.translation(-limit, limit) * Affine.scale(limit / 2, -limit / 2),
+    }
+
+    monkeypatch.setattr("api.tiles._open_geozarr", lambda _path: group)
+    monkeypatch.setattr("api.tiles._geozarr_metadata", lambda _path, _product: metadata)
+
+    geozarr_image = _render_geozarr_image(published, 0, 0, 0, None)
+
+    assert cog_image.count == geozarr_image.count
+    assert cog_image.width == geozarr_image.width
+    assert cog_image.height == geozarr_image.height
+    assert cog_image.crs == geozarr_image.crs
+
+    cog_valid = cog_image.array[~cog_image.array.mask]
+    geozarr_valid = geozarr_image.array[~geozarr_image.array.mask]
+    assert len(cog_valid) > 0
+    assert len(geozarr_valid) > 0
+    assert np.allclose(cog_valid[0], geozarr_valid[0])
+
+
+def test_tiles_open_group_consolidated_metadata_fallback(tmp_path, monkeypatch):
+    import zarr
+    from api.tiles import _open_group as tiles_open_group
+
+    unconsolidated_dir = tmp_path / "unconsolidated_tiles.zarr"
+    store_uncons = zarr.storage.LocalStore(str(unconsolidated_dir))
+    group_uncons = zarr.create_group(store=store_uncons)
+    group_uncons.create_array("x", data=np.array([10.0, 20.0]))
+
+    monkeypatch.setattr("api.tiles.USE_LOCAL_MOUNT", True)
+    monkeypatch.setattr("api.tiles.resolve_path", lambda p: str(p))
+
+    tiles_open_group.cache_clear()
+
+    g = tiles_open_group(str(unconsolidated_dir))
+    assert "x" in g
+    assert np.array_equal(g["x"][:], [10.0, 20.0])
+
+
+def test_time_coords_caching():
+    from api.pixel import _read_time_coords as pixel_read_time
+    from api.tiles import _read_time_coords as tiles_read_time
+
+    assert hasattr(pixel_read_time, "cache_info")
+    assert hasattr(tiles_read_time, "cache_info")
+
+
+def test_frame_rendering_cog_and_geozarr_alignment(monkeypatch):
+    from api.tiles import _render_cog_frame, _render_geozarr_frame, COLORMAPS, OPERA_WGS84_BOUNDS
+    from rasterio.transform import from_bounds
+    from rasterio.warp import transform_bounds
+
+    class FakeDataset:
+        count = 2
+
+    class FakeReader:
+        dataset = FakeDataset()
+
+        def __init__(self, _path):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def part(self, bounds, **_kwargs):
+            cog_data = np.array([
+                [[20.0, 15.0, np.nan, -9999000.0]],
+                [[0.8,  0.02, np.nan, -9999000.0]],
+            ], dtype=np.float32)
+            cog_data = np.tile(cog_data, (1, 3, 1))
+            return ImageData(cog_data, bounds=bounds, crs=CRS.from_epsg(3857), band_names=["DBZH", "quality"])
+
+    monkeypatch.setattr("api.tiles.local_cog", lambda *_args: "/tmp/cached.tif")
+    monkeypatch.setattr("api.tiles.Reader", FakeReader)
+
+    class FakeArray:
+        def __init__(self, data, attrs=None):
+            self.data = np.asarray(data)
+            self.attrs = attrs or {}
+            self.shape = self.data.shape
+
+        def __getitem__(self, item):
+            return self.data[item]
+
+    from rasterio.warp import transform_bounds
+    from rasterio.transform import from_bounds
+
+    epoch = int(__import__("datetime").datetime.fromisoformat("2026-03-20T00:00:00+00:00").timestamp())
+    bounds = OPERA_WGS84_BOUNDS
+    merc_bounds = transform_bounds("EPSG:4326", "EPSG:3857", *bounds)
+
+    gz_dbzh = np.tile(np.array([[[[20.0, 15.0, -8888000.0, np.nan]]]], dtype=np.float32), (1, 1, 3, 1))
+    gz_qual = np.tile(np.array([[[[0.8, 0.02, np.nan, np.nan]]]], dtype=np.float32), (1, 1, 3, 1))
+    gz_time = np.array([epoch], dtype=np.int64)
+
+    group = {
+        "DBZH": FakeArray(gz_dbzh[0], {"undetect_value": -8_888_000.0}),
+        "DBZH_quality_qi_total": FakeArray(gz_qual[0]),
+        "time": gz_time,
+    }
+    metadata = {
+        "x": np.linspace(merc_bounds[0], merc_bounds[2], 4),
+        "y": np.linspace(merc_bounds[3], merc_bounds[1], 3),
+        "times": gz_time,
+        "crs": CRS.from_epsg(3857),
+        "transform": from_bounds(*merc_bounds, 4, 3),
+    }
+
+    monkeypatch.setattr("api.tiles._open_geozarr", lambda _path: group)
+    monkeypatch.setattr("api.tiles._geozarr_metadata", lambda _path, _product: metadata)
+
+    published = CatalogFrame(
+        product="DBZH",
+        timestamp="202603200000",
+        nominal_time="2026-03-20T00:00:00Z",
+        revision="r1",
+        archive_ready=True,
+        hot_cog_ready=True,
+        hot_cog="hot-cog/DBZH/frame.tif",
+        geozarr="geozarr/DBZH/2026/2026-03.zarr",
+        quality_variables=["DBZH_quality_qi_total"],
+        backend="cog",
+    )
+
+    cog_frame = _render_cog_frame(published, 0.10, max_size=4, bounds=bounds)
+    geozarr_frame = _render_geozarr_frame(published, 0.10, max_size=4, bounds=bounds)
+
+    assert cog_frame.band_names == ["DBZH"]
+    assert geozarr_frame.band_names == ["DBZH"]
+
+    cog_data = cog_frame.array[0, 0]
+    geozarr_data = geozarr_frame.array[0, 0]
+
+    # Pixel 0: High quality echo (20.0 dBZ)
+    assert cog_data[0] == pytest.approx(20.0)
+    assert geozarr_data[0] == pytest.approx(20.0)
+
+    # Pixel 1: Low quality echo (< min_quality=0.10 -> masked / NaN)
+    assert np.ma.is_masked(cog_data[1]) or np.isnan(float(cog_data[1]))
+    assert np.ma.is_masked(geozarr_data[1]) or np.isnan(float(geozarr_data[1]))
+
+    # Pixel 2: Scanning area (sentinel -10.0)
+    assert cog_data[2] == pytest.approx(-10.0)
+    assert geozarr_data[2] == pytest.approx(-10.0)
+
+    # Pixel 3: True nodata (masked / NaN)
+    assert np.ma.is_masked(cog_data[3]) or np.isnan(float(cog_data[3]))
+    assert np.ma.is_masked(geozarr_data[3]) or np.isnan(float(geozarr_data[3]))
+
+    # Rendered WebP image bytes match
+    cog_bytes = cog_frame.render(img_format="WEBP", colormap=COLORMAPS["DBZH"])
+    geozarr_bytes = geozarr_frame.render(img_format="WEBP", colormap=COLORMAPS["DBZH"])
+    assert cog_bytes == geozarr_bytes
+
