@@ -1,18 +1,21 @@
-// OPERA DBZH Palette (Horizontal reflectivity, dBZ - MeteoRomania ANM scale)
+// OPERA DBZH Palette (Horizontal reflectivity, dBZ - exact MeteoRomania ANM 15-color bar)
 export const OPERA_DBZH_PALETTE = [
   { val: -5,  color: "#6482A0" },
-  { val: 0,   color: "#00ECEC" },
-  { val: 15,  color: "#00A0F0" },
-  { val: 20,  color: "#0000F0" },
-  { val: 25,  color: "#00FF00" },
-  { val: 30,  color: "#00C000" },
-  { val: 35,  color: "#008000" },
-  { val: 40,  color: "#FFFF00" },
-  { val: 45,  color: "#FF8000" },
-  { val: 50,  color: "#FF0000" },
-  { val: 55,  color: "#C00000" },
-  { val: 60,  color: "#FF00FF" },
-  { val: 65,  color: "#990099" },
+  { val: 0,   color: "#287490" }, // dark teal blue
+  { val: 5,   color: "#2899C0" }, // medium teal blue
+  { val: 10,  color: "#20BFEF" }, // sky blue cyan
+  { val: 15,  color: "#00FF00" }, // bright green ("slab")
+  { val: 20,  color: "#00D000" }, // green
+  { val: 25,  color: "#00A000" }, // medium green ("moderat")
+  { val: 30,  color: "#006000" }, // dark green
+  { val: 35,  color: "#FFD000" }, // bright yellow ("abundant")
+  { val: 40,  color: "#FF9900" }, // orange
+  { val: 45,  color: "#FF0000" }, // red
+  { val: 50,  color: "#B00000" }, // dark red
+  { val: 55,  color: "#500000" }, // very dark maroon
+  { val: 60,  color: "#FF00FF" }, // magenta
+  { val: 65,  color: "#9013FE" }, // purple
+  { val: 70,  color: "#FF0080" }, // hot pink
 ];
 
 // OPERA RATE and ACRR Palette (mm/h or mm)
