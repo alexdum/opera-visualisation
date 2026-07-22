@@ -34,7 +34,7 @@ const TILE_API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ??
   (process.env.NODE_ENV === "development" ? "http://localhost:7860" : "");
 const SINGLE_WEBGL_LAYER_ID = "radar-layer-webgl";
-const MAX_RAW_BUFFER_CACHE_SIZE = 8;
+const MAX_RAW_BUFFER_CACHE_SIZE = 32;
 
 interface RawRadarBuffer {
   data: Uint8Array;

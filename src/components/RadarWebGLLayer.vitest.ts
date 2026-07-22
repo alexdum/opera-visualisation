@@ -75,7 +75,7 @@ describe("RadarWebGLLayer texture activation", () => {
     const coordinates: [number, number][] = [[0, 0], [1, 0], [1, 1], [0, 1]];
 
     layer.setFrameData("visible", payload, 2, 2, coordinates, "cog", true);
-    for (let index = 0; index < 9; index += 1) {
+    for (let index = 0; index < 33; index += 1) {
       layer.setFrameData(`hidden-${index}`, payload, 2, 2, coordinates, "cog", false);
     }
 

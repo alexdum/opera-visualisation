@@ -178,21 +178,27 @@ export const getEuropeanScalePyramid = (
     };
   }
 
-  // Level 1: Country / Regional scale (Zoom 6.0 - 8.0) -> 0.5° grid snapping (~2.5km)
-  // Level 2: High-res local scale (Zoom >= 8.0) -> 0.25° grid snapping (~1km native COG)
-  const step = zoom >= 8.0 ? 0.25 : 0.5;
-  const viewportPixels = Math.max(viewport?.width ?? 0, viewport?.height ?? 0);
-  const baseSize = zoom >= 8.0 ? 1536 : 1024;
-  const maximumSize = zoom >= 8.0 ? 2048 : 1536;
-  const maxSize = Math.min(
-    maximumSize,
-    Math.max(baseSize, Math.ceil(viewportPixels / 256) * 256),
-  );
+  // Native OPERA COG is 1km resolution (~0.01 degrees).
+  // A 1024x1024 pixel image perfectly covers a 10°x10° area at native resolution.
+  // By using a large 10° or 20° grid, we cover entire countries in a single tile.
+  // Panning within this huge tile generates NO new network requests.
+  const step = zoom >= 7.0 ? 10.0 : 20.0;
 
   const minLon = Math.floor(west / step) * step;
   const minLat = Math.floor(south / step) * step;
   const maxLon = Math.ceil(east / step) * step;
   const maxLat = Math.ceil(north / step) * step;
+
+  // If the bbox crosses a grid line, it might be 20° wide instead of 10°.
+  // We scale the requested resolution to maintain the target deg/pixel.
+  const lonSpan = maxLon - minLon;
+  const latSpan = maxLat - minLat;
+  const maxSpan = Math.max(lonSpan, latSpan);
+  
+  // Base size: 1024 pixels per `step` degrees.
+  const maxSize = Math.min(2048, Math.max(1024, Math.round((maxSpan / step) * 1024)));
+
+
 
   const bboxKey = `${minLon.toFixed(2)},${minLat.toFixed(2)},${maxLon.toFixed(2)},${maxLat.toFixed(2)}`;
 

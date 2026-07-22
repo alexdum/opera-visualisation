@@ -44,7 +44,7 @@ export class RadarWebGLLayer implements CustomLayerInterface {
     quadCoords: Float32Array;
     backend: "cog" | "geozarr";
   }> = new Map();
-  private maxCacheSize = 8;
+  private maxCacheSize = 32;
   private cacheKeys: string[] = [];
 
   private currentTexture: WebGLTexture | null = null;
