@@ -210,12 +210,16 @@ export class RadarWebGLLayer implements CustomLayerInterface {
   }
 
   public render(gl: WebGLRenderingContext | WebGL2RenderingContext, options: unknown): void {
-    // MapLibre v5 passes CustomRenderMethodInput with modelViewProjectionMatrix.
-    // Extract it robustly, supporting both the v5 API and potential fallbacks.
+    // MapLibre v5 passes CustomRenderMethodInput. For custom layers that
+    // supply Mercator [0..1] coordinates, the correct matrix is
+    // `defaultProjectionData.mainMatrix` — it is pre-scaled by EXTENT so
+    // Mercator inputs map correctly to clip space. The top-level
+    // `modelViewProjectionMatrix` uses unscaled tile/pixel units.
     const opts = options as Record<string, unknown> | undefined;
+    const projData = opts?.defaultProjectionData as Record<string, unknown> | undefined;
     const matrix: Float32Array | number[] | undefined =
-      (opts?.modelViewProjectionMatrix as Float32Array | undefined) ??
-      (opts?.defaultProjectionData as Record<string, unknown> | undefined)?.mainMatrix as number[] | undefined;
+      (projData?.mainMatrix as Float32Array | undefined) ??
+      (opts?.modelViewProjectionMatrix as Float32Array | undefined);
 
     if (!matrix || !this.program || !this.currentTexture || this.quadCoords.length === 0) return;
 
