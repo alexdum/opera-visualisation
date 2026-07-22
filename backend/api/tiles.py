@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import logging
 import math
 import os
 from threading import BoundedSemaphore
@@ -26,6 +27,7 @@ from api.cog_cache import BucketRateLimitError, local_cog
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 TILE_SIZE = 256
 WEB_MERCATOR_LIMIT = 20037508.342789244
 OPERA_WGS84_BOUNDS = (-39.552438, 31.749398, 57.81137, 73.931257)
@@ -306,10 +308,17 @@ def _render_cog_image(frame: CatalogFrame, z: int, x: int, y: int, min_quality: 
     cog_path = local_cog(
         frame.product, frame.timestamp, frame.revision, frame.hot_cog
     )
-    with Reader(str(cog_path), options={"OVERVIEW_LEVEL": "NONE"}) as cog:
+    with Reader(str(cog_path)) as cog:
         indexes = (1, 2) if frame.product == "DBZH" and min_quality is not None and cog.dataset.count >= 2 else 1
         try:
-            image = cog.tile(x, y, z, indexes=indexes, resampling_method="max")
+            image = cog.tile(
+                x,
+                y,
+                z,
+                indexes=indexes,
+                resampling_method="nearest",
+                reproject_method="max",
+            )
         except TileOutsideBounds:
             # A map viewport routinely requests tiles beyond the finite OPERA
             # composite footprint. Those are transparent pixels, not storage
@@ -368,7 +377,16 @@ def _render_tile_cached(
             backend = "cog"
         except BucketRateLimitError:
             raise
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Hot COG tile render failed for %s %s revision %s (%s); "
+                "falling back to GeoZarr",
+                product,
+                timestamp,
+                revision,
+                type(exc).__name__,
+                exc_info=True,
+            )
             image = _render_geozarr_image(frame, z, x, y, min_quality)
     else:
         image = _render_geozarr_image(frame, z, x, y, min_quality)
@@ -440,7 +458,7 @@ def _render_cog_frame(
     if not frame.hot_cog:
         raise FileNotFoundError("Catalog does not advertise a hot COG")
     cog_path = local_cog(frame.product, frame.timestamp, frame.revision, frame.hot_cog)
-    with Reader(str(cog_path), options={"OVERVIEW_LEVEL": "NONE"}) as cog:
+    with Reader(str(cog_path)) as cog:
         indexes = (1, 2) if frame.product == "DBZH" and min_quality is not None and cog.dataset.count >= 2 else 1
         image = cog.part(
             bounds,
@@ -448,7 +466,8 @@ def _render_cog_frame(
             dst_crs=CRS.from_epsg(3857),
             max_size=max_size,
             indexes=indexes,
-            resampling_method="max",
+            resampling_method="nearest",
+            reproject_method="max",
         )
         raw_b1 = np.asarray(image.array[0], dtype=np.float32)
         scanning_area_mask = np.isnan(raw_b1)
@@ -692,7 +711,7 @@ def _get_raw_cog_frame(
         raise FileNotFoundError("Catalog does not advertise a hot COG")
     cog_path = local_cog(frame.product, frame.timestamp, frame.revision, frame.hot_cog)
     try:
-        with Reader(str(cog_path), options={"OVERVIEW_LEVEL": "NONE"}) as cog:
+        with Reader(str(cog_path)) as cog:
             has_quality = frame.product == "DBZH" and cog.dataset.count >= 2
             indexes = (1, 2) if has_quality else (1,)
             image = cog.part(
@@ -701,7 +720,8 @@ def _get_raw_cog_frame(
                 dst_crs=CRS.from_epsg(3857),
                 max_size=max_size,
                 indexes=indexes,
-                resampling_method="max",
+                resampling_method="nearest",
+                reproject_method="max",
             )
             raw_b1 = np.asarray(image.array[0], dtype=np.float32)
             scanning_area_mask = np.isnan(raw_b1)
@@ -837,8 +857,17 @@ def _get_raw_frame_cached(
             return _get_raw_cog_frame(frame, max_size, bounds), "cog"
         else:
             return _get_raw_geozarr_frame(frame, max_size, bounds), "geozarr"
-    except Exception:
+    except Exception as exc:
         if allow_archive_fallback and frame.archive_ready and frame.geozarr:
+            logger.warning(
+                "Hot COG frame render failed for %s %s revision %s (%s); "
+                "falling back to GeoZarr",
+                product,
+                timestamp,
+                revision,
+                type(exc).__name__,
+                exc_info=True,
+            )
             return _get_raw_geozarr_frame(frame, max_size, bounds), "geozarr"
         raise
 

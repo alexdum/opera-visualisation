@@ -906,6 +906,7 @@ def test_raw_cog_reader_resolves_the_cataloged_cog_path(monkeypatch):
         backend="cog",
     )
     opened_paths: list[str] = []
+    part_options: dict[str, object] = {}
 
     class FakeDataset:
         count = 2
@@ -925,7 +926,8 @@ def test_raw_cog_reader_resolves_the_cataloged_cog_path(monkeypatch):
         def __exit__(self, *_args):
             return None
 
-        def part(self, *_args, **_kwargs):
+        def part(self, *_args, **kwargs):
+            part_options.update(kwargs)
             return FakeImage()
 
     monkeypatch.setattr("api.tiles.local_cog", lambda *_args: "/tmp/cataloged-frame.tif")
@@ -934,10 +936,12 @@ def test_raw_cog_reader_resolves_the_cataloged_cog_path(monkeypatch):
     content = _get_raw_cog_frame(published, max_size=256)
 
     assert opened_paths == ["/tmp/cataloged-frame.tif"]
+    assert part_options["resampling_method"] == "nearest"
+    assert part_options["reproject_method"] == "max"
     assert len(content) == 18
 
 
-def test_hidden_cog_preload_never_falls_back_to_geozarr(monkeypatch):
+def test_hidden_cog_preload_never_falls_back_to_geozarr(monkeypatch, caplog):
     published = CatalogFrame(
         product="DBZH",
         timestamp="202607200000",
@@ -960,10 +964,13 @@ def test_hidden_cog_preload_never_falls_back_to_geozarr(monkeypatch):
         _get_raw_frame_cached("DBZH", published.timestamp, published.revision, "cog", 1024, "", False)
     assert archive_reads == []
 
-    content, backend = _get_raw_frame_cached(
-        "DBZH", published.timestamp, published.revision, "cog", 1024, "", True,
-    )
+    with caplog.at_level("WARNING", logger="api.tiles"):
+        content, backend = _get_raw_frame_cached(
+            "DBZH", published.timestamp, published.revision, "cog", 1024, "", True,
+        )
     assert content == b"archive"
     assert backend == "geozarr"
     assert archive_reads == [True]
+    assert "Hot COG frame render failed" in caplog.text
+    assert "OSError" in caplog.text
     _get_raw_frame_cached.cache_clear()
