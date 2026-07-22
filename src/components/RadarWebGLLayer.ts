@@ -35,6 +35,7 @@ export class RadarWebGLLayer implements CustomLayerInterface {
   private uMatrix: WebGLUniformLocation | null = null;
   private uOpacity: WebGLUniformLocation | null = null;
   private uMinQuality: WebGLUniformLocation | null = null;
+  private uSmooth: WebGLUniformLocation | null = null;
 
   private colormapTexture: WebGLTexture | null = null;
   
@@ -53,6 +54,7 @@ export class RadarWebGLLayer implements CustomLayerInterface {
 
   public opacity: number = 1.0;
   public minQuality: number = 0.1;
+  public smooth: boolean = true; // Use smart bilinear color interpolation by default
   public product: string = "DBZH";
   private map: MapLibreMap | null = null;
 
@@ -98,6 +100,7 @@ export class RadarWebGLLayer implements CustomLayerInterface {
     this.uMatrix = gl.getUniformLocation(this.program, "u_matrix");
     this.uOpacity = gl.getUniformLocation(this.program, "u_opacity");
     this.uMinQuality = gl.getUniformLocation(this.program, "u_min_quality");
+    this.uSmooth = gl.getUniformLocation(this.program, "u_smooth");
 
     const uDataTexture = gl.getUniformLocation(this.program, "u_data_texture");
     const uColormapTexture = gl.getUniformLocation(this.program, "u_colormap_texture");
@@ -338,6 +341,7 @@ export class RadarWebGLLayer implements CustomLayerInterface {
     gl.uniformMatrix4fv(this.uMatrix, false, matrix);
     gl.uniform1f(this.uOpacity, this.opacity);
     gl.uniform1f(this.uMinQuality, this.minQuality);
+    gl.uniform1i(this.uSmooth, this.smooth ? 1 : 0);
 
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
     gl.bufferData(gl.ARRAY_BUFFER, this.quadCoords, gl.STATIC_DRAW);
