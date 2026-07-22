@@ -7,7 +7,6 @@ import { Home } from "lucide-react";
 
 import type { MapRenderState, RadarFrame, RadarProduct } from "@/types/radar";
 import {
-  buildFrameUrl,
   buildTileUrl,
   buildRawFrameUrl,
   frameIdentity,
@@ -48,33 +47,7 @@ const OPERA_IMAGE_COORDINATES: [[number, number], [number, number], [number, num
   [-39.552438, 31.749398],  // bottom-left
 ];
 
-/** Compute the current viewport bbox clamped to OPERA extent, or undefined if zoomed out. */
-const getViewportBbox = (instance: maplibregl.Map) => {
-  const b = instance.getBounds();
-  const clamped = {
-    west: Math.max(b.getWest(), -39.552438),
-    south: Math.max(b.getSouth(), 31.749398),
-    east: Math.min(b.getEast(), 57.81137),
-    north: Math.min(b.getNorth(), 73.931257),
-  };
-  const isZoomedIn =
-    clamped.east - clamped.west < 90 ||
-    clamped.north - clamped.south < 35;
-  return isZoomedIn ? clamped : undefined;
-};
 
-/** Convert a viewport bbox to MapLibre image source coordinates, or fall back to full extent. */
-const bboxToCoordinates = (
-  bbox?: { west: number; south: number; east: number; north: number },
-): [[number, number], [number, number], [number, number], [number, number]] =>
-  bbox
-    ? [
-        [bbox.west, bbox.north],
-        [bbox.east, bbox.north],
-        [bbox.east, bbox.south],
-        [bbox.west, bbox.south],
-      ]
-    : OPERA_IMAGE_COORDINATES;
 
 const fitRadarExtent = (instance: maplibregl.Map, duration: number) => {
   const compact = instance.getContainer().clientWidth < 640;
@@ -415,8 +388,6 @@ export function WeatherMap({
       const desiredLayerIds: string[] = [];
       const desiredSourceIds: string[] = [];
       const radarBeforeId = radarOverlayBeforeId(instance.getStyle().layers);
-      const viewportBbox = getViewportBbox(instance);
-      const coordinates = bboxToCoordinates(viewportBbox);
       const webGLAvailable = isWebGLSupported(instance);
       desiredFrames.forEach((frame, index) => {
         const identity = frameIdentity(frame, minQuality);

@@ -1,8 +1,8 @@
-import type { CustomLayerInterface, Map } from "maplibre-gl";
+import type { CustomLayerInterface, Map as MapLibreMap } from "maplibre-gl";
 import { vertexShaderSource, fragmentShaderSource } from "../utils/webglShader";
 import { OPERA_DBZH_PALETTE, OPERA_PRECIP_PALETTE } from "../utils/colors";
 
-export const isWebGLSupported = (map: Map): boolean => {
+export const isWebGLSupported = (map: MapLibreMap): boolean => {
   return !!map.getCanvas().getContext("webgl") || !!map.getCanvas().getContext("webgl2");
 };
 
@@ -18,8 +18,8 @@ function hexToRgba(hex: string): [number, number, number, number] {
 
 export class RadarWebGLLayer implements CustomLayerInterface {
   public id: string;
-  public type: "custom" = "custom";
-  public renderingMode: "2d" = "2d";
+  public type = "custom" as const;
+  public renderingMode = "2d" as const;
 
   private program: WebGLProgram | null = null;
   private gl: WebGLRenderingContext | null = null;
@@ -44,7 +44,7 @@ export class RadarWebGLLayer implements CustomLayerInterface {
   public opacity: number = 1.0;
   public minQuality: number = 0.1;
   public product: string = "DBZH";
-  private map: Map | null = null;
+  private map: MapLibreMap | null = null;
 
   constructor(id: string, product: string = "DBZH") {
     this.id = id;
@@ -62,7 +62,7 @@ export class RadarWebGLLayer implements CustomLayerInterface {
     return shader;
   }
 
-  public onAdd(map: Map, gl: WebGLRenderingContext) {
+  public onAdd(map: MapLibreMap, gl: WebGLRenderingContext) {
     this.map = map;
     this.gl = gl;
     const vertexShader = this.compileShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
@@ -175,8 +175,13 @@ export class RadarWebGLLayer implements CustomLayerInterface {
     }
   }
 
-  public render(gl: WebGLRenderingContext, matrix: number[]) {
-    if (!this.program || !this.currentTexture || this.quadCoords.length === 0) return;
+  public render(gl: WebGLRenderingContext | WebGL2RenderingContext, matrixOrOptions: unknown): void {
+    const opts = matrixOrOptions as { defaultProjectionData?: { mainMatrix?: number[] }; matrix?: number[] } | number[] | undefined;
+    const matrix: number[] | undefined = Array.isArray(opts)
+      ? opts
+      : (opts?.defaultProjectionData?.mainMatrix ?? opts?.matrix);
+
+    if (!matrix || !this.program || !this.currentTexture || this.quadCoords.length === 0) return;
 
     gl.useProgram(this.program);
 
@@ -206,7 +211,7 @@ export class RadarWebGLLayer implements CustomLayerInterface {
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 
-  public onRemove(map: Map, gl: WebGLRenderingContext) {
+  public onRemove(map: MapLibreMap, gl: WebGLRenderingContext) {
     if (this.program) gl.deleteProgram(this.program);
     if (this.buffer) gl.deleteBuffer(this.buffer);
     if (this.colormapTexture) gl.deleteTexture(this.colormapTexture);
