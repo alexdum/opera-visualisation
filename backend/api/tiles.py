@@ -267,7 +267,7 @@ def _render_geozarr_image(
         dst_crs="EPSG:3857",
         src_nodata=np.nan,
         dst_nodata=np.nan,
-        resampling=Resampling.nearest,
+        resampling=Resampling.max,
     )
 
     if frame.product == "DBZH" and min_quality is not None and frame.quality_variables:
@@ -309,7 +309,7 @@ def _render_cog_image(frame: CatalogFrame, z: int, x: int, y: int, min_quality: 
     with Reader(str(cog_path)) as cog:
         indexes = (1, 2) if frame.product == "DBZH" and min_quality is not None and cog.dataset.count >= 2 else 1
         try:
-            image = cog.tile(x, y, z, indexes=indexes)
+            image = cog.tile(x, y, z, indexes=indexes, resampling_method="max")
         except TileOutsideBounds:
             # A map viewport routinely requests tiles beyond the finite OPERA
             # composite footprint. Those are transparent pixels, not storage
@@ -448,7 +448,7 @@ def _render_cog_frame(
             dst_crs=CRS.from_epsg(3857),
             max_size=max_size,
             indexes=indexes,
-            resampling_method="nearest",
+            resampling_method="max",
         )
         raw_b1 = np.asarray(image.array[0], dtype=np.float32)
         scanning_area_mask = np.isnan(raw_b1)
@@ -539,7 +539,7 @@ def _render_geozarr_frame(
         src_crs=metadata["crs"],
         dst_transform=dst_transform,
         dst_crs="EPSG:3857",
-        resampling=Resampling.nearest,
+        resampling=Resampling.max,
         src_nodata=np.nan,
         dst_nodata=np.nan,
     )
@@ -701,7 +701,7 @@ def _get_raw_cog_frame(
                 dst_crs=CRS.from_epsg(3857),
                 max_size=max_size,
                 indexes=indexes,
-                resampling_method="nearest",
+                resampling_method="max",
             )
             raw_b1 = np.asarray(image.array[0], dtype=np.float32)
             scanning_area_mask = np.isnan(raw_b1)
@@ -788,7 +788,7 @@ def _get_raw_geozarr_frame(
         src_crs=metadata["crs"],
         dst_transform=dst_transform,
         dst_crs="EPSG:3857",
-        resampling=Resampling.nearest,
+        resampling=Resampling.max,
         src_nodata=np.nan,
         dst_nodata=np.nan,
     )
