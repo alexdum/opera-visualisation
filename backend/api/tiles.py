@@ -267,7 +267,7 @@ def _render_geozarr_image(
         dst_crs="EPSG:3857",
         src_nodata=np.nan,
         dst_nodata=np.nan,
-        resampling=Resampling.nearest,
+        resampling=Resampling.max,
     )
 
     if frame.product == "DBZH" and min_quality is not None and frame.quality_variables:
@@ -448,7 +448,7 @@ def _render_cog_frame(
             dst_crs=CRS.from_epsg(3857),
             max_size=max_size,
             indexes=indexes,
-            resampling_method="nearest",
+            resampling_method="bilinear",
         )
         raw_b1 = np.asarray(image.array[0], dtype=np.float32)
         scanning_area_mask = np.isnan(raw_b1)
@@ -539,7 +539,7 @@ def _render_geozarr_frame(
         src_crs=metadata["crs"],
         dst_transform=dst_transform,
         dst_crs="EPSG:3857",
-        resampling=Resampling.nearest,
+        resampling=Resampling.max,
         src_nodata=np.nan,
         dst_nodata=np.nan,
     )
@@ -701,7 +701,7 @@ def _get_raw_cog_frame(
                 dst_crs=CRS.from_epsg(3857),
                 max_size=max_size,
                 indexes=indexes,
-                resampling_method="nearest",
+                resampling_method="bilinear",
             )
             raw_b1 = np.asarray(image.array[0], dtype=np.float32)
             scanning_area_mask = np.isnan(raw_b1)
@@ -788,7 +788,7 @@ def _get_raw_geozarr_frame(
         src_crs=metadata["crs"],
         dst_transform=dst_transform,
         dst_crs="EPSG:3857",
-        resampling=Resampling.nearest,
+        resampling=Resampling.max,
         src_nodata=np.nan,
         dst_nodata=np.nan,
     )
