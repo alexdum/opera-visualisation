@@ -30,7 +30,7 @@ from api.bucket import (
 )
 from api.catalog import CatalogFrame, normalize_product, resolve_catalog_frame
 from api.cog_cache import BucketRateLimitError, local_cog
-from api.raster_runtime import pooled_cog_reader
+from api.raster_runtime import cog_reader
 
 
 router = APIRouter()
@@ -92,7 +92,7 @@ RENDER_QUEUE_TIMEOUT_SECONDS = max(
     1.0, float(os.getenv("TILE_RENDER_QUEUE_TIMEOUT_SECONDS", "30"))
 )
 COG_VRT_OPTIONS = {
-    "warp_extras": {"NUM_THREADS": os.getenv("GDAL_NUM_THREADS", "1")}
+    "NUM_THREADS": os.getenv("GDAL_NUM_THREADS", "1")
 }
 
 
@@ -318,7 +318,7 @@ def _render_cog_image(frame: CatalogFrame, z: int, x: int, y: int, min_quality: 
     cog_path = local_cog(
         frame.product, frame.timestamp, frame.revision, frame.hot_cog
     )
-    with pooled_cog_reader(cog_path, Reader) as cog:
+    with cog_reader(cog_path, Reader) as cog:
         indexes = (1, 2) if frame.product == "DBZH" and min_quality is not None and cog.dataset.count >= 2 else 1
         try:
             image = cog.tile(
@@ -469,7 +469,7 @@ def _render_cog_frame(
     if not frame.hot_cog:
         raise FileNotFoundError("Catalog does not advertise a hot COG")
     cog_path = local_cog(frame.product, frame.timestamp, frame.revision, frame.hot_cog)
-    with pooled_cog_reader(cog_path, Reader) as cog:
+    with cog_reader(cog_path, Reader) as cog:
         indexes = (1, 2) if frame.product == "DBZH" and min_quality is not None and cog.dataset.count >= 2 else 1
         image = cog.part(
             bounds,
@@ -723,7 +723,7 @@ def _get_raw_cog_frame(
         raise FileNotFoundError("Catalog does not advertise a hot COG")
     cog_path = local_cog(frame.product, frame.timestamp, frame.revision, frame.hot_cog)
     try:
-        with pooled_cog_reader(cog_path, Reader) as cog:
+        with cog_reader(cog_path, Reader) as cog:
             has_quality = frame.product == "DBZH" and cog.dataset.count >= 2
             indexes = (1, 2) if has_quality else (1,)
             image = cog.part(

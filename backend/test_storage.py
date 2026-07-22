@@ -6,7 +6,7 @@ import time
 from api import cog_cache
 from api import bucket
 from api.bucket import auth_headers, fsspec_storage_options
-from api.raster_runtime import CogReaderPool
+from api.raster_runtime import cog_reader
 
 
 def test_bucket_auth_is_server_side_and_optional(monkeypatch):
@@ -28,41 +28,25 @@ def test_storage_description_reports_mount_without_credentials(monkeypatch):
     assert bucket.storage_description() == "mounted filesystem (/data/opera)"
 
 
-def test_cog_reader_pool_reuses_sequentially_but_not_concurrently():
-    pool = CogReaderPool(max_idle=2)
-    created = []
+def test_cog_reader_opens_and_closes_in_the_calling_thread():
+    events: list[tuple[str, int]] = []
 
     class FakeReader:
-        def __init__(self, path):
-            self.path = path
-            self.closed = False
-            created.append(self)
+        def __init__(self, _path):
+            events.append(("init", threading.get_ident()))
 
-        def close(self):
-            self.closed = True
+        def __enter__(self):
+            events.append(("enter", threading.get_ident()))
+            return self
 
-    first, first_hit = pool.acquire("/data/frame.tif", FakeReader)
-    second, second_hit = pool.acquire("/data/frame.tif", FakeReader)
-    assert first is not second
-    assert first_hit is False
-    assert second_hit is False
+        def __exit__(self, *_args):
+            events.append(("exit", threading.get_ident()))
 
-    pool.release("/data/frame.tif", FakeReader, first)
-    reused, reused_hit = pool.acquire("/data/frame.tif", FakeReader)
-    assert reused is first
-    assert reused_hit is True
+    with cog_reader("/data/frame.tif", FakeReader):
+        events.append(("use", threading.get_ident()))
 
-    pool.release("/data/frame.tif", FakeReader, second)
-    pool.release("/data/frame.tif", FakeReader, reused)
-    assert pool.stats() == {
-        "hits": 1,
-        "misses": 2,
-        "active": 0,
-        "idle": 2,
-        "max_idle": 2,
-    }
-    pool.close()
-    assert all(reader.closed for reader in created)
+    assert [name for name, _thread in events] == ["init", "enter", "use", "exit"]
+    assert len({thread for _name, thread in events}) == 1
 
 
 def test_concurrent_tiles_download_one_revision_once(monkeypatch, tmp_path: Path):

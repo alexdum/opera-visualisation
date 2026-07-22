@@ -10,7 +10,7 @@ from api.catalog import router as catalog_router
 from api.tiles import router as tiles_router
 from api.pixel import router as pixel_router
 from api.bucket import BUCKET_MOUNT, USE_LOCAL_MOUNT, storage_description
-from api.raster_runtime import COG_READER_POOL, log_raster_runtime
+from api.raster_runtime import log_raster_runtime
 
 
 startup_logger = logging.getLogger("uvicorn.error")
@@ -20,10 +20,7 @@ startup_logger = logging.getLogger("uvicorn.error")
 async def lifespan(_app: FastAPI):
     startup_logger.info("OPERA data storage source: %s", storage_description())
     log_raster_runtime(BUCKET_MOUNT if USE_LOCAL_MOUNT else None)
-    try:
-        yield
-    finally:
-        COG_READER_POOL.close()
+    yield
 
 
 app = FastAPI(title="OPERA Radar API", lifespan=lifespan)
