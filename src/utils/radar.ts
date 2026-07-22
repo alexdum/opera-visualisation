@@ -200,20 +200,25 @@ export const getEuropeanScalePyramid = (
 
 
 
-  const bboxKey = `${minLon.toFixed(2)},${minLat.toFixed(2)},${maxLon.toFixed(2)},${maxLat.toFixed(2)}`;
+  const finalMinLon = Math.max(minLon, OPERA_WGS84_BOUNDS[0]);
+  const finalMinLat = Math.max(minLat, OPERA_WGS84_BOUNDS[1]);
+  const finalMaxLon = Math.min(maxLon, OPERA_WGS84_BOUNDS[2]);
+  const finalMaxLat = Math.min(maxLat, OPERA_WGS84_BOUNDS[3]);
+
+  const bboxKey = `${finalMinLon.toFixed(4)},${finalMinLat.toFixed(4)},${finalMaxLon.toFixed(4)},${finalMaxLat.toFixed(4)}`;
 
   const bboxBounds: [[number, number], [number, number], [number, number], [number, number]] = [
-    [minLon, minLat],
-    [maxLon, minLat],
-    [maxLon, maxLat],
-    [minLon, maxLat],
+    [finalMinLon, finalMinLat],
+    [finalMaxLon, finalMinLat],
+    [finalMaxLon, finalMaxLat],
+    [finalMinLon, finalMaxLat],
   ];
 
   const bboxCoords: [[number, number], [number, number], [number, number], [number, number]] = [
-    [minLon, maxLat], // NW
-    [maxLon, maxLat], // NE
-    [maxLon, minLat], // SE
-    [minLon, minLat], // SW
+    [finalMinLon, finalMaxLat], // NW
+    [finalMaxLon, finalMaxLat], // NE
+    [finalMaxLon, finalMinLat], // SE
+    [finalMinLon, finalMinLat], // SW
   ];
 
   return {
