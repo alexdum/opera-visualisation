@@ -418,3 +418,9 @@ Match verification effort to the affected rule and report commands that could no
    Python 3.12 requirements and run the Docker build and health smoke test when
    a Docker daemon is available; explicitly report when it is not.
 <!-- END:verification-rules -->
+
+<!-- BEGIN:no-git-commit-rule -->
+## Git Workflow & Commit Rules
+
+1. **No Automated Git Commits or Pushes**: The AI agent MUST NEVER execute `git commit` or `git push` commands. The user prefers to perform all commit and push operations manually. All code changes, file creations, refactorings, and verification tests should be executed locally, but the final `git commit` and `git push` steps must be left for the user.
+<!-- END:no-git-commit-rule -->
