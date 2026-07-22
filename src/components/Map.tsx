@@ -406,7 +406,7 @@ export function WeatherMap({
 
           webglLayer.opacity = opacity;
           webglLayer.minQuality = minQuality ?? 0;
-          webglLayer.product = currentFrame.product;
+          webglLayer.setProduct(currentFrame.product);
 
           const pyramid = getEuropeanScalePyramid(instance.getZoom(), instance.getBounds());
 

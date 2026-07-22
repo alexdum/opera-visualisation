@@ -151,6 +151,62 @@ export class RadarWebGLLayer implements CustomLayerInterface {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   }
 
+  public setProduct(product: string) {
+    if (this.product === product) return;
+    this.product = product;
+
+    const gl = this.gl;
+    if (gl && this.colormapTexture) {
+      const colormapData = new Uint8Array(256 * 4);
+      colormapData[0] = 0;
+      colormapData[1] = 0;
+      colormapData[2] = 0;
+      colormapData[3] = 0;
+
+      const PRODUCT_BOUNDS: Record<string, [number, number]> = {
+        DBZH: [-35.0, 75.0],
+        RATE: [-10.0, 150.0],
+        ACRR: [-10.0, 300.0],
+      };
+
+      const [minVal, maxVal] = PRODUCT_BOUNDS[this.product] ?? [-35.0, 75.0];
+
+      for (let i = 1; i <= 255; i++) {
+        const val = minVal + ((i - 1) / 254) * (maxVal - minVal);
+        let rgba: [number, number, number, number] = [0, 0, 0, 0];
+
+        if (this.product === "DBZH") {
+          if (val >= 0.0) {
+            const colorHex = getColorFromPalette(val, "DBZH");
+            rgba = hexToRgba(colorHex);
+          }
+        } else {
+          if (val >= 0.1) {
+            const colorHex = getColorFromPalette(val, this.product);
+            rgba = hexToRgba(colorHex);
+          }
+        }
+
+        colormapData[i * 4] = rgba[0];
+        colormapData[i * 4 + 1] = rgba[1];
+        colormapData[i * 4 + 2] = rgba[2];
+        colormapData[i * 4 + 3] = rgba[3];
+      }
+
+      gl.bindTexture(gl.TEXTURE_2D, this.colormapTexture);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 256, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, colormapData);
+    }
+
+    if (gl) {
+      for (const tex of this.textureCache.values()) {
+        gl.deleteTexture(tex);
+      }
+    }
+    this.textureCache.clear();
+    this.cacheKeys = [];
+    this.currentTexture = null;
+  }
+
   public hasFrame(frameId: string): boolean {
     return this.textureCache.has(frameId);
   }
