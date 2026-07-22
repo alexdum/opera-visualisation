@@ -155,8 +155,7 @@ rules, image morphology, or modifications to the archived source data.
 The DBZH COG uses band 1 for reflectivity and band 2 for its quality indicator.
 Apply the following visualization policy:
 
-1. **Default DBZH threshold:** The map MUST enable quality filtering by default
-   with `min_quality=0.10`, applied uniformly across the full DBZH coverage.
+1. **Default DBZH threshold:** The map MUST default to `min_quality=off` (null/unchecked) to display the authoritative raw composite, but allow users to enable quality filtering uniformly across the full DBZH coverage.
 2. **Preserve the authoritative view:** Users MUST be able to disable the
    filter and view the original OPERA composite. Filtering is a display mask;
    it MUST NOT rewrite source COGs, GeoZarr measurements, pixel-analysis values,
@@ -468,3 +467,21 @@ Match verification effort to the affected rule and report commands that could no
 
 1. **No Automated Git Commits or Pushes**: The AI agent MUST NEVER execute `git commit` or `git push` commands. The user prefers to perform all commit and push operations manually. All code changes, file creations, refactorings, and verification tests should be executed locally, but the final `git commit` and `git push` steps must be left for the user.
 <!-- END:no-git-commit-rule -->
+
+<!-- BEGIN:webgl-colormap-interpolation-rule -->
+## WebGL Dynamic Colormap Interpolation
+
+When implementing or modifying WebGL shaders that apply dynamic colormaps to raw data textures:
+1. **Never use hardware linear interpolation**: Always set `gl.TEXTURE_MIN_FILTER` and `gl.TEXTURE_MAG_FILTER` to `gl.NEAREST` when passing raw data values to the GPU. Using `gl.LINEAR` interpolates the physical data values (creating false intermediate measurements) which the fragment shader will incorrectly color, resulting in false "bubbles" or rings around storms.
+2. **Use Anti-Aliased Nearest Neighbor**: To achieve a smooth visual aesthetic without creating false data gradients, perform manual multi-texel fetches inside the fragment shader, apply the colormap to each texel independently, and then blend the resulting RGBA colors. 
+3. **Steepen the interpolation curve**: When blending, steepen the fractional coordinates (e.g., `f = clamp((f - 0.5) * 3.0 + 0.5, 0.0, 1.0);`) to preserve the flat blocky structure of the raw cells while only anti-aliasing the sharp edges.
+<!-- END:webgl-colormap-interpolation-rule -->
+
+<!-- BEGIN:geozarr-decimation-slicing-rule -->
+## GeoZarr / Numpy Bounding Box Decimation
+
+When extracting data from large Zarr arrays or Numpy grids for a specific geographic viewport (e.g., generating map frames):
+1. **Crop before decimating**: You MUST calculate the array index boundaries (`x_start`, `x_end`, `y_start`, `y_end`) corresponding to the requested geographic `bounds` *first*. 
+2. **Local step calculation**: Calculate the decimation `step` (e.g., `max(slice_w, slice_h) // max_size`) based *only* on the dimensions of the cropped slice, not the dimensions of the global grid.
+3. **Preserve High-Zoom Resolution**: Decimating the full global array before cropping mathematically locks the maximum possible resolution to the global decimation factor, completely destroying high-zoom data quality.
+<!-- END:geozarr-decimation-slicing-rule -->

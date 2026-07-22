@@ -34,9 +34,9 @@ export default function OperaRadarPage() {
   const [frames, setFrames] = useState<RadarFrame[]>([]);
   const [currentTimeIndex, setCurrentTimeIndex] = useState(0);
   const [opacity, setOpacity] = useState(0.7);
-  // Low-known-quality DBZH pixels are masked by default. Users can still opt
-  // into the authoritative raw composite with min_quality=off.
-  const [minQuality, setMinQuality] = useState<number | null>(0.1);
+  // Low-known-quality DBZH pixels can be masked by the user.
+  // Default is off to show the authoritative raw composite.
+  const [minQuality, setMinQuality] = useState<number | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [renderState, setRenderState] = useState<MapRenderState>({ status: "idle" });
