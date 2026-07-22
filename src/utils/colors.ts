@@ -1,16 +1,30 @@
-// OPERA DBZH Palette (Horizontal reflectivity, dBZ)
+// OPERA DBZH Palette (Horizontal reflectivity, dBZ - NOAA NWS standard 24-step)
 export const OPERA_DBZH_PALETTE = [
-  { val: -5,  color: "#0A82C8" },
-  { val: 0,   color: "#0A9BB4" },
-  { val: 5,   color: "#0AB9AF" },
-  { val: 10,  color: "#05CDAA" },
-  { val: 15,  color: "#8CE614" },
-  { val: 20,  color: "#F0F014" },
-  { val: 25,  color: "#FFCD14" },
-  { val: 30,  color: "#FF9632" },
-  { val: 35,  color: "#FF503C" },
-  { val: 40,  color: "#FA78FF" },
-  { val: 45,  color: "#BEFFFF" }
+  { val: -35, color: "#E6E6E6" },
+  { val: -30, color: "#CCCCCC" },
+  { val: -25, color: "#B3B3B3" },
+  { val: -20, color: "#999999" },
+  { val: -15, color: "#808080" },
+  { val: -10, color: "#666666" },
+  { val: -5,  color: "#333333" },
+  { val: 0,   color: "#0A0A5C" },
+  { val: 5,   color: "#1C1C8C" },
+  { val: 10,  color: "#3333BC" },
+  { val: 15,  color: "#5252DC" },
+  { val: 20,  color: "#4DED4D" },
+  { val: 25,  color: "#32C832" },
+  { val: 30,  color: "#1E961E" },
+  { val: 35,  color: "#0F5E0F" },
+  { val: 40,  color: "#FFE040" },
+  { val: 45,  color: "#FFA81C" },
+  { val: 50,  color: "#E10000" },
+  { val: 55,  color: "#A00000" },
+  { val: 60,  color: "#5A0000" },
+  { val: 65,  color: "#C850C8" },
+  { val: 70,  color: "#961E96" },
+  { val: 75,  color: "#E6E6E6" },
+  { val: 80,  color: "#4B4B4B" },
+  { val: 85,  color: "#303030" },
 ];
 
 // OPERA RATE and ACRR Palette (mm/h or mm)
