@@ -396,49 +396,67 @@ export function WeatherMap({
         desiredLayerIds.push(layerId);
         
         if (webGLAvailable) {
-          if (index === 0) activeSourceId = layerId; // Custom layer has no source
-          
-          // Use our own ref to access the actual RadarWebGLLayer instance;
-          // instance.getLayer() returns MapLibre's CustomStyleLayer wrapper
-          // whose properties don't propagate to the real implementation.
-          let webglLayer = webglLayersRef.current.get(layerId);
-          if (!webglLayer) {
-            webglLayer = new RadarWebGLLayer(layerId, frame.product);
-            webglLayer.opacity = index === 0 ? opacity : 0;
-            webglLayer.minQuality = minQuality ?? 0;
-            webglLayersRef.current.set(layerId, webglLayer);
-            instance.addLayer(webglLayer, radarBeforeId);
-            
-            const rawUrl = buildRawFrameUrl(frame, TILE_API_BASE);
-            fetch(rawUrl).then(res => res.arrayBuffer()).then(buffer => {
-              const view = new DataView(buffer);
-              const width = view.getUint16(0, true);
-              const height = view.getUint16(2, true);
-              const minVal = view.getFloat32(4, true);
-              const maxVal = view.getFloat32(8, true);
-              
-              const payload = new Uint8Array(buffer, 16);
-              
-              const coords = OPERA_IMAGE_COORDINATES.map(c => {
-                 const mc = maplibregl.MercatorCoordinate.fromLngLat({lng: c[0], lat: c[1]});
-                 return [mc.x, mc.y] as [number, number];
-              });
-              
-              webglLayer!.setFrameData(identity, payload, width, height, coords);
-              rawBufferMapRef.current.set(identity, { data: payload, width, height, minVal, maxVal, bbox: OPERA_IMAGE_COORDINATES });
-              
-              if (index === 0) {
-                finishReady();
-              }
-            }).catch(console.error);
-          } else {
-            webglLayer.opacity = index === 0 ? opacity : 0;
-            webglLayer.minQuality = minQuality ?? 0;
-            instance.triggerRepaint();
-            if (index === 0) {
-              finishReady();
-            }
+          const SINGLE_WEBGL_LAYER_ID = "radar-layer-webgl";
+          activeSourceId = SINGLE_WEBGL_LAYER_ID;
+          if (!desiredLayerIds.includes(SINGLE_WEBGL_LAYER_ID)) {
+            desiredLayerIds.push(SINGLE_WEBGL_LAYER_ID);
           }
+
+          let webglLayer = webglLayersRef.current.get(SINGLE_WEBGL_LAYER_ID);
+          if (!webglLayer) {
+            webglLayer = new RadarWebGLLayer(SINGLE_WEBGL_LAYER_ID, currentFrame.product);
+            webglLayersRef.current.set(SINGLE_WEBGL_LAYER_ID, webglLayer);
+            instance.addLayer(webglLayer, radarBeforeId);
+          }
+
+          webglLayer.opacity = opacity;
+          webglLayer.minQuality = minQuality ?? 0;
+          webglLayer.product = currentFrame.product;
+
+          const currentIdentity = frameIdentity(currentFrame, minQuality);
+          if (webglLayer.hasFrame(currentIdentity)) {
+            webglLayer.showFrame(currentIdentity);
+            finishReady();
+          }
+
+          desiredFrames.forEach((frame, index) => {
+            const identity = frameIdentity(frame, minQuality);
+            const isCurrent = index === 0;
+
+            if (!webglLayer!.hasFrame(identity)) {
+              const rawUrl = buildRawFrameUrl(frame, TILE_API_BASE);
+              fetch(rawUrl)
+                .then((res) => res.arrayBuffer())
+                .then((buffer) => {
+                  const view = new DataView(buffer);
+                  const width = view.getUint16(0, true);
+                  const height = view.getUint16(2, true);
+                  const minVal = view.getFloat32(4, true);
+                  const maxVal = view.getFloat32(8, true);
+                  const payload = new Uint8Array(buffer, 16);
+                  const coords = OPERA_IMAGE_COORDINATES.map((c) => {
+                    const mc = maplibregl.MercatorCoordinate.fromLngLat({ lng: c[0], lat: c[1] });
+                    return [mc.x, mc.y] as [number, number];
+                  });
+
+                  webglLayer!.setFrameData(identity, payload, width, height, coords);
+                  rawBufferMapRef.current.set(identity, {
+                    data: payload,
+                    width,
+                    height,
+                    minVal,
+                    maxVal,
+                    bbox: OPERA_IMAGE_COORDINATES,
+                  });
+
+                  if (isCurrent) {
+                    webglLayer!.showFrame(identity);
+                    finishReady();
+                  }
+                })
+                .catch(console.error);
+            }
+          });
         } else {
           // Raster fallback
           if (index === 0) activeSourceId = sourceId;

@@ -119,18 +119,20 @@ export class RadarWebGLLayer implements CustomLayerInterface {
       let rgba: [number, number, number, number] = [0, 0, 0, 0];
 
       if (this.product === "DBZH") {
-        if (val < 0.0 && val >= -35.0) {
-          // Scanning area with no detected echo
-          rgba = [100, 130, 160, 50];
-        } else if (val >= 0.0) {
+        if (val >= 0.0) {
           const colorHex = getColorFromPalette(val, "DBZH");
           rgba = hexToRgba(colorHex);
+        } else {
+          // Values < 0.0 (no echo / scanning area) are fully transparent
+          rgba = [0, 0, 0, 0];
         }
       } else {
         // RATE and ACRR
         if (val >= 0.1) {
           const colorHex = getColorFromPalette(val, this.product);
           rgba = hexToRgba(colorHex);
+        } else {
+          rgba = [0, 0, 0, 0];
         }
       }
 
@@ -147,6 +149,21 @@ export class RadarWebGLLayer implements CustomLayerInterface {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  }
+
+  public hasFrame(frameId: string): boolean {
+    return this.textureCache.has(frameId);
+  }
+
+  public showFrame(frameId: string): boolean {
+    if (this.textureCache.has(frameId)) {
+      this.currentTexture = this.textureCache.get(frameId)!;
+      if (this.map) {
+        this.map.triggerRepaint();
+      }
+      return true;
+    }
+    return false;
   }
 
   /**
