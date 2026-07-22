@@ -417,7 +417,7 @@ export function WeatherMap({
                  return [mc.x, mc.y] as [number, number];
               });
               
-              layer!.setFrameData(instance.painter.context.gl, identity, payload, width, height, coords);
+              layer!.setFrameData(identity, payload, width, height, coords);
               rawBufferMapRef.current.set(identity, { data: payload, width, height, minVal, maxVal, bbox: OPERA_IMAGE_COORDINATES });
               
               if (index === 0) {

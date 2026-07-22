@@ -8,7 +8,14 @@ from rio_tiler.errors import TileOutsideBounds
 from rio_tiler.models import ImageData
 
 from api.catalog import CatalogFrame, apply_hot_window, parse_daily_catalog
-from api.pixel import _extract_store_frames, _open_group, _store_metadata, _validate_request
+from api.pixel import (
+    _clear_pixel_response_cache,
+    _extract_store_frames,
+    _open_group,
+    _read_time_coords,
+    _store_metadata,
+    _validate_request,
+)
 from api.tiles import (
     COLORMAPS,
     _apply_geozarr_status,
@@ -293,6 +300,98 @@ def test_pixel_static_metadata_does_not_cache_growing_time_coordinate(monkeypatc
     finally:
         _store_metadata.cache_clear()
     assert "time" not in metadata
+
+
+def test_pixel_time_coordinate_refreshes_after_metadata_ttl(monkeypatch):
+    bucket = {"value": 10}
+    group = {"time": np.array([100], dtype=np.int64)}
+    monkeypatch.setattr("api.pixel._metadata_cache_bucket", lambda: bucket["value"])
+    monkeypatch.setattr("api.pixel._open_group", lambda _path: group)
+    _read_time_coords.cache_clear()
+    try:
+        assert _read_time_coords("growing-store").tolist() == [100]
+        group["time"] = np.array([100, 200], dtype=np.int64)
+        assert _read_time_coords("growing-store").tolist() == [100]
+        bucket["value"] += 1
+        assert _read_time_coords("growing-store").tolist() == [100, 200]
+    finally:
+        _read_time_coords.cache_clear()
+
+
+def test_pixel_caches_results_for_the_same_snapped_cell(monkeypatch):
+    class TrackingArray:
+        def __init__(self, values):
+            self.values = np.asarray(values)
+            self.read_count = 0
+
+        def __getitem__(self, item):
+            self.read_count += 1
+            return self.values[item]
+
+    base_epoch = 1_773_964_800
+    measurement = TrackingArray(
+        np.array(
+            [[[10.0, 11.0]], [[999.0, 999.0]], [[30.0, 31.0]]],
+            dtype=np.float32,
+        )
+    )
+    status = TrackingArray(np.zeros((3, 1, 2), dtype=np.uint8))
+    group = {
+        "DBZH": measurement,
+        "DBZH_status": status,
+        "time": np.array(
+            [base_epoch, base_epoch + 300, base_epoch + 600], dtype=np.int64
+        ),
+    }
+    metadata = {
+        "x": np.array([0.0, 1.0]),
+        "y": np.array([0.0]),
+        "to_native": type(
+            "Forward", (), {"transform": lambda self, lon, lat: (lon, lat)}
+        )(),
+        "to_wgs84": type(
+            "Reverse", (), {"transform": lambda self, x, y: (x, y)}
+        )(),
+    }
+    frames = [
+        CatalogFrame(
+            product="DBZH",
+            timestamp="202603200000",
+            nominal_time="2026-03-20T00:00:00Z",
+            revision="r0",
+            archive_ready=True,
+            hot_cog_ready=False,
+            geozarr="indexed-store",
+            quality_variables=[],
+            backend="geozarr",
+        ),
+        CatalogFrame(
+            product="DBZH",
+            timestamp="202603200010",
+            nominal_time="2026-03-20T00:10:00Z",
+            revision="r2",
+            archive_ready=True,
+            hot_cog_ready=False,
+            geozarr="indexed-store",
+            quality_variables=[],
+            backend="geozarr",
+        ),
+    ]
+    monkeypatch.setattr("api.pixel._open_group", lambda _path: group)
+    monkeypatch.setattr("api.pixel._store_metadata", lambda _path: metadata)
+    _read_time_coords.cache_clear()
+    _clear_pixel_response_cache()
+    try:
+        first, _ = _extract_store_frames("DBZH", "indexed-store", frames, 0.0, 0.0)
+        second, _ = _extract_store_frames("DBZH", "indexed-store", frames, 0.1, 0.0)
+    finally:
+        _read_time_coords.cache_clear()
+        _clear_pixel_response_cache()
+
+    assert [row["value"] for row in first] == [10.0, 30.0]
+    assert second == first
+    assert measurement.read_count == 1
+    assert status.read_count == 1
 
 
 def test_pixel_extract_preserves_status_quality_and_interval(monkeypatch):

@@ -2,8 +2,13 @@ import type { CustomLayerInterface, Map as MapLibreMap } from "maplibre-gl";
 import { vertexShaderSource, fragmentShaderSource } from "../utils/webglShader";
 import { getColorFromPalette } from "../utils/colors";
 
-export const isWebGLSupported = (map: MapLibreMap): boolean => {
-  return !!map.getCanvas().getContext("webgl") || !!map.getCanvas().getContext("webgl2");
+/** MapLibre GL JS v5 always requires WebGL2; if the map initialized, WebGL is available. */
+export const isWebGLSupported = (_map: MapLibreMap): boolean => {
+  try {
+    return !!_map.getCanvas();
+  } catch {
+    return false;
+  }
 };
 
 function hexToRgba(hex: string): [number, number, number, number] {
@@ -144,14 +149,20 @@ export class RadarWebGLLayer implements CustomLayerInterface {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   }
 
+  /**
+   * Upload raw binary frame data into a GPU texture. Uses the stored GL
+   * context from onAdd so callers do not need to access MapLibre internals.
+   */
   public setFrameData(
-    gl: WebGLRenderingContext,
     frameId: string,
     rawBinaryBuffer: Uint8Array,
     width: number,
     height: number,
     bboxCoordinates: [number, number][] // [ [nw_x, nw_y], [ne_x, ne_y], [se_x, se_y], [sw_x, sw_y] ] using Web Mercator coordinates
   ) {
+    const gl = this.gl;
+    if (!gl) return;
+
     if (this.textureCache.has(frameId)) {
       this.currentTexture = this.textureCache.get(frameId)!;
     } else {
@@ -198,11 +209,13 @@ export class RadarWebGLLayer implements CustomLayerInterface {
     }
   }
 
-  public render(gl: WebGLRenderingContext | WebGL2RenderingContext, matrixOrOptions: unknown): void {
-    const opts = matrixOrOptions as { defaultProjectionData?: { mainMatrix?: number[] }; matrix?: number[] } | number[] | undefined;
-    const matrix: number[] | undefined = Array.isArray(opts)
-      ? opts
-      : (opts?.defaultProjectionData?.mainMatrix ?? opts?.matrix);
+  public render(gl: WebGLRenderingContext | WebGL2RenderingContext, options: unknown): void {
+    // MapLibre v5 passes CustomRenderMethodInput with modelViewProjectionMatrix.
+    // Extract it robustly, supporting both the v5 API and potential fallbacks.
+    const opts = options as Record<string, unknown> | undefined;
+    const matrix: Float32Array | number[] | undefined =
+      (opts?.modelViewProjectionMatrix as Float32Array | undefined) ??
+      (opts?.defaultProjectionData as Record<string, unknown> | undefined)?.mainMatrix as number[] | undefined;
 
     if (!matrix || !this.program || !this.currentTexture || this.quadCoords.length === 0) return;
 
