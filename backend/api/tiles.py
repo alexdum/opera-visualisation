@@ -488,20 +488,37 @@ def _render_geozarr_frame(
     times = np.asarray(group["time"][:], dtype=np.int64) if "time" in group else metadata.get("times", np.array([], dtype=np.int64))
     time_index = _frame_time_index(times, frame)
 
-    full_y, full_x = group[frame.product].shape[1], group[frame.product].shape[2]
-    step = max(1, max(full_y, full_x) // max_size)
-    slab = np.asarray(group[frame.product][time_index, ::step, ::step], dtype=np.float32)
+    x_coords: np.ndarray = metadata["x"]
+    y_coords: np.ndarray = metadata["y"]
+    source_bounds = transform_bounds("EPSG:4326", metadata["crs"], *bounds, densify_pts=21)
+
+    x_start = max(0, int(np.searchsorted(x_coords, source_bounds[0], side="left")) - 1)
+    x_end = min(len(x_coords), int(np.searchsorted(x_coords, source_bounds[2], side="right")) + 1)
+    y_hits = np.flatnonzero((y_coords >= source_bounds[1]) & (y_coords <= source_bounds[3]))
+    
+    if x_start >= x_end or len(y_hits) == 0:
+        x_start, x_end = 0, 1
+        y_start, y_end = 0, 1
+    else:
+        y_start = max(0, int(y_hits[0]) - 1)
+        y_end = min(len(y_coords), int(y_hits[-1]) + 2)
+
+    slice_h = y_end - y_start
+    slice_w = x_end - x_start
+    step = max(1, max(slice_h, slice_w) // max_size)
+
+    slab = np.asarray(group[frame.product][time_index, y_start:y_end:step, x_start:x_end:step], dtype=np.float32)
 
     undetect = group[frame.product].attrs.get("undetect_value", None)
     if undetect is not None:
         slab[np.isclose(slab, float(undetect))] = -10.0
     status_name = f"{frame.product}_status"
     if status_name in group:
-        status_slab = np.asarray(group[status_name][time_index, ::step, ::step])
+        status_slab = np.asarray(group[status_name][time_index, y_start:y_end:step, x_start:x_end:step])
         slab = _apply_geozarr_status(slab, status_slab)
     slab[~np.isfinite(slab)] = np.nan
 
-    src_transform = metadata["transform"] * Affine.scale(step, step)
+    src_transform = metadata["transform"] * Affine.translation(x_start, y_start) * Affine.scale(step, step)
     src_h, src_w = slab.shape
 
     # Compute output grid in Web Mercator so MapLibre can render without
@@ -532,7 +549,7 @@ def _render_geozarr_frame(
         if quality_vars:
             q_var = quality_vars[0]
             if q_var in group:
-                q_slab = np.asarray(group[q_var][time_index, ::step, ::step], dtype=np.float32)
+                q_slab = np.asarray(group[q_var][time_index, y_start:y_end:step, x_start:x_end:step], dtype=np.float32)
                 q_slab[~np.isfinite(q_slab)] = np.nan
                 dst_quality = np.full((1, out_h, out_w), np.nan, dtype=np.float32)
                 reproject(
@@ -719,20 +736,37 @@ def _get_raw_geozarr_frame(
     times = np.asarray(group["time"][:], dtype=np.int64) if "time" in group else metadata.get("times", np.array([], dtype=np.int64))
     time_index = _frame_time_index(times, frame)
 
-    full_y, full_x = group[frame.product].shape[1], group[frame.product].shape[2]
-    step = max(1, max(full_y, full_x) // max_size)
-    slab = np.asarray(group[frame.product][time_index, ::step, ::step], dtype=np.float32)
+    x_coords: np.ndarray = metadata["x"]
+    y_coords: np.ndarray = metadata["y"]
+    source_bounds = transform_bounds("EPSG:4326", metadata["crs"], *bounds, densify_pts=21)
+
+    x_start = max(0, int(np.searchsorted(x_coords, source_bounds[0], side="left")) - 1)
+    x_end = min(len(x_coords), int(np.searchsorted(x_coords, source_bounds[2], side="right")) + 1)
+    y_hits = np.flatnonzero((y_coords >= source_bounds[1]) & (y_coords <= source_bounds[3]))
+    
+    if x_start >= x_end or len(y_hits) == 0:
+        x_start, x_end = 0, 1
+        y_start, y_end = 0, 1
+    else:
+        y_start = max(0, int(y_hits[0]) - 1)
+        y_end = min(len(y_coords), int(y_hits[-1]) + 2)
+
+    slice_h = y_end - y_start
+    slice_w = x_end - x_start
+    step = max(1, max(slice_h, slice_w) // max_size)
+
+    slab = np.asarray(group[frame.product][time_index, y_start:y_end:step, x_start:x_end:step], dtype=np.float32)
 
     undetect = group[frame.product].attrs.get("undetect_value", None)
     if undetect is not None:
         slab[np.isclose(slab, float(undetect))] = -10.0
     status_name = f"{frame.product}_status"
     if status_name in group:
-        status_slab = np.asarray(group[status_name][time_index, ::step, ::step])
+        status_slab = np.asarray(group[status_name][time_index, y_start:y_end:step, x_start:x_end:step])
         slab = _apply_geozarr_status(slab, status_slab)
     slab[~np.isfinite(slab)] = np.nan
 
-    src_transform = metadata["transform"] * Affine.scale(step, step)
+    src_transform = metadata["transform"] * Affine.translation(x_start, y_start) * Affine.scale(step, step)
     src_h, src_w = slab.shape
 
     merc_bounds = transform_bounds("EPSG:4326", "EPSG:3857", *bounds)
@@ -765,7 +799,7 @@ def _get_raw_geozarr_frame(
         if quality_vars:
             q_var = quality_vars[0]
             if q_var in group:
-                q_slab = np.asarray(group[q_var][time_index, ::step, ::step], dtype=np.float32)
+                q_slab = np.asarray(group[q_var][time_index, y_start:y_end:step, x_start:x_end:step], dtype=np.float32)
                 q_slab[~np.isfinite(q_slab)] = np.nan
                 reproject(
                     q_slab.reshape(1, src_h, src_w),
