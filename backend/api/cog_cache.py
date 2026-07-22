@@ -20,8 +20,8 @@ class BucketRateLimitError(RuntimeError):
 
 
 _CACHE_DIR = Path(os.getenv("COG_CACHE_DIR", "/tmp/opera-visualisation-cogs"))
-_MAX_FILES = max(2, int(os.getenv("COG_CACHE_MAX_FILES", "4")))
-_MAX_BYTES = max(1, int(os.getenv("COG_CACHE_MAX_BYTES", str(1024**3))))
+_MAX_FILES = max(2, int(os.getenv("COG_CACHE_MAX_FILES", "300")))
+_MAX_BYTES = max(1, int(os.getenv("COG_CACHE_MAX_BYTES", str(3 * 1024**3))))
 _locks_guard = threading.Lock()
 _download_locks: dict[str, threading.Lock] = {}
 

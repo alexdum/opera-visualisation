@@ -117,8 +117,8 @@ from one origin on port 7860.
 | `HF_BUCKET_URL` | Public `alexdum/opera-radar/resolve` URL | Read-only bucket base URL |
 | `HF_TOKEN` | unset | Server-side read token; recommended to avoid anonymous resolver rate limits |
 | `COG_CACHE_DIR` | `/tmp/opera-visualisation-cogs` | Ephemeral local hot-frame cache |
-| `COG_CACHE_MAX_FILES` | `4` | Maximum cached COG frame count |
-| `COG_CACHE_MAX_BYTES` | `1073741824` | Maximum local COG cache size (1 GiB) |
+| `COG_CACHE_MAX_FILES` | `300` | Maximum cached COG frame count |
+| `COG_CACHE_MAX_BYTES` | `3221225472` | Maximum local COG cache size (3 GiB) |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | Comma-separated development origins; production is same-origin |
 | `TILE_RENDER_CONCURRENCY` | `4` | Maximum concurrent raster render operations |
 | `TILE_RENDER_QUEUE_TIMEOUT_SECONDS` | `30` | Maximum time a tile waits for a bounded renderer slot before returning 503 |
