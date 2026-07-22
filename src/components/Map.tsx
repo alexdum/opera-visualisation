@@ -18,7 +18,6 @@ import {
   tileLoadTimeoutMs,
 } from "@/utils/radar";
 import { isWebGLSupported, RadarWebGLLayer } from "./RadarWebGLLayer";
-import { OPERA_DBZH_PALETTE, OPERA_PRECIP_PALETTE } from "@/utils/colors";
 
 const STYLE_URLS: Record<string, string> = {
   positron: "https://tiles.openfreemap.org/styles/positron",
@@ -96,7 +95,7 @@ export function WeatherMap({
   const basemapRef = useRef(basemap);
   const showLabelsRef = useRef(showLabels);
   const appliedBasemapRef = useRef(basemap);
-  const rawBufferMapRef = useRef<Map<string, { data: Uint8Array; width: number; height: number; bbox: [[number, number], [number, number], [number, number], [number, number]] }>>(new Map());
+  const rawBufferMapRef = useRef<Map<string, { data: Uint8Array; width: number; height: number; minVal: number; maxVal: number; bbox: [[number, number], [number, number], [number, number], [number, number]] }>>(new Map());
   const [mapReady, setMapReady] = useState(false);
   const [styleRevision, setStyleRevision] = useState(0);
 
@@ -144,7 +143,7 @@ export function WeatherMap({
         const activeIdentity = frameIdentity(frames[currentTimeIndex], minQuality);
         const bufferInfo = rawBufferMapRef.current.get(activeIdentity);
         if (bufferInfo) {
-          const { data, width, height, bbox } = bufferInfo;
+          const { data, width, height, minVal, maxVal, bbox } = bufferInfo;
           // Interpolate coordinate to pixel
           const nw = maplibregl.MercatorCoordinate.fromLngLat({lng: bbox[0][0], lat: bbox[0][1]});
           const se = maplibregl.MercatorCoordinate.fromLngLat({lng: bbox[2][0], lat: bbox[2][1]});
@@ -159,13 +158,11 @@ export function WeatherMap({
             if (pixelX >= 0 && pixelX < width && pixelY >= 0 && pixelY < height) {
               const idx = (pixelY * width + pixelX) * 2;
               const byteVal = data[idx];
-              const quality = data[idx + 1] / 255.0;
+              const qualByte = data[idx + 1];
+              const quality = qualByte >= 254 ? 1.0 : qualByte / 254.0;
               
               if (quality >= (minQuality || 0) && byteVal > 0) {
-                const palette = product === "RATE" || product === "ACRR" ? OPERA_PRECIP_PALETTE : OPERA_DBZH_PALETTE;
-                const minVal = palette[0].val;
-                const maxVal = palette[palette.length - 1].val;
-                const val = minVal + (byteVal / 255) * (maxVal - minVal);
+                const val = minVal + ((byteVal - 1) / 254.0) * (maxVal - minVal);
                 valueStr = ` (${val.toFixed(2)})`;
               }
             }
@@ -407,18 +404,21 @@ export function WeatherMap({
             
             const rawUrl = buildRawFrameUrl(frame, TILE_API_BASE);
             fetch(rawUrl).then(res => res.arrayBuffer()).then(buffer => {
-              const rawBinaryBuffer = new Uint8Array(buffer);
-              const pixels = rawBinaryBuffer.length / 2;
-              const width = Math.round(Math.sqrt(pixels * 19 / 22));
-              const height = Math.round(pixels / width);
+              const view = new DataView(buffer);
+              const width = view.getUint16(0, true);
+              const height = view.getUint16(2, true);
+              const minVal = view.getFloat32(4, true);
+              const maxVal = view.getFloat32(8, true);
+              
+              const payload = new Uint8Array(buffer, 16);
               
               const coords = OPERA_IMAGE_COORDINATES.map(c => {
                  const mc = maplibregl.MercatorCoordinate.fromLngLat({lng: c[0], lat: c[1]});
                  return [mc.x, mc.y] as [number, number];
               });
               
-              layer!.setFrameData(instance.painter.context.gl, identity, rawBinaryBuffer, width, height, coords);
-              rawBufferMapRef.current.set(identity, { data: rawBinaryBuffer, width, height, bbox: OPERA_IMAGE_COORDINATES });
+              layer!.setFrameData(instance.painter.context.gl, identity, payload, width, height, coords);
+              rawBufferMapRef.current.set(identity, { data: payload, width, height, minVal, maxVal, bbox: OPERA_IMAGE_COORDINATES });
               
               if (index === 0) {
                 finishReady();

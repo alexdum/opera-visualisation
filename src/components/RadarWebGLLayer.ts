@@ -1,6 +1,6 @@
 import type { CustomLayerInterface, Map as MapLibreMap } from "maplibre-gl";
 import { vertexShaderSource, fragmentShaderSource } from "../utils/webglShader";
-import { OPERA_DBZH_PALETTE, OPERA_PRECIP_PALETTE } from "../utils/colors";
+import { getColorFromPalette } from "../utils/colors";
 
 export const isWebGLSupported = (map: MapLibreMap): boolean => {
   return !!map.getCanvas().getContext("webgl") || !!map.getCanvas().getContext("webgl2");
@@ -93,23 +93,46 @@ export class RadarWebGLLayer implements CustomLayerInterface {
     this.buffer = gl.createBuffer();
 
     // Create 1D colormap
-    const palette = (this.product === "RATE" || this.product === "ACRR") ? OPERA_PRECIP_PALETTE : OPERA_DBZH_PALETTE;
     const colormapData = new Uint8Array(256 * 4);
     
-    // Simple mapping: evenly distribute palette or map by val ranges
-    const minVal = palette[0].val;
-    const maxVal = palette[palette.length - 1].val;
-    for (let i = 0; i < 256; i++) {
-      const val = minVal + (i / 255) * (maxVal - minVal);
-      let colorHex = palette[0].color;
-      for (let j = 0; j < palette.length; j++) {
-        if (val >= palette[j].val) colorHex = palette[j].color;
+    // Index 0: Nodata -> Transparent
+    colormapData[0] = 0;
+    colormapData[1] = 0;
+    colormapData[2] = 0;
+    colormapData[3] = 0;
+
+    const PRODUCT_BOUNDS: Record<string, [number, number]> = {
+      DBZH: [-35.0, 75.0],
+      RATE: [-10.0, 150.0],
+      ACRR: [-10.0, 300.0],
+    };
+
+    const [minVal, maxVal] = PRODUCT_BOUNDS[this.product] ?? [-35.0, 75.0];
+
+    for (let i = 1; i <= 255; i++) {
+      const val = minVal + ((i - 1) / 254) * (maxVal - minVal);
+      let rgba: [number, number, number, number] = [0, 0, 0, 0];
+
+      if (this.product === "DBZH") {
+        if (val < 0.0 && val >= -35.0) {
+          // Scanning area with no detected echo
+          rgba = [100, 130, 160, 50];
+        } else if (val >= 0.0) {
+          const colorHex = getColorFromPalette(val, "DBZH");
+          rgba = hexToRgba(colorHex);
+        }
+      } else {
+        // RATE and ACRR
+        if (val >= 0.1) {
+          const colorHex = getColorFromPalette(val, this.product);
+          rgba = hexToRgba(colorHex);
+        }
       }
-      const rgba = hexToRgba(colorHex);
+
       colormapData[i * 4] = rgba[0];
       colormapData[i * 4 + 1] = rgba[1];
       colormapData[i * 4 + 2] = rgba[2];
-      colormapData[i * 4 + 3] = val > minVal ? rgba[3] : 0; // hide values below min
+      colormapData[i * 4 + 3] = rgba[3];
     }
 
     this.colormapTexture = gl.createTexture();

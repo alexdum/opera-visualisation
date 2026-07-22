@@ -638,25 +638,28 @@ def get_frame(
 
 import struct
 
-def _pack_raw_buffer(measurement: np.ndarray, quality: np.ndarray) -> bytes:
+PRODUCT_BOUNDS = {
+    "DBZH": (-35.0, 75.0),
+    "RATE": (-10.0, 150.0),
+    "ACRR": (-10.0, 300.0),
+}
+
+
+def _pack_raw_buffer(measurement: np.ndarray, quality: np.ndarray, product: str = "DBZH") -> bytes:
     H, W = measurement.shape
-    valid_meas = measurement[np.isfinite(measurement)]
-    if len(valid_meas) > 0:
-        min_val = float(np.min(valid_meas))
-        max_val = float(np.max(valid_meas))
-    else:
-        min_val, max_val = 0.0, 1.0
-    if min_val == max_val:
-        max_val = min_val + 1.0
-        
+    min_val, max_val = PRODUCT_BOUNDS.get(product, (-35.0, 75.0))
     nodata_val = -9999.0
     
-    meas_norm = (measurement - min_val) / (max_val - min_val)
-    meas_norm = np.clip(meas_norm * 255, 0, 255)
-    meas_uint8 = np.where(np.isfinite(measurement), meas_norm, 0).astype(np.uint8)
+    # uint8 0 is reserved for nodata (NaN / invalid)
+    # uint8 1..255 maps min_val..max_val linearly
+    valid_mask = np.isfinite(measurement)
+    scaled = 1.0 + np.clip((measurement - min_val) / (max_val - min_val), 0.0, 1.0) * 254.0
+    meas_uint8 = np.where(valid_mask, np.round(scaled), 0).astype(np.uint8)
     
-    q_norm = np.clip(quality * 254, 0, 254)
-    q_uint8 = np.where(np.isfinite(quality) & (quality >= 0) & (quality <= 1), q_norm, 255).astype(np.uint8)
+    # Channel 1: Quality (0..254 = 0.0..1.0, 255 = unknown/unfiltered)
+    valid_q = np.isfinite(quality) & (quality >= 0.0) & (quality <= 1.0)
+    q_scaled = np.clip(np.round(quality * 254.0), 0, 254)
+    q_uint8 = np.where(valid_q, q_scaled, 255).astype(np.uint8)
     
     header = struct.pack('<HHfff', W, H, min_val, max_val, nodata_val)
     payload = np.empty((H, W, 2), dtype=np.uint8)
@@ -695,7 +698,7 @@ def _get_raw_cog_frame(
         else:
             q = np.full(d.shape, np.nan, dtype=np.float32)
             
-        return _pack_raw_buffer(d, q)
+        return _pack_raw_buffer(d, q, frame.product)
 
 def _get_raw_geozarr_frame(
     frame: CatalogFrame, max_size: int = 1024, bounds: tuple[float, ...] = OPERA_WGS84_BOUNDS
@@ -763,7 +766,7 @@ def _get_raw_geozarr_frame(
                     dst_nodata=np.nan,
                 )
     
-    return _pack_raw_buffer(dst_data[0], dst_quality[0])
+    return _pack_raw_buffer(dst_data[0], dst_quality[0], frame.product)
 
 
 @functools.lru_cache(maxsize=256)
