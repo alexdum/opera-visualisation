@@ -176,6 +176,10 @@ export function WeatherMap({
       center: [10, 50],
       zoom: 3,
       attributionControl: false,
+      pitchWithRotate: false,
+      dragRotate: false,
+      touchPitch: false,
+      maxPitch: 0,
     });
     map.current = instance;
     instance.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
@@ -453,7 +457,7 @@ export function WeatherMap({
       const signal = loadController.signal;
       instance.off("style.load", reconcileLayers);
       instance.off("styledata", reconcileLayers);
-      const showBlockingLoader = () => {
+      const reportLoadingState = () => {
         renderHandlerRef.current({
           status: "loading",
           message: "Rendering radar frame…",
@@ -561,6 +565,8 @@ export function WeatherMap({
             minQuality,
           );
 
+          reportLoadingState();
+
           if (sameFrameRemainsVisible && visibleIdentity && webglLayer.hasFrame(visibleIdentity)) {
             // Keep the previous crop/resolution on screen while the new crop
             // loads. MapLibre continues transforming its Mercator quad during
@@ -575,7 +581,6 @@ export function WeatherMap({
             // the map while the new frame loads.
           } else {
             webglLayer.clearFrame();
-            showBlockingLoader();
           }
 
           // Ensure the continental texture is cached (last-resort fallback).
@@ -666,7 +671,7 @@ export function WeatherMap({
           }
         }
       } else {
-        showBlockingLoader();
+        reportLoadingState();
         desiredFrames.forEach((frame, index) => {
           const identity = frameIdentity(frame, minQuality);
           const layerId = `radar-layer-${identity}`;
