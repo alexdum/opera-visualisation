@@ -21,7 +21,13 @@ from rio_tiler.errors import TileOutsideBounds
 from rio_tiler.models import ImageData
 import zarr
 
-from api.bucket import HF_BUCKET_URL, fsspec_storage_options, USE_LOCAL_MOUNT, resolve_path
+from api.bucket import (
+    HF_BUCKET_URL,
+    fsspec_storage_options,
+    resolve_path,
+    storage_mode,
+    USE_LOCAL_MOUNT,
+)
 from api.catalog import CatalogFrame, normalize_product, resolve_catalog_frame
 from api.cog_cache import BucketRateLimitError, local_cog
 
@@ -889,6 +895,13 @@ def get_raw_frame(
         raise
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Raw frame rendering failed") from exc
+    logger.info(
+        "Radar frame served product=%s timestamp=%s backend=%s storage=%s",
+        product,
+        timestamp,
+        backend,
+        storage_mode(),
+    )
     return Response(
         content=content,
         media_type="application/octet-stream",

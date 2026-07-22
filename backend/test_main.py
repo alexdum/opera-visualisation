@@ -859,7 +859,7 @@ def test_frame_rendering_cog_and_geozarr_alignment(monkeypatch):
     assert cog_bytes == geozarr_bytes
 
 
-def test_raw_route_returns_binary_header_and_data(monkeypatch):
+def test_raw_route_returns_binary_header_and_data(monkeypatch, caplog):
     import struct
     
     published = CatalogFrame(
@@ -883,13 +883,15 @@ def test_raw_route_returns_binary_header_and_data(monkeypatch):
         return header + payload, "cog"
         
     monkeypatch.setattr("api.tiles._get_raw_frame_cached", fake_render)
-    response = client.get("/tiles/raw/DBZH/202607200000/revision-1.bin")
+    with caplog.at_level("INFO", logger="api.tiles"):
+        response = client.get("/tiles/raw/DBZH/202607200000/revision-1.bin")
     
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/octet-stream"
     assert response.headers["x-opera-backend"] == "cog"
     assert response.headers["x-opera-revision"] == "revision-1"
     assert len(response.content) == 16 + 8
+    assert "backend=cog storage=" in caplog.text
 
 
 def test_raw_cog_reader_resolves_the_cataloged_cog_path(monkeypatch):

@@ -32,6 +32,18 @@ def object_url(path: str) -> str:
     return f"{HF_BUCKET_URL}/{path.lstrip('/')}"
 
 
+def storage_description() -> str:
+    """Return a credential-free description suitable for health and logs."""
+
+    if USE_LOCAL_MOUNT:
+        return f"mounted filesystem ({BUCKET_MOUNT})"
+    return f"HTTP resolver ({HF_BUCKET_URL})"
+
+
+def storage_mode() -> str:
+    return "mount" if USE_LOCAL_MOUNT else "http"
+
+
 def auth_headers() -> dict[str, str]:
     """Return server-side auth without ever exposing it to API consumers."""
 

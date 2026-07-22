@@ -4,6 +4,7 @@ import threading
 import time
 
 from api import cog_cache
+from api import bucket
 from api.bucket import auth_headers, fsspec_storage_options
 
 
@@ -17,6 +18,13 @@ def test_bucket_auth_is_server_side_and_optional(monkeypatch):
     assert fsspec_storage_options() == {
         "headers": {"Authorization": "Bearer test-read-token"}
     }
+
+
+def test_storage_description_reports_mount_without_credentials(monkeypatch):
+    monkeypatch.setattr(bucket, "USE_LOCAL_MOUNT", True)
+    monkeypatch.setattr(bucket, "BUCKET_MOUNT", "/data/opera")
+    assert bucket.storage_mode() == "mount"
+    assert bucket.storage_description() == "mounted filesystem (/data/opera)"
 
 
 def test_concurrent_tiles_download_one_revision_once(monkeypatch, tmp_path: Path):

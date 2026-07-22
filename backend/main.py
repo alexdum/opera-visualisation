@@ -1,5 +1,7 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import logging
 import os
 import uvicorn
 from fastapi.staticfiles import StaticFiles
@@ -7,8 +9,19 @@ from fastapi.staticfiles import StaticFiles
 from api.catalog import router as catalog_router
 from api.tiles import router as tiles_router
 from api.pixel import router as pixel_router
+from api.bucket import BUCKET_MOUNT, USE_LOCAL_MOUNT, storage_description
 
-app = FastAPI(title="OPERA Radar API")
+
+startup_logger = logging.getLogger("uvicorn.error")
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    startup_logger.info("OPERA data storage source: %s", storage_description())
+    yield
+
+
+app = FastAPI(title="OPERA Radar API", lifespan=lifespan)
 
 allowed_origins = [
     origin.strip()
@@ -23,8 +36,6 @@ if allowed_origins:
         allow_methods=["GET"],
         allow_headers=["Accept", "Content-Type"],
     )
-
-from api.bucket import USE_LOCAL_MOUNT, BUCKET_MOUNT
 
 @app.get("/api/health")
 async def health():
