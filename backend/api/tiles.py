@@ -673,31 +673,40 @@ def _get_raw_cog_frame(
 ) -> bytes:
     if not frame.hot_cog:
         raise FileNotFoundError("Catalog does not advertise a hot COG")
-    cog_path = local_cog(frame.product, frame.timestamp, frame.revision, frame.hot_cog)
-    with Reader(str(cog_path)) as cog:
-        has_quality = frame.product == "DBZH" and cog.dataset.count >= 2
-        indexes = (1, 2) if has_quality else (1,)
-        image = cog.part(
-            bounds,
-            bounds_crs=CRS.from_epsg(4326),
-            dst_crs=CRS.from_epsg(3857),
-            max_size=max_size,
-            indexes=indexes,
-            resampling_method="nearest",
-        )
-        raw_b1 = np.asarray(image.array[0], dtype=np.float32)
-        scanning_area_mask = np.isnan(raw_b1)
-        nodata_mask = np.isclose(raw_b1, -9999000.0)
-        
-        d = raw_b1.copy()
-        d[scanning_area_mask] = -10.0
-        d[nodata_mask] = np.nan
-        
-        if has_quality:
-            q = np.asarray(image.array[1], dtype=np.float32)
-        else:
-            q = np.full(d.shape, np.nan, dtype=np.float32)
+    try:
+        with Reader(str(cog_path)) as cog:
+            has_quality = frame.product == "DBZH" and cog.dataset.count >= 2
+            indexes = (1, 2) if has_quality else (1,)
+            image = cog.part(
+                bounds,
+                bounds_crs=CRS.from_epsg(4326),
+                dst_crs=CRS.from_epsg(3857),
+                max_size=max_size,
+                indexes=indexes,
+                resampling_method="nearest",
+            )
+            raw_b1 = np.asarray(image.array[0], dtype=np.float32)
+            scanning_area_mask = np.isnan(raw_b1)
+            nodata_mask = np.isclose(raw_b1, -9999000.0)
             
+            d = raw_b1.copy()
+            d[scanning_area_mask] = -10.0
+            d[nodata_mask] = np.nan
+            
+            if has_quality:
+                q = np.asarray(image.array[1], dtype=np.float32)
+            else:
+                q = np.full(d.shape, np.nan, dtype=np.float32)
+                
+            return _pack_raw_buffer(d, q, frame.product)
+    except TileOutsideBounds:
+        merc_bounds = transform_bounds("EPSG:4326", "EPSG:3857", *bounds)
+        merc_w = max(1.0, merc_bounds[2] - merc_bounds[0])
+        merc_h = max(1.0, merc_bounds[3] - merc_bounds[1])
+        out_w = max_size
+        out_h = max(1, int(out_w * merc_h / merc_w))
+        d = np.full((out_h, out_w), np.nan, dtype=np.float32)
+        q = np.full((out_h, out_w), np.nan, dtype=np.float32)
         return _pack_raw_buffer(d, q, frame.product)
 
 def _get_raw_geozarr_frame(

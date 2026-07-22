@@ -411,14 +411,50 @@ export function WeatherMap({
           const pyramid = getEuropeanScalePyramid(instance.getZoom(), instance.getBounds());
 
           const currentIdentity = frameIdentity(currentFrame, minQuality, pyramid.bboxKey, pyramid.maxSize);
+          const fallbackIdentity = frameIdentity(currentFrame, minQuality);
+
           if (webglLayer.hasFrame(currentIdentity)) {
             webglLayer.showFrame(currentIdentity);
             finishReady();
+          } else if (webglLayer.hasFrame(fallbackIdentity)) {
+            // Keep Level 0 continental texture displayed as seamless fallback
+            // while the zoomed sub-region buffer downloads.
+            webglLayer.showFrame(fallbackIdentity);
           }
 
           desiredFrames.forEach((frame, index) => {
             const identity = frameIdentity(frame, minQuality, pyramid.bboxKey, pyramid.maxSize);
+            const fallbackIdentity = frameIdentity(frame, minQuality);
             const isCurrent = index === 0;
+
+            // Ensure Level 0 base frame is cached as instant fallback
+            if (pyramid.bboxKey && !webglLayer!.hasFrame(fallbackIdentity)) {
+              const baseRawUrl = buildRawFrameUrl(frame, TILE_API_BASE);
+              fetch(baseRawUrl)
+                .then((res) => res.arrayBuffer())
+                .then((buffer) => {
+                  const view = new DataView(buffer);
+                  const width = view.getUint16(0, true);
+                  const height = view.getUint16(2, true);
+                  const minVal = view.getFloat32(4, true);
+                  const maxVal = view.getFloat32(8, true);
+                  const payload = new Uint8Array(buffer, 16);
+                  const coords = OPERA_IMAGE_COORDINATES.map((c) => {
+                    const mc = maplibregl.MercatorCoordinate.fromLngLat({ lng: c[0], lat: c[1] });
+                    return [mc.x, mc.y] as [number, number];
+                  });
+                  webglLayer!.setFrameData(fallbackIdentity, payload, width, height, coords);
+                  rawBufferMapRef.current.set(fallbackIdentity, {
+                    data: payload,
+                    width,
+                    height,
+                    minVal,
+                    maxVal,
+                    bbox: OPERA_IMAGE_COORDINATES,
+                  });
+                })
+                .catch(console.error);
+            }
 
             if (!webglLayer!.hasFrame(identity)) {
               const rawUrl = buildRawFrameUrl(frame, TILE_API_BASE, pyramid.bboxKey, pyramid.maxSize);
