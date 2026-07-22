@@ -363,10 +363,14 @@ export function WeatherMap({
 
     const generation = ++renderGeneration.current;
     let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
+    let moveEndDebounce: ReturnType<typeof setTimeout> | undefined;
     let activeSourceId: string | undefined;
     let layersReconciled = false;
     let viewportGeneration = 0;
     let loadController = new AbortController();
+    // Continental fallback uses a separate controller so viewport-triggered
+    // aborts (zoom/pan) never kill the reusable low-res texture fetch.
+    const continentalController = new AbortController();
     const desiredFrames = selectAnimationFrames(frames, currentTimeIndex);
 
     const finish = (state: MapRenderState) => {
@@ -480,15 +484,13 @@ export function WeatherMap({
           height: canvas.height,
         });
         const currentIdentity = frameIdentity(currentFrame, minQuality, pyramid.bboxKey, pyramid.maxSize);
-        // The continental request uses max_size=1024, so its cache identity
-        // must include the same value. Otherwise zoom 6 cannot find the
-        // already-rendered zoom < 6 texture and clears the map unnecessarily.
-        const fallbackIdentity = continentalFrameIdentity(currentFrame, minQuality);
+        const continentalIdentity = continentalFrameIdentity(currentFrame, minQuality);
         const isCurrentRequest = () =>
           !signal.aborted &&
           generation === renderGeneration.current &&
           activeViewportGeneration === viewportGeneration;
 
+        /** Upload a raw frame using the viewport abort controller. */
         const uploadRawFrame = async (
           frame: RadarFrame,
           identity: string,
@@ -496,14 +498,18 @@ export function WeatherMap({
           bboxKey: string | undefined,
           maxSize: number,
           activate: boolean,
+          fetchSignal: AbortSignal,
           allowArchiveFallback = true,
         ) => {
           const response = await fetch(
             buildRawFrameUrl(frame, TILE_API_BASE, bboxKey, maxSize, allowArchiveFallback),
-            { signal },
+            { signal: fetchSignal },
           );
           const parsed = await parseRawRadarResponse(response);
-          if (!isCurrentRequest()) return;
+          // Continental uploads are always accepted (they survive viewport
+          // changes); viewport-specific uploads check the viewport generation.
+          if (fetchSignal !== continentalController.signal && !isCurrentRequest()) return;
+          if (generation !== renderGeneration.current) return;
           const mercatorCoordinates = coordinates.map(([lng, lat]) => {
             const coordinate = maplibregl.MercatorCoordinate.fromLngLat({ lng, lat });
             return [coordinate.x, coordinate.y] as [number, number];
@@ -538,35 +544,50 @@ export function WeatherMap({
           webglLayer.showFrame(currentIdentity);
           finishReady(webglLayer.frameBackend(currentIdentity) ?? currentFrame.backend);
         } else {
+          // --- Fallback priority ---
+          // 1. Keep the CURRENT visible texture (any zoom level) as the primary
+          //    fallback. This preserves the highest-resolution data the user
+          //    has already seen while the new crop loads.
+          // 2. Fall back to the continental (low-res) texture only when there
+          //    is no same-frame texture already on screen.
+          // 3. Clear the frame only when nothing relevant is cached at all.
           const visibleIdentity = webglLayer.visibleFrameId();
           const sameFrameRemainsVisible = isFrameIdentityVariant(
             visibleIdentity,
             currentFrame,
             minQuality,
           );
-          if (webglLayer.hasFrame(fallbackIdentity)) {
-            webglLayer.showFrame(fallbackIdentity);
-          } else if (sameFrameRemainsVisible && visibleIdentity) {
+
+          if (sameFrameRemainsVisible && visibleIdentity && webglLayer.hasFrame(visibleIdentity)) {
             // Keep the previous crop/resolution on screen while the new crop
             // loads. MapLibre continues transforming its Mercator quad during
             // zoom, avoiding a blank flash between valid same-frame textures.
             webglLayer.showFrame(visibleIdentity);
+          } else if (webglLayer.hasFrame(continentalIdentity)) {
+            // No same-frame texture visible; fall back to the continental view.
+            webglLayer.showFrame(continentalIdentity);
           } else {
             webglLayer.clearFrame();
             showBlockingLoader();
           }
 
-          if (pyramid.bboxKey && !webglLayer.hasFrame(fallbackIdentity)) {
+          // Ensure the continental texture is cached (last-resort fallback).
+          // Uses a separate controller so viewport aborts never kill this.
+          if (pyramid.bboxKey && !webglLayer.hasFrame(continentalIdentity)) {
             void uploadRawFrame(
               currentFrame,
-              fallbackIdentity,
+              continentalIdentity,
               OPERA_IMAGE_COORDINATES,
               undefined,
               1024,
               false,
+              continentalController.signal,
             ).then(() => {
-              if (isCurrentRequest() && !webglLayer!.hasFrame(currentIdentity)) {
-                webglLayer!.showFrame(fallbackIdentity);
+              if (generation !== renderGeneration.current) return;
+              // If nothing better is visible yet, show the continental texture.
+              const currentVisible = webglLayer!.visibleFrameId();
+              if (!currentVisible || !webglLayer!.hasFrame(currentVisible)) {
+                webglLayer!.showFrame(continentalIdentity);
               }
             }).catch((error: unknown) => {
               if (!(error instanceof DOMException && error.name === "AbortError")) {
@@ -582,17 +603,21 @@ export function WeatherMap({
             pyramid.bboxKey,
             pyramid.maxSize,
             true,
+            signal,
           ).then((backend) => {
             if (backend && isCurrentRequest()) finishReady(backend);
           }).catch((error: unknown) => {
             if (error instanceof DOMException && error.name === "AbortError") return;
             if (!isCurrentRequest()) return;
-            const visibleIdentity = webglLayer!.visibleFrameId();
-            const degradedIdentity = webglLayer!.hasFrame(fallbackIdentity)
-              ? fallbackIdentity
-              : isFrameIdentityVariant(visibleIdentity, currentFrame, minQuality)
-                ? visibleIdentity
-                : null;
+            // On fetch failure, show the best available cached texture:
+            // first try the current visible frame, then continental.
+            const currentVisible = webglLayer!.visibleFrameId();
+            const degradedIdentity =
+              (sameFrameRemainsVisible && currentVisible && webglLayer!.hasFrame(currentVisible))
+                ? currentVisible
+                : webglLayer!.hasFrame(continentalIdentity)
+                  ? continentalIdentity
+                  : null;
             if (degradedIdentity) {
               webglLayer!.showFrame(degradedIdentity);
               finish({
@@ -624,6 +649,7 @@ export function WeatherMap({
               pyramid.bboxKey,
               pyramid.maxSize,
               false,
+              signal,
               false,
             ).catch((error: unknown) => {
               if (!(error instanceof DOMException && error.name === "AbortError")) {
@@ -695,11 +721,17 @@ export function WeatherMap({
       }
     };
 
+    // Debounce moveend by 150ms so rapid zoom gestures (mouse wheel ticks,
+    // pinch-zoom steps) consolidate into a single fetch instead of cascading
+    // abort → fetch → abort cycles that leave the map blank.
     const handleMoveEnd = () => {
-      loadController.abort();
-      loadController = new AbortController();
-      layersReconciled = false;
-      reconcileLayers();
+      if (moveEndDebounce) clearTimeout(moveEndDebounce);
+      moveEndDebounce = setTimeout(() => {
+        loadController.abort();
+        loadController = new AbortController();
+        layersReconciled = false;
+        reconcileLayers();
+      }, 150);
     };
 
     if (instance.isStyleLoaded()) reconcileLayers();
@@ -711,7 +743,9 @@ export function WeatherMap({
     instance.on("moveend", handleMoveEnd);
     return () => {
       loadController.abort();
+      continentalController.abort();
       if (fallbackTimer) clearTimeout(fallbackTimer);
+      if (moveEndDebounce) clearTimeout(moveEndDebounce);
       instance.off("style.load", reconcileLayers);
       instance.off("styledata", reconcileLayers);
       instance.off("moveend", handleMoveEnd);
