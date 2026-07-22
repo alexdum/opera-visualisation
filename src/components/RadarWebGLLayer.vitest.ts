@@ -19,6 +19,7 @@ describe("RadarWebGLLayer texture activation", () => {
       CLAMP_TO_EDGE: 33071,
       createTexture: () => ({}),
       bindTexture: () => undefined,
+      pixelStorei: () => undefined,
       texImage2D: (_target: number, _level: number, internalFormat: number, _width: number, _height: number, _border: number, format: number) => {
         uploads.push({ internalFormat, format });
       },
@@ -50,6 +51,13 @@ describe("RadarWebGLLayer texture activation", () => {
     expect(fragmentShaderSource).toContain("texColor.g");
   });
 
+  it("preserves peak radar echoes when the texture is minified", () => {
+    expect(fragmentShaderSource).toContain("dFdx(v_texcoord.x)");
+    expect(fragmentShaderSource).toContain("peakPreservingMinification");
+    expect(fragmentShaderSource).toContain("candidateScore > strongestScore");
+    expect(fragmentShaderSource).toContain("quality < u_min_quality");
+  });
+
   it("does not evict the visible texture when hidden zoom crops fill the cache", () => {
     const deleted: WebGLTexture[] = [];
     const fakeGl = {
@@ -65,6 +73,7 @@ describe("RadarWebGLLayer texture activation", () => {
       CLAMP_TO_EDGE: 33071,
       createTexture: () => ({}) as WebGLTexture,
       bindTexture: () => undefined,
+      pixelStorei: () => undefined,
       texImage2D: () => undefined,
       texParameteri: () => undefined,
       deleteTexture: (texture: WebGLTexture) => deleted.push(texture),
