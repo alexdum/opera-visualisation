@@ -49,4 +49,38 @@ describe("RadarWebGLLayer texture activation", () => {
     expect(fragmentShaderSource.startsWith("#version 300 es\n")).toBe(true);
     expect(fragmentShaderSource).toContain("texColor.g");
   });
+
+  it("does not evict the visible texture when hidden zoom crops fill the cache", () => {
+    const deleted: WebGLTexture[] = [];
+    const fakeGl = {
+      TEXTURE_2D: 3553,
+      RG8: 33323,
+      RG: 33319,
+      UNSIGNED_BYTE: 5121,
+      TEXTURE_MIN_FILTER: 10241,
+      TEXTURE_MAG_FILTER: 10240,
+      TEXTURE_WRAP_S: 10242,
+      TEXTURE_WRAP_T: 10243,
+      NEAREST: 9728,
+      CLAMP_TO_EDGE: 33071,
+      createTexture: () => ({}) as WebGLTexture,
+      bindTexture: () => undefined,
+      texImage2D: () => undefined,
+      texParameteri: () => undefined,
+      deleteTexture: (texture: WebGLTexture) => deleted.push(texture),
+    } as unknown as WebGL2RenderingContext;
+    const layer = new RadarWebGLLayer("radar", "DBZH");
+    Object.defineProperty(layer, "gl", { value: fakeGl, configurable: true });
+    const payload = new Uint8Array(8);
+    const coordinates: [number, number][] = [[0, 0], [1, 0], [1, 1], [0, 1]];
+
+    layer.setFrameData("visible", payload, 2, 2, coordinates, "cog", true);
+    for (let index = 0; index < 9; index += 1) {
+      layer.setFrameData(`hidden-${index}`, payload, 2, 2, coordinates, "cog", false);
+    }
+
+    expect(layer.visibleFrameId()).toBe("visible");
+    expect(layer.hasFrame("visible")).toBe(true);
+    expect(deleted).toHaveLength(2);
+  });
 });

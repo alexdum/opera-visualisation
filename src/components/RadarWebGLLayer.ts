@@ -300,13 +300,16 @@ export class RadarWebGLLayer implements CustomLayerInterface {
       this.textureCache.set(frameId, { texture, quadCoords, backend });
       this.cacheKeys.push(frameId);
 
-      if (this.cacheKeys.length > this.maxCacheSize) {
-        const oldest = this.cacheKeys.shift();
-        if (oldest) {
-          const oldEntry = this.textureCache.get(oldest);
-          if (oldEntry) gl.deleteTexture(oldEntry.texture);
-          this.textureCache.delete(oldest);
-        }
+      while (this.cacheKeys.length > this.maxCacheSize) {
+        // Hidden zoom/animation preloads must never evict the texture that is
+        // currently being drawn; deleting the active WebGL texture produces
+        // an otherwise unexplained blank radar layer.
+        const evictionIndex = this.cacheKeys.findIndex((key) => key !== this.currentFrameId);
+        if (evictionIndex < 0) break;
+        const [oldest] = this.cacheKeys.splice(evictionIndex, 1);
+        const oldEntry = this.textureCache.get(oldest);
+        if (oldEntry) gl.deleteTexture(oldEntry.texture);
+        this.textureCache.delete(oldest);
       }
     }
     if (activate) this.showFrame(frameId);

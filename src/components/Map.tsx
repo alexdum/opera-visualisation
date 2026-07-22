@@ -9,9 +9,11 @@ import type { MapRenderState, RadarFrame, RadarProduct } from "@/types/radar";
 import {
   buildTileUrl,
   buildRawFrameUrl,
+  continentalFrameIdentity,
   frameIdentity,
   getEuropeanScalePyramid,
   isAdministrativeBoundaryLayer,
+  isFrameIdentityVariant,
   isPlaceLabelLayer,
   OPERA_IMAGE_COORDINATES,
   radarOverlayBeforeId,
@@ -446,12 +448,14 @@ export function WeatherMap({
       const signal = loadController.signal;
       instance.off("style.load", reconcileLayers);
       instance.off("styledata", reconcileLayers);
-      renderHandlerRef.current({
-        status: "loading",
-        message: "Rendering radar frame…",
-        frameKey: frameIdentity(currentFrame, minQuality),
-        backend: currentFrame.backend,
-      });
+      const showBlockingLoader = () => {
+        renderHandlerRef.current({
+          status: "loading",
+          message: "Rendering radar frame…",
+          frameKey: frameIdentity(currentFrame, minQuality),
+          backend: currentFrame.backend,
+        });
+      };
 
       const desiredLayerIds: string[] = [];
       const desiredSourceIds: string[] = [];
@@ -476,7 +480,10 @@ export function WeatherMap({
           height: canvas.height,
         });
         const currentIdentity = frameIdentity(currentFrame, minQuality, pyramid.bboxKey, pyramid.maxSize);
-        const fallbackIdentity = frameIdentity(currentFrame, minQuality);
+        // The continental request uses max_size=1024, so its cache identity
+        // must include the same value. Otherwise zoom 6 cannot find the
+        // already-rendered zoom < 6 texture and clears the map unnecessarily.
+        const fallbackIdentity = continentalFrameIdentity(currentFrame, minQuality);
         const isCurrentRequest = () =>
           !signal.aborted &&
           generation === renderGeneration.current &&
@@ -531,8 +538,23 @@ export function WeatherMap({
           webglLayer.showFrame(currentIdentity);
           finishReady(webglLayer.frameBackend(currentIdentity) ?? currentFrame.backend);
         } else {
-          if (webglLayer.hasFrame(fallbackIdentity)) webglLayer.showFrame(fallbackIdentity);
-          else webglLayer.clearFrame();
+          const visibleIdentity = webglLayer.visibleFrameId();
+          const sameFrameRemainsVisible = isFrameIdentityVariant(
+            visibleIdentity,
+            currentFrame,
+            minQuality,
+          );
+          if (webglLayer.hasFrame(fallbackIdentity)) {
+            webglLayer.showFrame(fallbackIdentity);
+          } else if (sameFrameRemainsVisible && visibleIdentity) {
+            // Keep the previous crop/resolution on screen while the new crop
+            // loads. MapLibre continues transforming its Mercator quad during
+            // zoom, avoiding a blank flash between valid same-frame textures.
+            webglLayer.showFrame(visibleIdentity);
+          } else {
+            webglLayer.clearFrame();
+            showBlockingLoader();
+          }
 
           if (pyramid.bboxKey && !webglLayer.hasFrame(fallbackIdentity)) {
             void uploadRawFrame(
@@ -565,13 +587,19 @@ export function WeatherMap({
           }).catch((error: unknown) => {
             if (error instanceof DOMException && error.name === "AbortError") return;
             if (!isCurrentRequest()) return;
-            if (webglLayer!.hasFrame(fallbackIdentity)) {
-              webglLayer!.showFrame(fallbackIdentity);
+            const visibleIdentity = webglLayer!.visibleFrameId();
+            const degradedIdentity = webglLayer!.hasFrame(fallbackIdentity)
+              ? fallbackIdentity
+              : isFrameIdentityVariant(visibleIdentity, currentFrame, minQuality)
+                ? visibleIdentity
+                : null;
+            if (degradedIdentity) {
+              webglLayer!.showFrame(degradedIdentity);
               finish({
                 status: "degraded",
-                message: "The detailed radar view failed; showing the same frame at continental resolution.",
+                message: "The detailed radar view failed; keeping the same frame at the previous resolution.",
                 frameKey: frameIdentity(currentFrame, minQuality),
-                backend: webglLayer!.frameBackend(fallbackIdentity) ?? currentFrame.backend,
+                backend: webglLayer!.frameBackend(degradedIdentity) ?? currentFrame.backend,
               });
             } else {
               finish({
@@ -605,6 +633,7 @@ export function WeatherMap({
           }
         }
       } else {
+        showBlockingLoader();
         desiredFrames.forEach((frame, index) => {
           const identity = frameIdentity(frame, minQuality);
           const layerId = `radar-layer-${identity}`;

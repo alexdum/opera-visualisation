@@ -73,6 +73,21 @@ export const qualityKeyForProduct = (product: RadarProduct, minQuality: number |
 export const frameIdentity = (frame: RadarFrame, minQuality: number | null, bbox?: string, maxSize?: number) =>
   `${frame.product}-${frame.timestamp}-${frame.revision}-${frame.backend}-${qualityKeyForProduct(frame.product, minQuality)}${bbox ? `-${bbox}` : ""}${maxSize ? `-m${maxSize}` : ""}`;
 
+/** Stable identity for the continental texture used during regional zoom transitions. */
+export const continentalFrameIdentity = (frame: RadarFrame, minQuality: number | null) =>
+  frameIdentity(frame, minQuality, undefined, 1024);
+
+/** Whether a cached crop/resolution belongs to the selected logical radar frame. */
+export const isFrameIdentityVariant = (
+  identity: string | null,
+  frame: RadarFrame,
+  minQuality: number | null,
+) => {
+  if (!identity) return false;
+  const baseIdentity = frameIdentity(frame, minQuality);
+  return identity === baseIdentity || identity.startsWith(`${baseIdentity}-`);
+};
+
 export const tileLoadTimeoutMs = (frame: RadarFrame) =>
   frame.backend === "geozarr" ? 35_000 : 10_000;
 

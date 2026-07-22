@@ -4,10 +4,12 @@ import type { RadarFrame } from "@/types/radar";
 import {
   buildTileUrl,
   buildRawFrameUrl,
+  continentalFrameIdentity,
   frameIdentity,
   formatRadarCadence,
   inferRadarCadenceMs,
   getEuropeanScalePyramid,
+  isFrameIdentityVariant,
   parseQualityUrlValue,
   radarOverlayBeforeId,
   radarOverlayInsertionIndex,
@@ -65,6 +67,16 @@ describe("radar tile identity", () => {
   it("can forbid archive fallback for a hidden COG preload", () => {
     const frame = makeFrame("DBZH", "202607210000", "revision");
     expect(buildRawFrameUrl(frame, "", undefined, 1024, false)).toContain("allow_archive_fallback=false");
+  });
+
+  it("uses the actual continental request size as its reusable fallback identity", () => {
+    const frame = makeFrame("DBZH", "202607210000", "revision");
+    const continental = continentalFrameIdentity(frame, null);
+
+    expect(continental).toBe(frameIdentity(frame, null, undefined, 1024));
+    expect(isFrameIdentityVariant(continental, frame, null)).toBe(true);
+    expect(isFrameIdentityVariant(frameIdentity(frame, null, "20.00,43.00,31.50,49.00", 1536), frame, null)).toBe(true);
+    expect(isFrameIdentityVariant(continental, { ...frame, timestamp: "202607210005" }, null)).toBe(false);
   });
 });
 
