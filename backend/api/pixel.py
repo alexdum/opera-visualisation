@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import csv
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
+import copy
 from datetime import date, datetime, time, timedelta, timezone
 from functools import lru_cache
 import io
 import json
 import math
+import os
+from threading import RLock
+import time as clock
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
@@ -24,10 +29,28 @@ from api.catalog import CatalogFrame, cataloged_frames_between, normalize_produc
 
 router = APIRouter()
 STATUS_NAMES = {0: "detected", 1: "undetect", 2: "nodata"}
+PIXEL_METADATA_CACHE_SECONDS = max(
+    1.0, float(os.getenv("PIXEL_METADATA_CACHE_SECONDS", "30"))
+)
+PIXEL_RESPONSE_CACHE_SECONDS = max(
+    0.0, float(os.getenv("PIXEL_RESPONSE_CACHE_SECONDS", "300"))
+)
+PIXEL_RESPONSE_CACHE_ENTRIES = max(
+    0, int(os.getenv("PIXEL_RESPONSE_CACHE_ENTRIES", "128"))
+)
+
+_pixel_response_cache: OrderedDict[tuple[Any, ...], tuple[float, list[dict[str, Any]]]] = (
+    OrderedDict()
+)
+_pixel_response_cache_lock = RLock()
+
+
+def _metadata_cache_bucket() -> int:
+    return int(clock.monotonic() // PIXEL_METADATA_CACHE_SECONDS)
 
 
 @lru_cache(maxsize=8)
-def _open_group(store_path: str) -> Any:
+def _open_group_cached(store_path: str, _cache_bucket: int) -> Any:
     if USE_LOCAL_MOUNT:
         store = zarr.storage.LocalStore(resolve_path(store_path))
     else:
@@ -40,10 +63,62 @@ def _open_group(store_path: str) -> Any:
         return zarr.open_group(store=store, mode="r")
 
 
-@lru_cache(maxsize=16)
-def _read_time_coords(store_path: str) -> np.ndarray:
+def _open_group(store_path: str) -> Any:
+    return _open_group_cached(store_path, _metadata_cache_bucket())
+
+
+_open_group.cache_clear = _open_group_cached.cache_clear  # type: ignore[attr-defined]
+_open_group.cache_info = _open_group_cached.cache_info  # type: ignore[attr-defined]
+
+
+@lru_cache(maxsize=32)
+def _read_time_coords_cached(store_path: str, _cache_bucket: int) -> np.ndarray:
     group = _open_group(store_path)
     return np.asarray(group["time"][:], dtype=np.int64)
+
+
+def _read_time_coords(store_path: str) -> np.ndarray:
+    return _read_time_coords_cached(store_path, _metadata_cache_bucket())
+
+
+_read_time_coords.cache_clear = _read_time_coords_cached.cache_clear  # type: ignore[attr-defined]
+_read_time_coords.cache_info = _read_time_coords_cached.cache_info  # type: ignore[attr-defined]
+
+
+def _time_lower_bound(time_array: Any, target_epoch: int) -> int:
+    low = 0
+    high = int(time_array.shape[0])
+    while low < high:
+        middle = (low + high) // 2
+        value = int(_safe_scalar(time_array[middle]))
+        if value < target_epoch:
+            low = middle + 1
+        else:
+            high = middle
+    return low
+
+
+@lru_cache(maxsize=64)
+def _read_time_window_cached(
+    store_path: str,
+    start_epoch: int,
+    end_epoch: int,
+    _cache_bucket: int,
+) -> tuple[int, np.ndarray]:
+    group = _open_group(store_path)
+    time_array = group["time"]
+    first_index = _time_lower_bound(time_array, start_epoch)
+    final_index = _time_lower_bound(time_array, end_epoch + 1)
+    values = np.asarray(time_array[first_index:final_index], dtype=np.int64)
+    return first_index, values
+
+
+def _read_time_window(
+    store_path: str, start_epoch: int, end_epoch: int
+) -> tuple[int, np.ndarray]:
+    return _read_time_window_cached(
+        store_path, start_epoch, end_epoch, _metadata_cache_bucket()
+    )
 
 
 @lru_cache(maxsize=16)
@@ -102,6 +177,38 @@ def _read_bounds_span(array: Any, time_slice: slice) -> np.ndarray:
     return np.asarray(array[time_slice], dtype=np.int64)
 
 
+def _pixel_cache_get(key: tuple[Any, ...]) -> list[dict[str, Any]] | None:
+    if PIXEL_RESPONSE_CACHE_ENTRIES == 0 or PIXEL_RESPONSE_CACHE_SECONDS == 0:
+        return None
+    now = clock.monotonic()
+    with _pixel_response_cache_lock:
+        cached = _pixel_response_cache.get(key)
+        if cached is None:
+            return None
+        expires_at, rows = cached
+        if expires_at <= now:
+            del _pixel_response_cache[key]
+            return None
+        _pixel_response_cache.move_to_end(key)
+        return copy.deepcopy(rows)
+
+
+def _pixel_cache_put(key: tuple[Any, ...], rows: list[dict[str, Any]]) -> None:
+    if PIXEL_RESPONSE_CACHE_ENTRIES == 0 or PIXEL_RESPONSE_CACHE_SECONDS == 0:
+        return
+    expires_at = clock.monotonic() + PIXEL_RESPONSE_CACHE_SECONDS
+    with _pixel_response_cache_lock:
+        _pixel_response_cache[key] = (expires_at, copy.deepcopy(rows))
+        _pixel_response_cache.move_to_end(key)
+        while len(_pixel_response_cache) > PIXEL_RESPONSE_CACHE_ENTRIES:
+            _pixel_response_cache.popitem(last=False)
+
+
+def _clear_pixel_response_cache() -> None:
+    with _pixel_response_cache_lock:
+        _pixel_response_cache.clear()
+
+
 def _extract_store_frames(
     product: str,
     store_path: str,
@@ -129,16 +236,42 @@ def _extract_store_frames(
         "pixel_center_lat": float(center_lat),
     }
 
-    time_values = _read_time_coords(store_path)
-    time_lookup = {int(epoch): index for index, epoch in enumerate(time_values)}
+    frame_identity = tuple(
+        (
+            frame.nominal_time,
+            frame.start_time,
+            frame.end_time,
+            frame.revision,
+            tuple(frame.quality_variables),
+        )
+        for frame in frames
+    )
+    cache_key = (product, store_path, y_index, x_index, frame_identity)
+    cached_rows = _pixel_cache_get(cache_key)
+    if cached_rows is not None:
+        return cached_rows, location
+
+    if not frames:
+        return [], location
+
+    frame_epochs = [
+        int(datetime.fromisoformat(frame.nominal_time.replace("Z", "+00:00")).timestamp())
+        for frame in frames
+    ]
+    first_time_index, time_values = _read_time_window(
+        store_path, min(frame_epochs), max(frame_epochs)
+    )
+    time_lookup = {
+        int(epoch): first_time_index + offset
+        for offset, epoch in enumerate(time_values)
+    }
     status_array = group[f"{product}_status"]
     measurement_array = group[product]
     time_bounds = group["time_bnds"] if "time_bnds" in group else None
     quality_names = sorted({name for frame in frames for name in frame.quality_variables if name in group})
 
     indexed_frames: list[tuple[CatalogFrame, int]] = []
-    for frame in frames:
-        epoch = int(datetime.fromisoformat(frame.nominal_time.replace("Z", "+00:00")).timestamp())
+    for frame, epoch in zip(frames, frame_epochs, strict=True):
         index = time_lookup.get(epoch)
         if index is None:
             # Catalog is authoritative: absence in the store is a consistency
@@ -149,9 +282,9 @@ def _extract_store_frames(
     if not indexed_frames:
         return [], location
 
-    # Fetch each time-dependent array once for the requested interval. Remote
-    # Zarr stores otherwise turn a 24-hour query into hundreds of sequential
-    # object reads (one read per frame and variable).
+    # Fetch each time-dependent array once for the requested interval. Zarr's
+    # codec pipeline handles bounded chunk concurrency internally; issuing one
+    # Python task per timestamp adds substantial overhead on HTTP stores.
     first_index = min(index for _, index in indexed_frames)
     final_index = max(index for _, index in indexed_frames) + 1
     time_slice = slice(first_index, final_index)
@@ -160,7 +293,9 @@ def _extract_store_frames(
     worker_count = min(4, len(arrays) + int(time_bounds is not None))
     with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="pixel-zarr") as executor:
         futures = {
-            key: executor.submit(_read_pixel_span, array, time_slice, y_index, x_index)
+            key: executor.submit(
+                _read_pixel_span, array, time_slice, y_index, x_index
+            )
             for key, array in arrays.items()
         }
         bounds_future = (
@@ -168,21 +303,19 @@ def _extract_store_frames(
             if time_bounds is not None
             else None
         )
-        status_values = futures["status"].result()
-        measurement_values = futures["measurement"].result()
-        quality_values = {name: futures[f"quality:{name}"].result() for name in quality_names}
+        pixel_values = {key: future.result() for key, future in futures.items()}
         bounds_values = bounds_future.result() if bounds_future is not None else None
 
     results: list[dict[str, Any]] = []
     for frame, index in indexed_frames:
         offset = index - first_index
-        status_code = int(_safe_scalar(status_values[offset]))
+        status_code = int(_safe_scalar(pixel_values["status"][offset]))
         status = STATUS_NAMES.get(status_code, "unknown")
-        raw_value = float(_safe_scalar(measurement_values[offset]))
+        raw_value = float(_safe_scalar(pixel_values["measurement"][offset]))
         value = raw_value if status == "detected" and math.isfinite(raw_value) else None
         quality: dict[str, float | None] = {}
         for name in quality_names:
-            raw_quality = float(_safe_scalar(quality_values[name][offset]))
+            raw_quality = float(_safe_scalar(pixel_values[f"quality:{name}"][offset]))
             quality[name] = raw_quality if math.isfinite(raw_quality) and 0.0 <= raw_quality <= 1.0 else None
 
         start_time = frame.start_time
@@ -206,6 +339,7 @@ def _extract_store_frames(
                 "revision": frame.revision,
             }
         )
+    _pixel_cache_put(cache_key, results)
     return results, location
 
 

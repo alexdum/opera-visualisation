@@ -122,6 +122,9 @@ from one origin on port 7860.
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | Comma-separated development origins; production is same-origin |
 | `TILE_RENDER_CONCURRENCY` | `4` | Maximum concurrent raster render operations |
 | `TILE_RENDER_QUEUE_TIMEOUT_SECONDS` | `30` | Maximum time a tile waits for a bounded renderer slot before returning 503 |
+| `PIXEL_METADATA_CACHE_SECONDS` | `30` | Refresh interval for growing GeoZarr group and time metadata |
+| `PIXEL_RESPONSE_CACHE_SECONDS` | `300` | Lifetime of server-side pixel-series results |
+| `PIXEL_RESPONSE_CACHE_ENTRIES` | `128` | Maximum cached pixel-series results per backend process |
 | `NEXT_PUBLIC_API_BASE_URL` | Port 7860 in development; same-origin in production | Optional public API origin override |
 
 A public bucket can be read anonymously, but a server-side read-only
