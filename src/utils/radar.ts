@@ -150,8 +150,8 @@ export const getEuropeanScalePyramid = (
   bounds?: { getWest: () => number; getSouth: () => number; getEast: () => number; getNorth: () => number },
   viewport?: { width: number; height: number },
 ): EuropeanScalePyramid => {
-  // Level 0: Full Continental view (Zoom < 6.0)
-  if (zoom < 6.0 || !bounds) {
+  // Level 0: Full Continental view (Zoom < 5.0)
+  if (zoom < 5.0 || !bounds) {
     return {
       maxSize: 1024,
       bboxCoords: OPERA_IMAGE_COORDINATES,
@@ -180,9 +180,11 @@ export const getEuropeanScalePyramid = (
 
   // Native OPERA COG is 1km resolution (~0.01 degrees).
   // A 1024x1024 pixel image perfectly covers a 10°x10° area at native resolution.
-  // By using a large 10° or 20° grid, we cover entire countries in a single tile.
+  // By using a large 10°, 20°, or 40° grid, we cover entire countries/regions in a single tile.
   // Panning within this huge tile generates NO new network requests.
-  const step = zoom >= 7.0 ? 10.0 : 20.0;
+  let step = 40.0;
+  if (zoom >= 7.0) step = 10.0;
+  else if (zoom >= 6.0) step = 20.0;
 
   const minLon = Math.floor(west / step) * step;
   const minLat = Math.floor(south / step) * step;
