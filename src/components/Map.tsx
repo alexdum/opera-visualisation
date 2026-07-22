@@ -363,7 +363,8 @@ export function WeatherMap({
 
     const generation = ++renderGeneration.current;
     let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
-    let moveEndDebounce: ReturnType<typeof setTimeout> | undefined;
+    let moveThrottleTimer: ReturnType<typeof setTimeout> | undefined;
+    let lastMoveReconcileTime = 0;
     let activeSourceId: string | undefined;
     let layersReconciled = false;
     let viewportGeneration = 0;
@@ -550,7 +551,9 @@ export function WeatherMap({
           //    has already seen while the new crop loads.
           // 2. Fall back to the continental (low-res) texture only when there
           //    is no same-frame texture already on screen.
-          // 3. Clear the frame only when nothing relevant is cached at all.
+          // 3. NEVER clear a working visible texture during zoom/pan. Only
+          //    clear when genuinely nothing is available (initial load or
+          //    product switch already cleared the cache via setProduct).
           const visibleIdentity = webglLayer.visibleFrameId();
           const sameFrameRemainsVisible = isFrameIdentityVariant(
             visibleIdentity,
@@ -566,6 +569,10 @@ export function WeatherMap({
           } else if (webglLayer.hasFrame(continentalIdentity)) {
             // No same-frame texture visible; fall back to the continental view.
             webglLayer.showFrame(continentalIdentity);
+          } else if (visibleIdentity && webglLayer.hasFrame(visibleIdentity)) {
+            // A texture from a different frame is still on screen (e.g. the
+            // user switched timestamps). Keep it visible rather than blanking
+            // the map while the new frame loads.
           } else {
             webglLayer.clearFrame();
             showBlockingLoader();
@@ -721,17 +728,28 @@ export function WeatherMap({
       }
     };
 
-    // Debounce moveend by 150ms so rapid zoom gestures (mouse wheel ticks,
-    // pinch-zoom steps) consolidate into a single fetch instead of cascading
-    // abort → fetch → abort cycles that leave the map blank.
+    // Leading-edge throttle: fire immediately on the first move, then
+    // suppress further calls for 200ms. This avoids the "endless delay"
+    // problem of debounce during continuous Mac trackpad pinch-zoom while
+    // still preventing cascading abort→fetch→abort cycles.
+    const MOVE_THROTTLE_MS = 200;
+    const doMoveReconcile = () => {
+      lastMoveReconcileTime = Date.now();
+      loadController.abort();
+      loadController = new AbortController();
+      layersReconciled = false;
+      reconcileLayers();
+    };
     const handleMoveEnd = () => {
-      if (moveEndDebounce) clearTimeout(moveEndDebounce);
-      moveEndDebounce = setTimeout(() => {
-        loadController.abort();
-        loadController = new AbortController();
-        layersReconciled = false;
-        reconcileLayers();
-      }, 150);
+      const elapsed = Date.now() - lastMoveReconcileTime;
+      if (elapsed >= MOVE_THROTTLE_MS) {
+        // Leading edge: fire immediately if enough time has passed.
+        doMoveReconcile();
+      } else {
+        // Trailing edge: schedule once for when the throttle window expires.
+        if (moveThrottleTimer) clearTimeout(moveThrottleTimer);
+        moveThrottleTimer = setTimeout(doMoveReconcile, MOVE_THROTTLE_MS - elapsed);
+      }
     };
 
     if (instance.isStyleLoaded()) reconcileLayers();
@@ -745,7 +763,7 @@ export function WeatherMap({
       loadController.abort();
       continentalController.abort();
       if (fallbackTimer) clearTimeout(fallbackTimer);
-      if (moveEndDebounce) clearTimeout(moveEndDebounce);
+      if (moveThrottleTimer) clearTimeout(moveThrottleTimer);
       instance.off("style.load", reconcileLayers);
       instance.off("styledata", reconcileLayers);
       instance.off("moveend", handleMoveEnd);
