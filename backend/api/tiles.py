@@ -815,8 +815,11 @@ def _get_raw_cog_frame(
                         pass
                 
                 if d_dbzh is not None:
-                    dbzh_valid = ~np.isnan(d_dbzh)
-                    d[np.isnan(d) & dbzh_valid] = -10.0
+                    dbzh_missing = np.isnan(d_dbzh)
+                    # 1. Crop artifacts: if DBZH is transparent, RATE must be transparent
+                    d[dbzh_missing] = np.nan
+                    # 2. Fill holes: if DBZH is valid, but RATE is missing, paint scanning area
+                    d[np.isnan(d) & ~dbzh_missing] = -10.0
 
             return _pack_raw_buffer(d, q, frame.product)
     except TileOutsideBounds:
@@ -958,8 +961,9 @@ def _get_raw_geozarr_frame(
                 pass
 
         if d_dbzh is not None:
-            dbzh_valid = ~np.isnan(d_dbzh)
-            d[np.isnan(d) & dbzh_valid] = -10.0
+            dbzh_missing = np.isnan(d_dbzh)
+            d[dbzh_missing] = np.nan
+            d[np.isnan(d) & ~dbzh_missing] = -10.0
 
     return _pack_raw_buffer(d, q, frame.product)
 

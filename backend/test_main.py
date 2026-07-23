@@ -1282,4 +1282,4 @@ def test_dbzh_masking_for_rate_cog(monkeypatch):
     assert meas_uint8[0] > 1
     assert meas_uint8[1] == 1
     assert meas_uint8[2] == 1
-    assert meas_uint8[3] == 1
+    assert meas_uint8[3] == 0
