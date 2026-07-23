@@ -1,5 +1,6 @@
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
+import logging
 import numpy as np
 import pytest
 from affine import Affine
@@ -29,7 +30,7 @@ from api.tiles import (
     apply_quality_filter,
     parse_min_quality,
 )
-from main import app
+from main import RedactAccessQueryFilter, app
 
 
 client = TestClient(app)
@@ -1107,3 +1108,44 @@ def test_byte_based_lru_eviction(monkeypatch):
     assert _get_cache("key2") is not None
     assert _get_cache("key3") is not None
     assert _get_cache("key_large") is None
+
+
+def _make_uvicorn_access_record(request_target: str) -> logging.LogRecord:
+    return logging.LogRecord(
+        name="uvicorn.access",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg='%s - "%s %s HTTP/%s" %d',
+        args=(
+            "127.0.0.1:12345",
+            "GET",
+            request_target,
+            "1.1",
+            200,
+        ),
+        exc_info=None,
+    )
+
+
+def test_access_log_filter_redacts_complete_query_string():
+    record = _make_uvicorn_access_record(
+        "/?logs=build&__sign=super-secret-test-token"
+    )
+
+    assert RedactAccessQueryFilter().filter(record) is True
+
+    rendered = record.getMessage()
+    assert rendered == '127.0.0.1:12345 - "GET /?query=REDACTED HTTP/1.1" 200'
+    assert "__sign" not in rendered
+    assert "super-secret-test-token" not in rendered
+    assert "logs=build" not in rendered
+
+
+def test_access_log_filter_preserves_request_without_query_string():
+    record = _make_uvicorn_access_record("/tiles/raw/DBZH/frame.bin")
+    original = record.getMessage()
+
+    assert RedactAccessQueryFilter().filter(record) is True
+
+    assert record.getMessage() == original

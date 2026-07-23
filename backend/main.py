@@ -17,8 +17,36 @@ from api.raster_runtime import log_raster_runtime
 startup_logger = logging.getLogger("uvicorn.error")
 
 
+class RedactAccessQueryFilter(logging.Filter):
+    """Remove complete query strings from Uvicorn access-log records."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple) and len(record.args) >= 3:
+            request_target = record.args[2]
+            if isinstance(request_target, str) and "?" in request_target:
+                path, _, _query = request_target.partition("?")
+                args = list(record.args)
+                args[2] = f"{path}?query=REDACTED"
+                record.args = tuple(args)
+        return True
+
+
+def _install_access_log_redaction() -> None:
+    access_logger = logging.getLogger("uvicorn.access")
+    if not any(
+        isinstance(log_filter, RedactAccessQueryFilter)
+        for log_filter in access_logger.filters
+    ):
+        access_logger.addFilter(RedactAccessQueryFilter())
+
+
+_install_access_log_redaction()
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    # uvicorn.run() can configure logging after this module is imported.
+    _install_access_log_redaction()
     startup_logger.info("OPERA data storage source: %s", storage_description())
     log_raster_runtime(BUCKET_MOUNT if USE_LOCAL_MOUNT else None)
     yield
