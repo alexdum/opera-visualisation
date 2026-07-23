@@ -110,10 +110,6 @@ export default function OperaRadarPage() {
     else query.set("hours", "24");
     setCatalogLoading(true);
     setCatalogError(null);
-    // Never render frames belonging to the previous product/date while its
-    // replacement catalog is in flight.
-    setFrames([]);
-    setCurrentTimeIndex(0);
     setRenderState({ status: "loading", message: "Loading the published frame catalog…" });
     fetch(`${apiBase()}${endpoint}?${query}`, { signal: controller.signal })
       .then(async (response) => {
@@ -284,6 +280,7 @@ export default function OperaRadarPage() {
             setLoop={animation.setLoop}
             stepForward={animation.stepForward}
             stepBackward={animation.stepBackward}
+            isLoading={catalogLoading}
           />
         </div>
       </div>

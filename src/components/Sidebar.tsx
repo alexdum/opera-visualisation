@@ -40,6 +40,7 @@ interface SidebarProps {
   setLoop: (loop: boolean) => void;
   stepForward: () => void;
   stepBackward: () => void;
+  isLoading?: boolean;
 }
 
 const FilterLabel = ({ label, help, htmlFor }: { label: string; help: string; htmlFor?: string }) => (
@@ -85,6 +86,7 @@ export function Sidebar({
   setLoop,
   stepForward,
   stepBackward,
+  isLoading,
 }: SidebarProps) {
   const currentFrame = frames[currentTimeIndex];
   const cadenceMs = useMemo(() => inferRadarCadenceMs(frames, product), [frames, product]);
@@ -182,7 +184,7 @@ export function Sidebar({
         )}
 
         {frames.length > 0 && currentFrame && (
-          <section className="border-t border-slate-100 pt-4" aria-labelledby="timeline-heading">
+          <section className={`border-t border-slate-100 pt-4 ${isLoading ? "pointer-events-none opacity-40 transition-opacity" : "transition-opacity"}`} aria-labelledby="timeline-heading">
             <div id="timeline-heading">
               <FilterLabel label="Timeline" help="Only catalog-committed frames are available for playback." />
             </div>
