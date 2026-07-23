@@ -279,7 +279,7 @@ def _render_geozarr_image(
         dst_crs="EPSG:3857",
         src_nodata=np.nan,
         dst_nodata=np.nan,
-        resampling=Resampling.max,
+        resampling=Resampling.bilinear,
     )
 
     if frame.product == "DBZH" and min_quality is not None and frame.quality_variables:
@@ -569,7 +569,7 @@ def _render_geozarr_frame(
         src_crs=metadata["crs"],
         dst_transform=dst_transform,
         dst_crs="EPSG:3857",
-        resampling=Resampling.max,
+        resampling=Resampling.bilinear,
         src_nodata=np.nan,
         dst_nodata=np.nan,
     )
@@ -758,7 +758,7 @@ def _get_raw_cog_frame(
                 src_crs="EPSG:3857",
                 dst_transform=dst_transform,
                 dst_crs="EPSG:3857",
-                resampling=Resampling.max,
+                resampling=Resampling.bilinear,
                 src_nodata=np.nan,
                 dst_nodata=np.nan,
             )
@@ -858,7 +858,7 @@ def _get_raw_geozarr_frame(
         src_crs=metadata["crs"],
         dst_transform=dst_transform,
         dst_crs="EPSG:3857",
-        resampling=Resampling.max,
+        resampling=Resampling.bilinear,
         src_nodata=np.nan,
         dst_nodata=np.nan,
     )
