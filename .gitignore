@@ -46,3 +46,4 @@ next-env.d.ts
 /test_tile.png
 /backend/test_*.tif
 /backend/eumetnet_legend*.png
+docs
