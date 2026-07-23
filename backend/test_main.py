@@ -23,7 +23,7 @@ from api.tiles import (
     _apply_geozarr_status,
     _frame_time_index,
     _get_raw_cog_frame,
-    _get_raw_frame_cached,
+    _render_and_compress,
     _render_cog_image,
     _render_geozarr_image,
     apply_quality_filter,
@@ -768,13 +768,21 @@ def test_frame_rendering_cog_and_geozarr_alignment(monkeypatch):
         def __exit__(self, *_args):
             return False
 
-        def part(self, bounds, **_kwargs):
-            cog_data = np.array([
-                [[20.0, 15.0, np.nan, -9999000.0]],
-                [[0.8,  0.02, np.nan, -9999000.0]],
-            ], dtype=np.float32)
-            cog_data = np.tile(cog_data, (1, 3, 1))
-            return ImageData(cog_data, bounds=bounds, crs=CRS.from_epsg(3857), band_names=["DBZH", "quality"])
+        def part(self, bounds, **kwargs):
+            if kwargs.get("indexes") == (1,):
+                data = np.array([[[20.0, 15.0, np.nan, -9999000.0]]], dtype=np.float32)
+                band_names = ["DBZH"]
+            elif kwargs.get("indexes") == (2,):
+                data = np.array([[[0.8,  0.02, np.nan, -9999000.0]]], dtype=np.float32)
+                band_names = ["quality"]
+            else:
+                data = np.array([
+                    [[20.0, 15.0, np.nan, -9999000.0]],
+                    [[0.8,  0.02, np.nan, -9999000.0]],
+                ], dtype=np.float32)
+                band_names = ["DBZH", "quality"]
+            data = np.tile(data, (1, 3, 1))
+            return ImageData(data, bounds=bounds, crs=CRS.from_epsg(3857), band_names=band_names)
 
     monkeypatch.setattr("api.tiles.local_cog", lambda *_args: "/tmp/cached.tif")
     monkeypatch.setattr("api.tiles.Reader", FakeReader)
@@ -880,9 +888,10 @@ def test_raw_route_returns_binary_header_and_data(monkeypatch, caplog):
         # W=2, H=2, min=10, max=20, nodata=-9999
         header = struct.pack('<HHfff', 2, 2, 10.0, 20.0, -9999.0)
         payload = b'\x00' * 8 # 4 pixels * 2 channels = 8 bytes
-        return header + payload, "cog"
+        import gzip
+        return gzip.compress(header + payload, compresslevel=1), "cog"
         
-    monkeypatch.setattr("api.tiles._get_raw_frame_cached", fake_render)
+    monkeypatch.setattr("api.tiles._render_and_compress", fake_render)
     with caplog.at_level("INFO", logger="api.tiles"):
         response = client.get("/tiles/raw/DBZH/202607200000/revision-1.bin")
     
@@ -929,7 +938,8 @@ def test_raw_cog_reader_resolves_the_cataloged_cog_path(monkeypatch):
             return None
 
         def part(self, *_args, **kwargs):
-            part_options.update(kwargs)
+            if kwargs.get("indexes") == (1,):
+                part_options.update(kwargs)
             return FakeImage()
 
     monkeypatch.setattr("api.tiles.local_cog", lambda *_args: "/tmp/cataloged-frame.tif")
@@ -939,7 +949,7 @@ def test_raw_cog_reader_resolves_the_cataloged_cog_path(monkeypatch):
 
     assert opened_paths == ["/tmp/cataloged-frame.tif"]
     assert part_options["resampling_method"] == "bilinear"
-    assert part_options["reproject_method"] == "max"
+    assert part_options["reproject_method"] == "bilinear"
     assert len(content) == 18
 
 
@@ -960,19 +970,140 @@ def test_hidden_cog_preload_never_falls_back_to_geozarr(monkeypatch, caplog):
     monkeypatch.setattr("api.tiles.resolve_catalog_frame", lambda *_args: published)
     monkeypatch.setattr("api.tiles._get_raw_cog_frame", lambda *_args: (_ for _ in ()).throw(OSError("missing COG")))
     monkeypatch.setattr("api.tiles._get_raw_geozarr_frame", lambda *_args: archive_reads.append(True) or b"archive")
-    _get_raw_frame_cached.cache_clear()
 
     with pytest.raises(OSError, match="missing COG"):
-        _get_raw_frame_cached("DBZH", published.timestamp, published.revision, "cog", 1024, "", False)
+        _render_and_compress("DBZH", published.timestamp, published.revision, "cog", 1024, "", False)
     assert archive_reads == []
 
     with caplog.at_level("WARNING", logger="api.tiles"):
-        content, backend = _get_raw_frame_cached(
+        content, backend = _render_and_compress(
             "DBZH", published.timestamp, published.revision, "cog", 1024, "", True,
         )
-    assert content == b"archive"
+    import gzip as _gzip
+    assert _gzip.decompress(content) == b"archive"
     assert backend == "geozarr"
     assert archive_reads == [True]
     assert "Hot COG frame render failed" in caplog.text
     assert "OSError" in caplog.text
-    _get_raw_frame_cached.cache_clear()
+
+
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+
+@pytest.fixture(autouse=True)
+def reset_cache_state():
+    import api.tiles
+    with api.tiles._raw_cache_lock:
+        api.tiles._raw_cache.clear()
+        api.tiles._raw_cache_bytes = 0
+    with api.tiles._inflight_lock:
+        api.tiles._inflight.clear()
+    yield
+    with api.tiles._raw_cache_lock:
+        api.tiles._raw_cache.clear()
+        api.tiles._raw_cache_bytes = 0
+    with api.tiles._inflight_lock:
+        api.tiles._inflight.clear()
+
+def test_concurrent_cache_miss_coalescing(monkeypatch):
+    from api.catalog import CatalogFrame
+    monkeypatch.setattr("api.tiles.resolve_catalog_frame", lambda *a: CatalogFrame(
+        product="DBZH", timestamp="202607200000", nominal_time="2026-07-20T00:00:00Z",
+        revision="rev1", archive_ready=True, hot_cog_ready=True,
+        hot_cog="hot-cog/DBZH.tif", geozarr="geozarr/DBZH.zarr",
+        quality_variables=["quality"], backend="cog",
+    ))
+    render_calls = 0
+    render_lock = threading.Lock()
+    def slow_render(*args):
+        nonlocal render_calls
+        with render_lock:
+            render_calls += 1
+        time.sleep(0.1)
+        import gzip
+        return gzip.compress(b"fake data", compresslevel=1), "cog"
+    monkeypatch.setattr("api.tiles._render_and_compress", slow_render)
+    def worker():
+        response = client.get("/tiles/raw/DBZH/202607200000/rev1.bin?source=cog", headers={"accept-encoding": "gzip"})
+        return response.status_code
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        results = [f.result() for f in [executor.submit(worker) for _ in range(6)]]
+    assert results == [200] * 6
+    assert render_calls == 1
+
+def test_leader_failure_wakes_followers(monkeypatch):
+    from api.catalog import CatalogFrame
+    monkeypatch.setattr("api.tiles.resolve_catalog_frame", lambda *a: CatalogFrame(
+        product="DBZH", timestamp="202607200000", nominal_time="2026-07-20T00:00:00Z",
+        revision="rev1", archive_ready=True, hot_cog_ready=True,
+        hot_cog="hot-cog/DBZH.tif", geozarr="geozarr/DBZH.zarr",
+        quality_variables=["quality"], backend="cog",
+    ))
+    render_calls = 0
+    render_lock = threading.Lock()
+    def failing_render(*args):
+        nonlocal render_calls
+        with render_lock:
+            render_calls += 1
+        time.sleep(0.1)
+        raise ValueError("simulated failure")
+    monkeypatch.setattr("api.tiles._render_and_compress", failing_render)
+    def worker():
+        response = client.get("/tiles/raw/DBZH/202607200000/rev1.bin?source=cog", headers={"accept-encoding": "gzip"})
+        return response.status_code
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        results = [f.result() for f in [executor.submit(worker) for _ in range(6)]]
+    assert results == [503] * 6
+    assert render_calls == 1
+
+def test_cached_geozarr_backend_preservation(monkeypatch):
+    from api.catalog import CatalogFrame
+    monkeypatch.setattr("api.tiles.resolve_catalog_frame", lambda *a: CatalogFrame(
+        product="DBZH", timestamp="202607200000", nominal_time="2026-07-20T00:00:00Z",
+        revision="rev1", archive_ready=True, hot_cog_ready=True,
+        hot_cog="hot-cog/DBZH.tif", geozarr="geozarr/DBZH.zarr",
+        quality_variables=["quality"], backend="cog",
+    ))
+    import gzip
+    def mock_render(*args):
+        return gzip.compress(b"geozarr data", compresslevel=1), "geozarr"
+    monkeypatch.setattr("api.tiles._render_and_compress", mock_render)
+    resp1 = client.get("/tiles/raw/DBZH/202607200000/rev1.bin?source=cog", headers={"accept-encoding": "gzip"})
+    assert resp1.headers.get("x-opera-backend") == "geozarr"
+    monkeypatch.setattr("api.tiles._render_and_compress", lambda *a: (_ for _ in ()).throw(Exception("Should use cache")))
+    resp2 = client.get("/tiles/raw/DBZH/202607200000/rev1.bin?source=cog", headers={"accept-encoding": "gzip"})
+    assert resp2.headers.get("x-opera-backend") == "geozarr"
+
+def test_gzip_identity_wildcard_precedence():
+    from api.tiles import _wants_gzip
+    Req = lambda headers: type("Request", (), {"headers": headers})
+    assert _wants_gzip(Req({"accept-encoding": "gzip;q=0.5, *;q=0"})) is True
+    assert _wants_gzip(Req({"accept-encoding": "*;q=0, gzip;q=0.5"})) is True
+    assert _wants_gzip(Req({"accept-encoding": "gzip;q=0, *"})) is False
+    assert _wants_gzip(Req({"accept-encoding": "gzip, deflate"})) is True
+    assert _wants_gzip(Req({"accept-encoding": "deflate"})) is False
+
+def test_byte_based_lru_eviction(monkeypatch):
+    from api.tiles import _put_cache, _get_cache, _raw_cache_bytes
+    import api.tiles
+    monkeypatch.setattr("api.tiles._RAW_CACHE_MAX_BYTES", 100)
+    entry1 = (b"a" * 40, "cog")
+    entry2 = (b"b" * 40, "cog")
+    entry3 = (b"c" * 40, "cog")
+    _put_cache("key1", entry1)
+    _put_cache("key2", entry2)
+    assert api.tiles._raw_cache_bytes == 80
+    assert _get_cache("key1") is not None
+    assert _get_cache("key2") is not None
+    _put_cache("key3", entry3)
+    assert api.tiles._raw_cache_bytes == 80
+    assert _get_cache("key1") is None
+    assert _get_cache("key2") is not None
+    assert _get_cache("key3") is not None
+    entry_large = (b"x" * 150, "cog")
+    _put_cache("key_large", entry_large)
+    assert api.tiles._raw_cache_bytes == 80
+    assert _get_cache("key2") is not None
+    assert _get_cache("key3") is not None
+    assert _get_cache("key_large") is None

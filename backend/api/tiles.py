@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import functools
+import gzip
 import logging
 import math
 import os
-from threading import BoundedSemaphore
+from collections import OrderedDict
+from threading import BoundedSemaphore, Event, Lock
 from typing import Any
 
 from affine import Affine
-from fastapi import APIRouter, HTTPException, Query, Response
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 import numpy as np
 from rasterio.crs import CRS
 from rasterio.enums import Resampling
@@ -87,7 +89,7 @@ ACRR_CMAP = [
     ((100.0, 1000.0), (255, 0, 0, 255)),
 ]
 COLORMAPS = {"DBZH": DBZH_CMAP, "RATE": RATE_CMAP, "ACRR": ACRR_CMAP}
-RENDER_SLOTS = BoundedSemaphore(max(1, int(os.getenv("TILE_RENDER_CONCURRENCY", "4"))))
+RENDER_SLOTS = BoundedSemaphore(max(1, int(os.getenv("TILE_RENDER_CONCURRENCY", "2"))))
 RENDER_QUEUE_TIMEOUT_SECONDS = max(
     1.0, float(os.getenv("TILE_RENDER_QUEUE_TIMEOUT_SECONDS", "30"))
 )
@@ -340,7 +342,7 @@ def _render_cog_image(frame: CatalogFrame, z: int, x: int, y: int, min_quality: 
                 destination_quality = q_image.array[0]
                 known = np.isfinite(destination_quality) & (destination_quality >= 0) & (destination_quality <= 1)
                 destination[0][known & (destination_quality < min_quality)] = np.nan
-                
+
                 return ImageData(
                     np.ma.array(destination, copy=True),
                     bounds=image.bounds,
@@ -354,7 +356,7 @@ def _render_cog_image(frame: CatalogFrame, z: int, x: int, y: int, min_quality: 
             # composite footprint. Those are transparent pixels, not storage
             # or rendering failures, and must not trigger GeoZarr fallback.
             return _empty_image()
-            
+
     return image
 
 
@@ -480,7 +482,7 @@ def _render_cog_frame(
     cog_path = local_cog(frame.product, frame.timestamp, frame.revision, frame.hot_cog)
     with cog_reader(cog_path, Reader) as cog:
         has_quality = frame.product == "DBZH" and min_quality is not None and cog.dataset.count >= 2
-        
+
         image = cog.part(
             bounds,
             bounds_crs=CRS.from_epsg(4326),
@@ -536,7 +538,7 @@ def _render_geozarr_frame(
     """Render a region of the OPERA GeoZarr archive as a single image in Web Mercator."""
     group = _open_geozarr(frame.geozarr)
     metadata = _geozarr_metadata(frame.geozarr, frame.product)
-    
+
     times = np.asarray(group["time"][:], dtype=np.int64) if "time" in group else metadata.get("times", np.array([], dtype=np.int64))
     time_index = _frame_time_index(times, frame)
 
@@ -547,7 +549,7 @@ def _render_geozarr_frame(
     x_start = max(0, int(np.searchsorted(x_coords, source_bounds[0], side="left")) - 1)
     x_end = min(len(x_coords), int(np.searchsorted(x_coords, source_bounds[2], side="right")) + 1)
     y_hits = np.flatnonzero((y_coords >= source_bounds[1]) & (y_coords <= source_bounds[3]))
-    
+
     if x_start >= x_end or len(y_hits) == 0:
         x_start, x_end = 0, 1
         y_start, y_end = 0, 1
@@ -557,7 +559,7 @@ def _render_geozarr_frame(
 
     slice_h = y_end - y_start
     slice_w = x_end - x_start
-    
+
     slab = np.asarray(group[frame.product][time_index, y_start:y_end, x_start:x_end], dtype=np.float32)
 
     undetect = group[frame.product].attrs.get("undetect_value", None)
@@ -579,10 +581,10 @@ def _render_geozarr_frame(
     merc_h = merc_bounds[3] - merc_bounds[1]
     out_w = min(max_size, src_w)
     out_h = max(1, int(out_w * merc_h / merc_w))
-    
+
     dst_transform = from_bounds(*merc_bounds, out_w, out_h)
     dst_data = np.full((1, out_h, out_w), np.nan, dtype=np.float32)
-    
+
     reproject(
         slab.reshape(1, src_h, src_w),
         dst_data,
@@ -619,10 +621,10 @@ def _render_geozarr_frame(
                 quality_known = np.isfinite(q_data) & (q_data >= 0.0) & (q_data <= 1.0)
                 below_threshold = quality_known & (q_data < min_quality)
                 dst_data[0][below_threshold] = np.nan
-    
+
     mask = np.isnan(dst_data)
     masked_data = np.ma.MaskedArray(dst_data, mask=mask)
-    
+
     return ImageData(
         masked_data,
         bounds=merc_bounds,
@@ -657,13 +659,13 @@ def _render_frame_cached(
                 bounds = _clamp_bounds(parts)
         except ValueError:
             pass
-    
+
     use_cog = (
         source != "geozarr"
         and frame.hot_cog
         and frame.hot_cog_ready
     )
-    
+
     try:
         if use_cog:
             image = _render_cog_frame(frame, min_quality, max_size, bounds)
@@ -674,7 +676,7 @@ def _render_frame_cached(
             image = _render_geozarr_frame(frame, min_quality, max_size, bounds)
         else:
             raise
-    
+
     return image.render(img_format="WEBP", colormap=COLORMAPS[product])
 
 
@@ -717,23 +719,23 @@ def _pack_raw_buffer(measurement: np.ndarray, quality: np.ndarray, product: str 
     H, W = measurement.shape
     min_val, max_val = PRODUCT_BOUNDS.get(product, (-35.0, 75.0))
     nodata_val = -9999.0
-    
+
     # uint8 0 is reserved for nodata (NaN / invalid)
     # uint8 1..255 maps min_val..max_val linearly
     valid_mask = np.isfinite(measurement)
     scaled = 1.0 + np.clip((measurement - min_val) / (max_val - min_val), 0.0, 1.0) * 254.0
     meas_uint8 = np.where(valid_mask, np.round(scaled), 0).astype(np.uint8)
-    
+
     # Channel 1: Quality (0..254 = 0.0..1.0, 255 = unknown/unfiltered)
     valid_q = np.isfinite(quality) & (quality >= 0.0) & (quality <= 1.0)
     q_scaled = np.clip(np.round(quality * 254.0), 0, 254)
     q_uint8 = np.where(valid_q, q_scaled, 255).astype(np.uint8)
-    
+
     header = struct.pack('<HHfff', W, H, min_val, max_val, nodata_val)
     payload = np.empty((H, W, 2), dtype=np.uint8)
     payload[:, :, 0] = meas_uint8
     payload[:, :, 1] = q_uint8
-    
+
     return header + payload.tobytes()
 
 def _get_raw_cog_frame(
@@ -745,7 +747,7 @@ def _get_raw_cog_frame(
     try:
         with cog_reader(cog_path, Reader) as cog:
             has_quality = frame.product == "DBZH" and cog.dataset.count >= 2
-            
+
             image = cog.part(
                 bounds,
                 bounds_crs=CRS.from_epsg(4326),
@@ -759,10 +761,10 @@ def _get_raw_cog_frame(
             d = np.asarray(image.array[0], dtype=np.float32)
             scanning_area_mask = np.isnan(d)
             nodata_mask = np.isclose(d, -9999000.0)
-            
+
             d[scanning_area_mask] = -10.0
             d[nodata_mask] = np.nan
-            
+
             if has_quality:
                 q_image = cog.part(
                     bounds,
@@ -777,7 +779,7 @@ def _get_raw_cog_frame(
                 q = np.asarray(q_image.array[0], dtype=np.float32)
             else:
                 q = np.full(d.shape, np.nan, dtype=np.float32)
-                
+
             return _pack_raw_buffer(d, q, frame.product)
     except TileOutsideBounds:
         merc_bounds = transform_bounds("EPSG:4326", "EPSG:3857", *bounds)
@@ -794,7 +796,7 @@ def _get_raw_geozarr_frame(
 ) -> bytes:
     group = _open_geozarr(frame.geozarr)
     metadata = _geozarr_metadata(frame.geozarr, frame.product)
-    
+
     times = np.asarray(group["time"][:], dtype=np.int64) if "time" in group else metadata.get("times", np.array([], dtype=np.int64))
     time_index = _frame_time_index(times, frame)
 
@@ -805,7 +807,7 @@ def _get_raw_geozarr_frame(
     x_start = max(0, int(np.searchsorted(x_coords, source_bounds[0], side="left")) - 1)
     x_end = min(len(x_coords), int(np.searchsorted(x_coords, source_bounds[2], side="right")) + 1)
     y_hits = np.flatnonzero((y_coords >= source_bounds[1]) & (y_coords <= source_bounds[3]))
-    
+
     if x_start >= x_end or len(y_hits) == 0:
         x_start, x_end = 0, 1
         y_start, y_end = 0, 1
@@ -815,7 +817,7 @@ def _get_raw_geozarr_frame(
 
     slice_h = y_end - y_start
     slice_w = x_end - x_start
-    
+
     slab = np.asarray(group[frame.product][time_index, y_start:y_end, x_start:x_end], dtype=np.float32)
 
     undetect = group[frame.product].attrs.get("undetect_value", None)
@@ -838,10 +840,10 @@ def _get_raw_geozarr_frame(
     if out_h > max_size:
         out_w = max(1, int(out_w * max_size / out_h))
         out_h = max_size
-    
+
     dst_transform = from_bounds(*merc_bounds, out_w, out_h)
     dst_data = np.full((1, out_h, out_w), np.nan, dtype=np.float32)
-    
+
     reproject(
         slab.reshape(1, src_h, src_w),
         dst_data,
@@ -873,15 +875,72 @@ def _get_raw_geozarr_frame(
                     src_nodata=np.nan,
                     dst_nodata=np.nan,
                 )
-    
+
     return _pack_raw_buffer(dst_data[0], dst_quality[0], frame.product)
 
 
-@functools.lru_cache(maxsize=256)
-def _get_raw_frame_cached(
-    product: str, timestamp: str, revision: str, source: str, max_size: int,
-    bbox_key: str, allow_archive_fallback: bool,
-) -> tuple[bytes, str]:
+# ---------- Byte-bounded compressed-response cache ----------
+_RAW_CACHE_MAX_BYTES = int(os.getenv("RAW_CACHE_MAX_BYTES", str(3 * 1024**3)))  # 3 GiB
+_CacheEntry = tuple[bytes, str]  # (gzip-compressed bytes, backend)
+_raw_cache: OrderedDict[str, _CacheEntry] = OrderedDict()
+_raw_cache_bytes = 0
+_raw_cache_lock = Lock()
+
+# Single-flight coalescing: prevent duplicate renders for the same key
+_inflight: dict[str, Event] = {}
+_inflight_lock = Lock()
+
+
+def _normalize_bbox(bbox_key: str) -> str:
+    """Canonicalize bbox to clamped, rounded values so equivalent inputs share a cache key."""
+    if not bbox_key:
+        return ""
+    try:
+        parts = tuple(float(x) for x in bbox_key.split(","))
+        if len(parts) != 4 or parts[0] >= parts[2] or parts[1] >= parts[3]:
+            return ""
+        clamped = _clamp_bounds(parts)
+        return ",".join(f"{v:.6f}" for v in clamped)
+    except ValueError:
+        return ""
+
+
+def _cache_key(product: str, timestamp: str, revision: str, source: str,
+               max_size: int, bbox_key: str, allow_archive_fallback: bool) -> str:
+    norm_product = product.upper()
+    norm_source = source.lower()
+    norm_bbox = _normalize_bbox(bbox_key)
+    return f"{norm_product}:{timestamp}:{revision}:{norm_source}:{max_size}:{norm_bbox}:{allow_archive_fallback}"
+
+
+def _put_cache(key: str, entry: _CacheEntry) -> None:
+    global _raw_cache_bytes
+    size = len(entry[0])
+    if size > _RAW_CACHE_MAX_BYTES:
+        return
+    with _raw_cache_lock:
+        if key in _raw_cache:
+            return
+        while _raw_cache_bytes + size > _RAW_CACHE_MAX_BYTES and _raw_cache:
+            _, evicted = _raw_cache.popitem(last=False)
+            _raw_cache_bytes -= len(evicted[0])
+        _raw_cache[key] = entry
+        _raw_cache_bytes += size
+
+
+def _get_cache(key: str) -> _CacheEntry | None:
+    with _raw_cache_lock:
+        if key in _raw_cache:
+            _raw_cache.move_to_end(key)
+            return _raw_cache[key]
+    return None
+
+
+def _render_and_compress(
+    product: str, timestamp: str, revision: str, source: str,
+    max_size: int, bbox_key: str, allow_archive_fallback: bool,
+) -> _CacheEntry:
+    """Render a raw frame and return (gzip-level-1 compressed bytes, backend)."""
     frame = resolve_catalog_frame(product, timestamp, revision)
     bounds = OPERA_WGS84_BOUNDS
     if bbox_key:
@@ -891,29 +950,118 @@ def _get_raw_frame_cached(
                 bounds = _clamp_bounds(parts)
         except ValueError:
             pass
-            
+
     use_cog = (source != "geozarr" and frame.hot_cog and frame.hot_cog_ready)
+    raw: bytes | None = None
+    backend: str = "cog"
     try:
-        if use_cog:
-            return _get_raw_cog_frame(frame, max_size, bounds), "cog"
-        else:
-            return _get_raw_geozarr_frame(frame, max_size, bounds), "geozarr"
+        acquired = RENDER_SLOTS.acquire(timeout=RENDER_QUEUE_TIMEOUT_SECONDS)
+        if not acquired:
+            raise HTTPException(
+                status_code=503,
+                detail="Server is busy rendering other frames. Please retry.",
+            )
+        try:
+            if use_cog:
+                raw = _get_raw_cog_frame(frame, max_size, bounds)
+                backend = "cog"
+            else:
+                raw = _get_raw_geozarr_frame(frame, max_size, bounds)
+                backend = "geozarr"
+        finally:
+            RENDER_SLOTS.release()
+    except HTTPException:
+        raise
     except Exception as exc:
         if allow_archive_fallback and frame.archive_ready and frame.geozarr:
             logger.warning(
                 "Hot COG frame render failed for %s %s revision %s (%s); "
                 "falling back to GeoZarr",
-                product,
-                timestamp,
-                revision,
-                type(exc).__name__,
+                product, timestamp, revision, type(exc).__name__,
                 exc_info=True,
             )
-            return _get_raw_geozarr_frame(frame, max_size, bounds), "geozarr"
-        raise
+            acquired = RENDER_SLOTS.acquire(timeout=RENDER_QUEUE_TIMEOUT_SECONDS)
+            if not acquired:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Server is busy rendering other frames. Please retry.",
+                )
+            try:
+                raw = _get_raw_geozarr_frame(frame, max_size, bounds)
+                backend = "geozarr"
+            finally:
+                RENDER_SLOTS.release()
+        else:
+            raise
+
+    compressed = gzip.compress(raw, compresslevel=1)
+    return compressed, backend
+
+
+def _wants_gzip(request: Request) -> bool:
+    """Return True unless the client explicitly refuses gzip."""
+    accept = (request.headers.get("accept-encoding") or "gzip").lower()
+
+    tokens = [t.strip() for t in accept.split(",")]
+    gzip_q = None
+    star_q = None
+
+    for token in tokens:
+        parts = [p.strip() for p in token.split(";")]
+        if not parts:
+            continue
+        name = parts[0]
+        q_value = 1.0
+        for part in parts[1:]:
+            if part.startswith("q="):
+                try:
+                    q_value = float(part[2:])
+                except ValueError:
+                    pass
+        if name == "gzip":
+            gzip_q = q_value
+        elif name == "*":
+            star_q = q_value
+
+    if gzip_q is not None:
+        return gzip_q > 0.0
+    if star_q is not None:
+        return star_q > 0.0
+
+    return "gzip" in accept or "*" in accept
+
+
+def _make_response(entry: _CacheEntry, revision: str, use_gzip: bool) -> Response:
+    """Build a Response from a cache entry, decompressing if the client refuses gzip."""
+    compressed, backend = entry
+    if use_gzip:
+        return Response(
+            content=compressed,
+            media_type="application/octet-stream",
+            headers={
+                "Cache-Control": "public, max-age=31536000, immutable",
+                "Vary": "Accept-Encoding",
+                "Content-Encoding": "gzip",
+                "X-OPERA-Backend": backend,
+                "X-OPERA-Revision": revision,
+            },
+        )
+    else:
+        return Response(
+            content=gzip.decompress(compressed),
+            media_type="application/octet-stream",
+            headers={
+                "Cache-Control": "public, max-age=31536000, immutable",
+                "Vary": "Accept-Encoding",
+                "X-OPERA-Backend": backend,
+                "X-OPERA-Revision": revision,
+            },
+        )
+
 
 @router.get("/raw/{product}/{timestamp}/{revision}.bin")
 def get_raw_frame(
+    request: Request,
     product: str,
     timestamp: str,
     revision: str,
@@ -922,27 +1070,56 @@ def get_raw_frame(
     bbox: str = Query(""),
     allow_archive_fallback: bool = Query(True),
 ) -> Response:
+    key = _cache_key(product, timestamp, revision, source, max_size, bbox, allow_archive_fallback)
+    use_gzip = _wants_gzip(request)
+
+    # 1. Check cache
+    cached = _get_cache(key)
+    if cached is not None:
+        logger.info(
+            "Radar frame cache hit product=%s timestamp=%s storage=%s",
+            product, timestamp, storage_mode(),
+        )
+        return _make_response(cached, revision, use_gzip)
+
+    # 2. Single-flight coalescing: only one thread renders a given key
+    is_renderer = False
+    with _inflight_lock:
+        event = _inflight.get(key)
+        if event is None:
+            event = Event()
+            _inflight[key] = event
+            is_renderer = True
+
+    if not is_renderer:
+        waited = event.wait(timeout=60)
+        if not waited:
+            raise HTTPException(status_code=503, detail="Server is busy rendering this frame. Please retry.")
+
+        cached = _get_cache(key)
+        if cached is not None:
+            return _make_response(cached, revision, use_gzip)
+        else:
+            raise HTTPException(status_code=503, detail="Raw frame rendering failed in another thread.")
+
+    # 3. Render, compress, cache, then signal waiters
     try:
-        content, backend = _get_raw_frame_cached(
+        entry = _render_and_compress(
             product, timestamp, revision, source, max_size, bbox, allow_archive_fallback,
         )
+        _put_cache(key, entry)
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Raw frame rendering failed") from exc
+    finally:
+        with _inflight_lock:
+            _inflight.pop(key, None)
+        event.set()  # Wake up waiting threads AFTER cache is populated (or failed)
+
+    compressed, backend = entry
     logger.info(
-        "Radar frame served product=%s timestamp=%s backend=%s storage=%s",
-        product,
-        timestamp,
-        backend,
-        storage_mode(),
+        "Radar frame served product=%s timestamp=%s backend=%s storage=%s compressed=%d",
+        product, timestamp, backend, storage_mode(), len(compressed),
     )
-    return Response(
-        content=content,
-        media_type="application/octet-stream",
-        headers={
-            "Cache-Control": "public, max-age=31536000, immutable",
-            "X-OPERA-Backend": backend,
-            "X-OPERA-Revision": revision,
-        },
-    )
+    return _make_response(entry, revision, use_gzip)

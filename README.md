@@ -119,9 +119,10 @@ from one origin on port 7860.
 | `HF_TOKEN` | unset | Server-side read token; recommended to avoid anonymous resolver rate limits |
 | `COG_CACHE_DIR` | `/tmp/opera-visualisation-cogs` | Ephemeral local hot-frame cache |
 | `COG_CACHE_MAX_FILES` | `300` | Maximum cached COG frame count |
-| `COG_CACHE_MAX_BYTES` | `3221225472` | Maximum local COG cache size (3 GiB) |
+| `COG_CACHE_MAX_BYTES` | `3221225472` | Maximum local COG disk cache size (3 GiB) |
+| `RAW_CACHE_MAX_BYTES` | `3221225472` | Maximum raw frame memory cache size (3 GiB) |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | Comma-separated development origins; production is same-origin |
-| `TILE_RENDER_CONCURRENCY` | `4` | Maximum concurrent raster render operations |
+| `TILE_RENDER_CONCURRENCY`| `2` | Max concurrent tile rendering threads (matches CPUs). |
 | `TILE_RENDER_QUEUE_TIMEOUT_SECONDS` | `30` | Maximum time a tile waits for a bounded renderer slot before returning 503 |
 | `GDAL_CACHEMAX` | `256` | Shared GDAL raster block cache, in MiB |
 | `GDAL_NUM_THREADS` | `1` | GDAL workers per render; total potential workers are this value × render concurrency |
