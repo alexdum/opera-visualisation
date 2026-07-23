@@ -954,6 +954,66 @@ def test_raw_cog_reader_resolves_the_cataloged_cog_path(monkeypatch):
     assert len(content) == 18
 
 
+def test_raw_frame_thresholding_for_rate_and_acrr(monkeypatch):
+    from api.tiles import _get_raw_cog_frame, _get_raw_geozarr_frame
+    import struct
+    import numpy as np
+
+    published = CatalogFrame(
+        product="RATE",
+        timestamp="202607200000",
+        nominal_time="2026-07-20T00:00:00Z",
+        revision="revision-1",
+        archive_ready=True,
+        hot_cog_ready=True,
+        hot_cog="hot-cog/RATE/2026/07/20/0000.tif",
+        geozarr="geozarr/RATE/2026/2026-07.zarr",
+        quality_variables=[],
+        backend="cog",
+    )
+
+    class FakeDataset:
+        count = 1
+
+    class FakeImage:
+        array = np.array([[[0.05, 0.15, np.nan, -9999000.0]]], dtype=np.float32)
+
+    class FakeReader:
+        dataset = FakeDataset()
+        def __init__(self, path: str):
+            pass
+        def __enter__(self):
+            return self
+        def __exit__(self, *_args):
+            pass
+        def part(self, *_args, **kwargs):
+            return FakeImage()
+
+    monkeypatch.setattr("api.tiles.local_cog", lambda *_args: "/tmp/rate-frame.tif")
+    monkeypatch.setattr("api.tiles.Reader", FakeReader)
+
+    content = _get_raw_cog_frame(published, max_size=256)
+    
+    header = content[:16]
+    W, H, min_val, max_val, nodata_val = struct.unpack('<HHfff', header)
+    assert W == 4
+    assert H == 1
+    assert min_val == -10.0
+    assert max_val == 150.0
+    
+    payload = content[16:]
+    meas_uint8 = payload[0::2]
+    
+    # 0.05 -> < 0.1 threshold -> gets mapped to -10.0, which is min_val, thus encoded as 1
+    assert meas_uint8[0] == 1
+    # 0.15 -> >= 0.1 threshold -> left as 0.15, > min_val, thus > 1
+    assert meas_uint8[1] > 1
+    # np.nan -> scanning area mask -> mapped to -10.0 -> encoded as 1
+    assert meas_uint8[2] == 1
+    # -9999000.0 -> nodata -> mapped to np.nan -> encoded as 0
+    assert meas_uint8[3] == 0
+
+
 def test_hidden_cog_preload_never_falls_back_to_geozarr(monkeypatch, caplog):
     published = CatalogFrame(
         product="DBZH",

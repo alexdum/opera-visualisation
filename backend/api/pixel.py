@@ -319,7 +319,7 @@ def _extract_store_frames(
                 status = "undetect"
                 status_code = 1
                 value = None
-            elif product in ("RATE", "ACRR") and value < 0.01:
+            elif product in ("RATE", "ACRR") and value < 0.1:
                 status = "undetect"
                 status_code = 1
                 value = None

@@ -19,7 +19,6 @@ export const OPERA_DBZH_PALETTE = [
 
 // OPERA RATE and ACRR Palette (mm/h or mm)
 export const OPERA_PRECIP_PALETTE = [
-  { val: 0.01, color: "#CDF5FF96" },
   { val: 0.1,  color: "#00FFFF" },
   { val: 0.5, color: "#00AAFF" },
   { val: 1,   color: "#0055FF" },

@@ -63,8 +63,7 @@ DBZH_CMAP = [
     ((70.0, 150.0),  (255, 0, 128, 255)),   # hot pink
 ]
 RATE_CMAP = [
-    ((-15.0, 0.00999), (120, 120, 120, 90)),   # scanning area: subtle semi-transparent blue-grey
-    ((0.01, 0.1), (205, 245, 255, 150)),
+    ((-15.0, 0.09999), (120, 120, 120, 90)),   # scanning area: subtle semi-transparent blue-grey
     ((0.1, 0.5), (0, 255, 255, 255)),
     ((0.5, 1.0), (0, 170, 255, 255)),
     ((1.0, 2.0), (0, 85, 255, 255)),
@@ -78,8 +77,7 @@ RATE_CMAP = [
     ((300.0, 1000.0), (170, 0, 0, 255)),
 ]
 ACRR_CMAP = [
-    ((-15.0, 0.00999), (120, 120, 120, 90)),   # scanning area: subtle semi-transparent blue-grey
-    ((0.01, 0.1), (205, 245, 255, 150)),
+    ((-15.0, 0.09999), (120, 120, 120, 90)),   # scanning area: subtle semi-transparent blue-grey
     ((0.1, 0.5), (0, 255, 255, 255)),
     ((0.5, 1.0), (0, 170, 255, 255)),
     ((1.0, 2.0), (0, 85, 255, 255)),
@@ -791,7 +789,7 @@ def _get_raw_cog_frame(
             if frame.product == "DBZH":
                 d = np.where((d < 0.12619) & np.isfinite(d), -10.0, d)
             elif frame.product in ("RATE", "ACRR"):
-                d = np.where((d < 0.01) & np.isfinite(d), -10.0, d)
+                d = np.where((d < 0.1) & np.isfinite(d), -10.0, d)
 
             return _pack_raw_buffer(d, q, frame.product)
     except TileOutsideBounds:
@@ -894,7 +892,7 @@ def _get_raw_geozarr_frame(
     if frame.product == "DBZH":
         d = np.where((d < 0.12619) & np.isfinite(d), -10.0, d)
     elif frame.product in ("RATE", "ACRR"):
-        d = np.where((d < 0.01) & np.isfinite(d), -10.0, d)
+        d = np.where((d < 0.1) & np.isfinite(d), -10.0, d)
 
     return _pack_raw_buffer(d, q, frame.product)
 
