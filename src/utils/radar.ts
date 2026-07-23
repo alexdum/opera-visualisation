@@ -153,7 +153,7 @@ export const getEuropeanScalePyramid = (
   // Level 0: Full Continental view (Zoom < 5.0)
   if (zoom < 5.0 || !bounds) {
     return {
-      maxSize: 4096,
+      maxSize: 2800,
       bboxCoords: OPERA_IMAGE_COORDINATES,
       bboxBounds: OPERA_IMAGE_COORDINATES,
     };
@@ -172,7 +172,7 @@ export const getEuropeanScalePyramid = (
 
   if (west >= east || south >= north) {
     return {
-      maxSize: 4096,
+      maxSize: 2800,
       bboxCoords: OPERA_IMAGE_COORDINATES,
       bboxBounds: OPERA_IMAGE_COORDINATES,
     };
@@ -198,11 +198,12 @@ export const getEuropeanScalePyramid = (
   const maxSpan = Math.max(lonSpan, latSpan);
   
   // We target ~100 pixels per degree for full native resolution (1km).
-  // At zoom < 5.0 (continental), 40° span uses 4096px to preserve maximum detail
-  // because bilinear interpolation on lower resolution overviews causes small storms to fade.
+  // At zoom < 5.0 (continental), 40° span uses 2800px. This strikes a balance:
+  // it forces the backend to use the high-res base layer instead of the 50% overview,
+  // preventing small storms from blurring out, but keeps the payload size manageable (15MB vs 33MB).
   // At zoom 5+ (country level), we use 20° or 10° spans with 2048px or 1024px, achieving full 1km resolution.
   let maxSize = 1024;
-  if (maxSpan >= 30) maxSize = 4096; // Continental 40° view or large straddle
+  if (maxSpan >= 30) maxSize = 2800; // Continental 40° view or large straddle
   else if (maxSpan >= 15) maxSize = 2048; // Regional 20° view (Full Resolution)
   else maxSize = Math.max(1024, Math.round((maxSpan / 10.0) * 1024)); // Local 10° view (Full Resolution)
 
