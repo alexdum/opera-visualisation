@@ -1029,8 +1029,8 @@ def test_hidden_cog_preload_never_falls_back_to_geozarr(monkeypatch, caplog):
     )
     archive_reads: list[bool] = []
     monkeypatch.setattr("api.tiles.resolve_catalog_frame", lambda *_args: published)
-    monkeypatch.setattr("api.tiles._get_raw_cog_frame", lambda *_args: (_ for _ in ()).throw(OSError("missing COG")))
-    monkeypatch.setattr("api.tiles._get_raw_geozarr_frame", lambda *_args: archive_reads.append(True) or b"archive")
+    monkeypatch.setattr("api.tiles._get_raw_cog_frame", lambda *_args, **kwargs: (_ for _ in ()).throw(OSError("missing COG")))
+    monkeypatch.setattr("api.tiles._get_raw_geozarr_frame", lambda *_args, **kwargs: archive_reads.append(True) or b"archive")
 
     with pytest.raises(OSError, match="missing COG"):
         _render_and_compress("DBZH", published.timestamp, published.revision, "cog", 1024, "", False)
@@ -1247,3 +1247,75 @@ def test_fill_nodata_holes():
     d_nan = np.full((3, 3), np.nan)
     fill_nodata_holes(d_nan)
     assert np.all(np.isnan(d_nan))
+
+
+def test_dbzh_masking_for_rate_cog(monkeypatch):
+    from api.tiles import _get_raw_cog_frame
+    from api.catalog import CatalogFrame
+    import struct
+    import numpy as np
+
+    published = CatalogFrame(
+        product="RATE",
+        timestamp="202607200000",
+        nominal_time="2026-07-20T00:00:00Z",
+        revision="revision-1",
+        archive_ready=True,
+        hot_cog_ready=True,
+        hot_cog="hot-cog/RATE/2026/07/20/0000.tif",
+        geozarr="geozarr/RATE/2026/2026-07.zarr",
+        quality_variables=[],
+        backend="cog",
+    )
+
+    dbzh_frame = CatalogFrame(
+        product="DBZH",
+        timestamp="202607200000",
+        nominal_time="2026-07-20T00:00:00Z",
+        revision="revision-1",
+        archive_ready=True,
+        hot_cog_ready=True,
+        hot_cog="hot-cog/DBZH/2026/07/20/0000.tif",
+        geozarr="geozarr/DBZH/2026/2026-07.zarr",
+        quality_variables=[],
+        backend="cog",
+    )
+
+    class FakeDataset:
+        count = 1
+
+    class FakeImageRATE:
+        array = np.array([[[0.15, -9999000.0, -9999000.0, np.nan]]], dtype=np.float32)
+
+    class FakeImageDBZH:
+        array = np.array([[[10.0, 20.0, np.nan, -9999000.0]]], dtype=np.float32)
+
+    class FakeReader:
+        dataset = FakeDataset()
+        def __init__(self, path: str):
+            self.path = path
+        def __enter__(self):
+            return self
+        def __exit__(self, *_args):
+            pass
+        def part(self, *_args, **kwargs):
+            if "RATE" in self.path:
+                return FakeImageRATE()
+            else:
+                return FakeImageDBZH()
+
+    monkeypatch.setattr("api.tiles.local_cog", lambda product, *args: f"/tmp/{product}-frame.tif")
+    monkeypatch.setattr("api.tiles.Reader", FakeReader)
+
+    content = _get_raw_cog_frame(published, max_size=256, dbzh_frame=dbzh_frame)
+    
+    header = content[:16]
+    W, H, min_val, max_val, nodata_val = struct.unpack('<HHfff', header)
+    
+    payload = content[16:]
+    meas_uint8 = payload[0::2]
+    
+    assert meas_uint8[0] > 1
+    assert meas_uint8[1] == 1
+    assert meas_uint8[2] == 1
+    assert meas_uint8[3] == 1
