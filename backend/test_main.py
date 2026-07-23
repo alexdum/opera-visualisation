@@ -938,7 +938,7 @@ def test_raw_cog_reader_resolves_the_cataloged_cog_path(monkeypatch):
     content = _get_raw_cog_frame(published, max_size=256)
 
     assert opened_paths == ["/tmp/cataloged-frame.tif"]
-    assert part_options["resampling_method"] == "nearest"
+    assert part_options["resampling_method"] == "max"
     assert part_options["reproject_method"] == "max"
     assert len(content) == 18
 
