@@ -1209,3 +1209,41 @@ def test_access_log_filter_preserves_request_without_query_string():
     assert RedactAccessQueryFilter().filter(record) is True
 
     assert record.getMessage() == original
+
+
+def test_fill_nodata_holes():
+    from api.tiles import fill_nodata_holes
+    import numpy as np
+
+    # Case 1: 5x5 array, border nan, inside 0.0, center nan
+    d = np.full((5, 5), 0.0)
+    d[0, :] = np.nan
+    d[-1, :] = np.nan
+    d[:, 0] = np.nan
+    d[:, -1] = np.nan
+    d[2, 2] = np.nan
+
+    fill_nodata_holes(d)
+
+    # Assert border remains nan
+    assert np.isnan(d[0, 0])
+    assert np.isnan(d[0, 2])
+    assert np.isnan(d[-1, 2])
+    assert np.isnan(d[2, 0])
+    assert np.isnan(d[2, -1])
+
+    # Assert center hole is filled
+    assert d[2, 2] == -10.0
+    
+    # Assert other inside values remain 0.0
+    assert d[1, 1] == 0.0
+
+    # Case 2: Array with NO np.nan
+    d_full = np.full((3, 3), 5.0)
+    fill_nodata_holes(d_full)
+    assert np.all(d_full == 5.0)
+
+    # Case 3: Array with ALL np.nan
+    d_nan = np.full((3, 3), np.nan)
+    fill_nodata_holes(d_nan)
+    assert np.all(np.isnan(d_nan))
