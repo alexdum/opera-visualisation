@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 import logging
 import os
 import uvicorn
@@ -38,6 +39,9 @@ if allowed_origins:
         allow_methods=["GET"],
         allow_headers=["Accept", "Content-Type"],
     )
+
+# Compress all payloads (especially the huge uncompressed binary arrays)
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 @app.get("/api/health")
 async def health():
