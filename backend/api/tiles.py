@@ -664,7 +664,7 @@ def get_frame(
     revision: str,
     min_quality: str = Query("0.10"),
     source: str = Query("auto", pattern="^(auto|cog|geozarr)$"),
-    max_size: int = Query(1024, ge=256, le=2048),
+    max_size: int = Query(1024, ge=256, le=4096),
     bbox: str = Query(""),
 ) -> Response:
     try:
@@ -927,7 +927,7 @@ def get_raw_frame(
     timestamp: str,
     revision: str,
     source: str = Query("auto", pattern="^(auto|cog|geozarr)$"),
-    max_size: int = Query(1024, ge=256, le=2048),
+    max_size: int = Query(1024, ge=256, le=4096),
     bbox: str = Query(""),
     allow_archive_fallback: bool = Query(True),
 ) -> Response:

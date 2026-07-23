@@ -153,7 +153,7 @@ export const getEuropeanScalePyramid = (
   // Level 0: Full Continental view (Zoom < 5.0)
   if (zoom < 5.0 || !bounds) {
     return {
-      maxSize: 1024,
+      maxSize: 2048,
       bboxCoords: OPERA_IMAGE_COORDINATES,
       bboxBounds: OPERA_IMAGE_COORDINATES,
     };
@@ -172,7 +172,7 @@ export const getEuropeanScalePyramid = (
 
   if (west >= east || south >= north) {
     return {
-      maxSize: 1024,
+      maxSize: 2048,
       bboxCoords: OPERA_IMAGE_COORDINATES,
       bboxBounds: OPERA_IMAGE_COORDINATES,
     };
@@ -197,8 +197,8 @@ export const getEuropeanScalePyramid = (
   const latSpan = maxLat - minLat;
   const maxSpan = Math.max(lonSpan, latSpan);
   
-  // Base size: 1024 pixels per `step` degrees.
-  const maxSize = Math.min(2048, Math.max(1024, Math.round((maxSpan / step) * 1024)));
+  // Base size: 2048 pixels per `step` degrees.
+  const maxSize = Math.min(4096, Math.max(2048, Math.round((maxSpan / step) * 2048)));
 
 
 
