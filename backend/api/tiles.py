@@ -326,7 +326,7 @@ def _render_cog_image(frame: CatalogFrame, z: int, x: int, y: int, min_quality: 
                 y,
                 z,
                 indexes=indexes,
-                resampling_method="max",
+                resampling_method="bilinear",
                 reproject_method="max",
                 vrt_options=COG_VRT_OPTIONS,
             )
@@ -477,7 +477,7 @@ def _render_cog_frame(
             dst_crs=CRS.from_epsg(3857),
             max_size=max_size,
             indexes=indexes,
-            resampling_method="max",
+            resampling_method="bilinear",
             reproject_method="max",
             vrt_options=COG_VRT_OPTIONS,
         )
@@ -732,7 +732,7 @@ def _get_raw_cog_frame(
                 dst_crs=CRS.from_epsg(3857),
                 max_size=max_size,
                 indexes=indexes,
-                resampling_method="max",
+                resampling_method="bilinear",
                 reproject_method="max",
                 vrt_options=COG_VRT_OPTIONS,
             )
