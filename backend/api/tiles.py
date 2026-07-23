@@ -15,7 +15,6 @@ from affine import Affine
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 import numpy as np
 from rasterio.crs import CRS
-import scipy.ndimage
 from rasterio.enums import Resampling
 from rasterio.transform import from_bounds
 from rasterio.warp import reproject, transform_bounds
@@ -743,32 +742,6 @@ def _pack_raw_buffer(measurement: np.ndarray, quality: np.ndarray, product: str 
 
     return header + payload.tobytes()
 
-def fill_nodata_holes(d: np.ndarray) -> None:
-    nodata = np.isnan(d)
-    if not nodata.any():
-        return
-
-    has_border_nodata = (
-        nodata[0, :].any() or
-        nodata[-1, :].any() or
-        nodata[:, 0].any() or
-        nodata[:, -1].any()
-    )
-
-    if not has_border_nodata:
-        d[nodata] = -10.0
-        return
-
-    # We want to fill holes in the `~nodata` mask
-    # binary_fill_holes considers True as the foreground
-    valid = ~nodata
-    filled_valid = scipy.ndimage.binary_fill_holes(valid)
-
-    # Holes are pixels that were originally nodata (valid == False) 
-    # but got filled (filled_valid == True)
-    holes = filled_valid & nodata
-    d[holes] = -10.0
-
 def _get_raw_cog_frame(
     frame: CatalogFrame, max_size: int = 1024, bounds: tuple[float, ...] = OPERA_WGS84_BOUNDS,
     dbzh_frame: CatalogFrame | None = None,
@@ -844,8 +817,6 @@ def _get_raw_cog_frame(
                 if d_dbzh is not None:
                     dbzh_valid = ~np.isnan(d_dbzh)
                     d[np.isnan(d) & dbzh_valid] = -10.0
-                else:
-                    fill_nodata_holes(d)
 
             return _pack_raw_buffer(d, q, frame.product)
     except TileOutsideBounds:
@@ -989,8 +960,6 @@ def _get_raw_geozarr_frame(
         if d_dbzh is not None:
             dbzh_valid = ~np.isnan(d_dbzh)
             d[np.isnan(d) & dbzh_valid] = -10.0
-        else:
-            fill_nodata_holes(d)
 
     return _pack_raw_buffer(d, q, frame.product)
 
