@@ -313,6 +313,16 @@ def _extract_store_frames(
         status = STATUS_NAMES.get(status_code, "unknown")
         raw_value = float(_safe_scalar(pixel_values["measurement"][offset]))
         value = raw_value if status == "detected" and math.isfinite(raw_value) else None
+
+        if value is not None:
+            if product == "DBZH" and value < 0.12619:
+                status = "undetect"
+                status_code = 1
+                value = None
+            elif product in ("RATE", "ACRR") and value < 0.01:
+                status = "undetect"
+                status_code = 1
+                value = None
         quality: dict[str, float | None] = {}
         for name in quality_names:
             raw_quality = float(_safe_scalar(pixel_values[f"quality:{name}"][offset]))

@@ -180,6 +180,12 @@ Apply the following visualization policy:
    quality, quality nodata/unknown, invalid thresholds, and at least one real
    DBZH tile comparison demonstrating that filtering removes pixels while
    retaining valid coverage.
+8. **Backend Parity:** COG files typically contain explicit quality bands, while
+   historical GeoZarr archives may not. If GeoZarr returns unknown quality
+   (NaN), it MUST NOT be masked by the shader, resulting in correctly visible
+   raw pixels that might have been filtered out in the COG view. This
+   discrepancy is by design; do not attempt to "fix" GeoZarr by artificially
+   masking its data.
 
 The current implementation is in `backend/api/tiles.py`,
 `src/components/Map.tsx`, `src/components/Sidebar.tsx`, and
@@ -195,6 +201,7 @@ When generating or downsampling meteorological radar data (like DBZH reflectivit
 2. **Universal Visual Continuity**: Use `bilinear` resampling for primary measurement values to provide reasonable, smooth visual results regardless of the zoom level. This MUST apply universally to **all products** (DBZH, RATE, ACRR) and **both storage backends** (hot COG and historical GeoZarr). Do not use `max` resampling as it creates overly blocky artifacts when zooming out.
 3. **Universal Zoom Fidelity**: Ensure frontend zooming logic dynamically requests sufficient resolution (e.g., `2048x2048` grids) to achieve full native 1km fidelity at country-level views (zoom >= 5). This resolution scaling applies identically to all products.
 4. **Status and Quality Layers**: Strictly use `nearest` resampling for categorical observation status layers and quality mask layers. Interpolating these values would invent false or partial quality states.
+5. **Native Resolution Rendering**: Map rendering can appear visually different between backends due to pipeline scaling. COG (`rio-tiler`) artificially upsamples bounded regions to `max_size` on the server, producing a smoothed output. GeoZarr preserves the native grid size (bounding output to `src_w`) and delegates scaling to the WebGL frontend (`gl.NEAREST`), producing physically accurate "blocky" native pixels. Do not attempt to force GeoZarr to perform artificial server-side upsampling, as it wastes bandwidth and hides the native 1km grid.
 <!-- END:opera-radar-resampling-rule -->
 
 <!-- BEGIN:opera-visualization-architecture-rules -->

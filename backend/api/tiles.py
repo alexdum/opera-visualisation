@@ -45,8 +45,8 @@ STATUS_NODATA = 2
 
 
 DBZH_CMAP = [
-    ((-35.0, 0.0),   (100, 130, 160, 50)),  # scanning area: subtle semi-transparent blue-grey
-    ((0.0, 5.0),     (40, 116, 144, 255)),  # dark teal blue
+    ((-35.0, 0.12618),   (100, 130, 160, 50)),  # scanning area: subtle semi-transparent blue-grey
+    ((0.12619, 5.0),     (40, 116, 144, 255)),  # dark teal blue
     ((5.0, 10.0),    (40, 153, 192, 255)),  # medium teal blue
     ((10.0, 15.0),   (32, 191, 239, 255)),  # sky blue cyan
     ((15.0, 20.0),   (0, 255, 0, 255)),     # bright green
@@ -63,30 +63,34 @@ DBZH_CMAP = [
     ((70.0, 150.0),  (255, 0, 128, 255)),   # hot pink
 ]
 RATE_CMAP = [
-    ((-15.0, -5.0), (100, 130, 160, 50)),   # scanning area: subtle semi-transparent blue-grey
-    ((0.0, 0.1), (205, 245, 255, 150)),
+    ((-15.0, 0.00999), (100, 130, 160, 50)),   # scanning area: subtle semi-transparent blue-grey
+    ((0.01, 0.1), (205, 245, 255, 150)),
     ((0.1, 0.5), (0, 255, 255, 255)),
     ((0.5, 1.0), (0, 170, 255, 255)),
     ((1.0, 2.0), (0, 85, 255, 255)),
     ((2.0, 5.0), (0, 0, 255, 255)),
     ((5.0, 10.0), (0, 255, 0, 255)),
     ((10.0, 20.0), (0, 170, 0, 255)),
-    ((20.0, 50.0), (255, 255, 0, 255)),
-    ((50.0, 100.0), (255, 170, 0, 255)),
-    ((100.0, 1000.0), (255, 0, 0, 255)),
+    ((20.0, 50.0), (0, 85, 0, 255)),
+    ((50.0, 100.0), (255, 255, 0, 255)),
+    ((100.0, 200.0), (255, 170, 0, 255)),
+    ((200.0, 300.0), (255, 0, 0, 255)),
+    ((300.0, 1000.0), (170, 0, 0, 255)),
 ]
 ACRR_CMAP = [
-    ((-15.0, -5.0), (100, 130, 160, 50)),   # scanning area: subtle semi-transparent blue-grey
-    ((0.0, 0.1), (205, 245, 255, 150)),
+    ((-15.0, 0.00999), (100, 130, 160, 50)),   # scanning area: subtle semi-transparent blue-grey
+    ((0.01, 0.1), (205, 245, 255, 150)),
     ((0.1, 0.5), (0, 255, 255, 255)),
     ((0.5, 1.0), (0, 170, 255, 255)),
     ((1.0, 2.0), (0, 85, 255, 255)),
     ((2.0, 5.0), (0, 0, 255, 255)),
     ((5.0, 10.0), (0, 255, 0, 255)),
     ((10.0, 20.0), (0, 170, 0, 255)),
-    ((20.0, 50.0), (255, 255, 0, 255)),
-    ((50.0, 100.0), (255, 170, 0, 255)),
-    ((100.0, 1000.0), (255, 0, 0, 255)),
+    ((20.0, 50.0), (0, 85, 0, 255)),
+    ((50.0, 100.0), (255, 255, 0, 255)),
+    ((100.0, 200.0), (255, 170, 0, 255)),
+    ((200.0, 300.0), (255, 0, 0, 255)),
+    ((300.0, 1000.0), (170, 0, 0, 255)),
 ]
 COLORMAPS = {"DBZH": DBZH_CMAP, "RATE": RATE_CMAP, "ACRR": ACRR_CMAP}
 RENDER_SLOTS = BoundedSemaphore(max(1, int(os.getenv("TILE_RENDER_CONCURRENCY", "2"))))
@@ -780,6 +784,11 @@ def _get_raw_cog_frame(
             else:
                 q = np.full(d.shape, np.nan, dtype=np.float32)
 
+            if frame.product == "DBZH":
+                d = np.where((d < 0.12619) & np.isfinite(d), -10.0, d)
+            elif frame.product in ("RATE", "ACRR"):
+                d = np.where((d < 0.01) & np.isfinite(d), -10.0, d)
+
             return _pack_raw_buffer(d, q, frame.product)
     except TileOutsideBounds:
         merc_bounds = transform_bounds("EPSG:4326", "EPSG:3857", *bounds)
@@ -876,7 +885,14 @@ def _get_raw_geozarr_frame(
                     dst_nodata=np.nan,
                 )
 
-    return _pack_raw_buffer(dst_data[0], dst_quality[0], frame.product)
+    d = dst_data[0]
+    q = dst_quality[0]
+    if frame.product == "DBZH":
+        d = np.where((d < 0.12619) & np.isfinite(d), -10.0, d)
+    elif frame.product in ("RATE", "ACRR"):
+        d = np.where((d < 0.01) & np.isfinite(d), -10.0, d)
+
+    return _pack_raw_buffer(d, q, frame.product)
 
 
 # ---------- Byte-bounded compressed-response cache ----------
