@@ -45,7 +45,7 @@ STATUS_NODATA = 2
 
 
 DBZH_CMAP = [
-    ((-35.0, 0.12618),   (100, 130, 160, 50)),  # scanning area: subtle semi-transparent blue-grey
+    ((-35.0, 0.12618),   (200, 200, 200, 80)),  # scanning area: subtle semi-transparent blue-grey
     ((0.12619, 5.0),     (40, 116, 144, 255)),  # dark teal blue
     ((5.0, 10.0),    (40, 153, 192, 255)),  # medium teal blue
     ((10.0, 15.0),   (32, 191, 239, 255)),  # sky blue cyan
@@ -63,7 +63,7 @@ DBZH_CMAP = [
     ((70.0, 150.0),  (255, 0, 128, 255)),   # hot pink
 ]
 RATE_CMAP = [
-    ((-15.0, 0.00999), (100, 130, 160, 50)),   # scanning area: subtle semi-transparent blue-grey
+    ((-15.0, 0.00999), (200, 200, 200, 80)),   # scanning area: subtle semi-transparent blue-grey
     ((0.01, 0.1), (205, 245, 255, 150)),
     ((0.1, 0.5), (0, 255, 255, 255)),
     ((0.5, 1.0), (0, 170, 255, 255)),
@@ -78,7 +78,7 @@ RATE_CMAP = [
     ((300.0, 1000.0), (170, 0, 0, 255)),
 ]
 ACRR_CMAP = [
-    ((-15.0, 0.00999), (100, 130, 160, 50)),   # scanning area: subtle semi-transparent blue-grey
+    ((-15.0, 0.00999), (200, 200, 200, 80)),   # scanning area: subtle semi-transparent blue-grey
     ((0.01, 0.1), (205, 245, 255, 150)),
     ((0.1, 0.5), (0, 255, 255, 255)),
     ((0.5, 1.0), (0, 170, 255, 255)),

@@ -12,12 +12,12 @@ export const isWebGLSupported = (_map: MapLibreMap): boolean => {
 };
 
 function hexToRgba(hex: string): [number, number, number, number] {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})?$/i.exec(hex);
   return result ? [
     parseInt(result[1], 16),
     parseInt(result[2], 16),
     parseInt(result[3], 16),
-    255
+    result[4] ? parseInt(result[4], 16) : 255
   ] : [0, 0, 0, 0];
 }
 
@@ -76,6 +76,54 @@ export class RadarWebGLLayer implements CustomLayerInterface {
     return shader;
   }
 
+  private updateColormapTexture(gl: WebGL2RenderingContext) {
+    if (!this.colormapTexture) return;
+    
+    // Create 1D colormap
+    const colormapData = new Uint8Array(256 * 4);
+    
+    // Index 0: Nodata -> Transparent
+    colormapData[0] = 0;
+    colormapData[1] = 0;
+    colormapData[2] = 0;
+    colormapData[3] = 0;
+
+    const PRODUCT_BOUNDS: Record<string, [number, number]> = {
+      DBZH: [-35.0, 75.0],
+      RATE: [-10.0, 150.0],
+      ACRR: [-10.0, 300.0],
+    };
+
+    const [minVal, maxVal] = PRODUCT_BOUNDS[this.product] ?? [-35.0, 75.0];
+
+    for (let i = 1; i <= 255; i++) {
+      const val = minVal + ((i - 1) / 254) * (maxVal - minVal);
+      let rgba: [number, number, number, number] = [200, 200, 200, 80];
+
+      if (this.product === "DBZH") {
+        if (val >= 0.0) {
+          const colorHex = getColorFromPalette(val, "DBZH");
+          rgba = hexToRgba(colorHex);
+        }
+      } else {
+        // RATE and ACRR
+        if (val >= 0.0) {
+          const colorHex = getColorFromPalette(val, this.product);
+          rgba = hexToRgba(colorHex);
+        }
+      }
+
+      colormapData[i * 4] = rgba[0];
+      colormapData[i * 4 + 1] = rgba[1];
+      colormapData[i * 4 + 2] = rgba[2];
+      colormapData[i * 4 + 3] = rgba[3];
+    }
+
+    gl.bindTexture(gl.TEXTURE_2D, this.colormapTexture);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 256, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, colormapData);
+  }
+
   public onAdd(map: MapLibreMap, gl: WebGL2RenderingContext) {
     this.map = map;
     this.gl = gl;
@@ -111,55 +159,8 @@ export class RadarWebGLLayer implements CustomLayerInterface {
 
     this.buffer = gl.createBuffer();
 
-    // Create 1D colormap
-    const colormapData = new Uint8Array(256 * 4);
-    
-    // Index 0: Nodata -> Transparent
-    colormapData[0] = 0;
-    colormapData[1] = 0;
-    colormapData[2] = 0;
-    colormapData[3] = 0;
-
-    const PRODUCT_BOUNDS: Record<string, [number, number]> = {
-      DBZH: [-35.0, 75.0],
-      RATE: [-10.0, 150.0],
-      ACRR: [-10.0, 300.0],
-    };
-
-    const [minVal, maxVal] = PRODUCT_BOUNDS[this.product] ?? [-35.0, 75.0];
-
-    for (let i = 1; i <= 255; i++) {
-      const val = minVal + ((i - 1) / 254) * (maxVal - minVal);
-      let rgba: [number, number, number, number] = [0, 0, 0, 0];
-
-      if (this.product === "DBZH") {
-        if (val >= 0.0) {
-          const colorHex = getColorFromPalette(val, "DBZH");
-          rgba = hexToRgba(colorHex);
-        } else {
-          // Values < 0.0 (no echo / scanning area) are fully transparent
-          rgba = [0, 0, 0, 0];
-        }
-      } else {
-        // RATE and ACRR
-        if (val >= 0.1) {
-          const colorHex = getColorFromPalette(val, this.product);
-          rgba = hexToRgba(colorHex);
-        } else {
-          rgba = [0, 0, 0, 0];
-        }
-      }
-
-      colormapData[i * 4] = rgba[0];
-      colormapData[i * 4 + 1] = rgba[1];
-      colormapData[i * 4 + 2] = rgba[2];
-      colormapData[i * 4 + 3] = rgba[3];
-    }
-
     this.colormapTexture = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, this.colormapTexture);
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 256, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, colormapData);
+    this.updateColormapTexture(gl);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -172,45 +173,7 @@ export class RadarWebGLLayer implements CustomLayerInterface {
 
     const gl = this.gl;
     if (gl && this.colormapTexture) {
-      const colormapData = new Uint8Array(256 * 4);
-      colormapData[0] = 0;
-      colormapData[1] = 0;
-      colormapData[2] = 0;
-      colormapData[3] = 0;
-
-      const PRODUCT_BOUNDS: Record<string, [number, number]> = {
-        DBZH: [-35.0, 75.0],
-        RATE: [-10.0, 150.0],
-        ACRR: [-10.0, 300.0],
-      };
-
-      const [minVal, maxVal] = PRODUCT_BOUNDS[this.product] ?? [-35.0, 75.0];
-
-      for (let i = 1; i <= 255; i++) {
-        const val = minVal + ((i - 1) / 254) * (maxVal - minVal);
-        let rgba: [number, number, number, number] = [0, 0, 0, 0];
-
-        if (this.product === "DBZH") {
-          if (val >= 0.0) {
-            const colorHex = getColorFromPalette(val, "DBZH");
-            rgba = hexToRgba(colorHex);
-          }
-        } else {
-          if (val >= 0.1) {
-            const colorHex = getColorFromPalette(val, this.product);
-            rgba = hexToRgba(colorHex);
-          }
-        }
-
-        colormapData[i * 4] = rgba[0];
-        colormapData[i * 4 + 1] = rgba[1];
-        colormapData[i * 4 + 2] = rgba[2];
-        colormapData[i * 4 + 3] = rgba[3];
-      }
-
-      gl.bindTexture(gl.TEXTURE_2D, this.colormapTexture);
-      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 256, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, colormapData);
+      this.updateColormapTexture(gl);
     }
 
     if (gl) {
