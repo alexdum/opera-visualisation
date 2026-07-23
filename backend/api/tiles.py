@@ -536,20 +536,19 @@ def _render_geozarr_frame(
 
     slice_h = y_end - y_start
     slice_w = x_end - x_start
-    step = max(1, max(slice_h, slice_w) // max_size)
-
-    slab = np.asarray(group[frame.product][time_index, y_start:y_end:step, x_start:x_end:step], dtype=np.float32)
+    
+    slab = np.asarray(group[frame.product][time_index, y_start:y_end, x_start:x_end], dtype=np.float32)
 
     undetect = group[frame.product].attrs.get("undetect_value", None)
     if undetect is not None:
         slab[np.isclose(slab, float(undetect))] = -10.0
     status_name = f"{frame.product}_status"
     if status_name in group:
-        status_slab = np.asarray(group[status_name][time_index, y_start:y_end:step, x_start:x_end:step])
+        status_slab = np.asarray(group[status_name][time_index, y_start:y_end, x_start:x_end])
         slab = _apply_geozarr_status(slab, status_slab)
     slab[~np.isfinite(slab)] = np.nan
 
-    src_transform = metadata["transform"] * Affine.translation(x_start, y_start) * Affine.scale(step, step)
+    src_transform = metadata["transform"] * Affine.translation(x_start, y_start)
     src_h, src_w = slab.shape
 
     # Compute output grid in Web Mercator so MapLibre can render without
@@ -580,7 +579,7 @@ def _render_geozarr_frame(
         if quality_vars:
             q_var = quality_vars[0]
             if q_var in group:
-                q_slab = np.asarray(group[q_var][time_index, y_start:y_end:step, x_start:x_end:step], dtype=np.float32)
+                q_slab = np.asarray(group[q_var][time_index, y_start:y_end, x_start:x_end], dtype=np.float32)
                 q_slab[~np.isfinite(q_slab)] = np.nan
                 dst_quality = np.full((1, out_h, out_w), np.nan, dtype=np.float32)
                 reproject(
@@ -730,22 +729,61 @@ def _get_raw_cog_frame(
                 bounds,
                 bounds_crs=CRS.from_epsg(4326),
                 dst_crs=CRS.from_epsg(3857),
-                max_size=max_size,
+                max_size=None,
                 indexes=indexes,
-                resampling_method="bilinear",
-                reproject_method="max",
+                resampling_method="nearest",
+                reproject_method="nearest",
                 vrt_options=COG_VRT_OPTIONS,
             )
-            raw_b1 = np.asarray(image.array[0], dtype=np.float32)
-            scanning_area_mask = np.isnan(raw_b1)
-            nodata_mask = np.isclose(raw_b1, -9999000.0)
+            native_h, native_w = image.array.shape[1], image.array.shape[2]
+            merc_bounds = transform_bounds("EPSG:4326", "EPSG:3857", *bounds)
+            merc_w = merc_bounds[2] - merc_bounds[0]
+            merc_h = merc_bounds[3] - merc_bounds[1]
+            out_w = min(max_size, native_w)
+            out_h = max(1, int(out_w * merc_h / merc_w))
+            if out_h > max_size:
+                out_w = max(1, int(out_w * max_size / out_h))
+                out_h = max_size
+                
+            src_transform = from_bounds(*image.bounds, native_w, native_h)
+            dst_transform = from_bounds(*image.bounds, out_w, out_h)
             
-            d = raw_b1.copy()
+            dst_data = np.full((1, out_h, out_w), np.nan, dtype=np.float32)
+            d_raw = np.asarray(image.array[0], dtype=np.float32)
+            
+            reproject(
+                d_raw.reshape(1, native_h, native_w),
+                dst_data,
+                src_transform=src_transform,
+                src_crs="EPSG:3857",
+                dst_transform=dst_transform,
+                dst_crs="EPSG:3857",
+                resampling=Resampling.max,
+                src_nodata=np.nan,
+                dst_nodata=np.nan,
+            )
+            d = dst_data[0]
+            scanning_area_mask = np.isnan(d)
+            nodata_mask = np.isclose(d, -9999000.0)
+            
             d[scanning_area_mask] = -10.0
             d[nodata_mask] = np.nan
             
             if has_quality:
-                q = np.asarray(image.array[1], dtype=np.float32)
+                q_raw = np.asarray(image.array[1], dtype=np.float32)
+                dst_quality = np.full((1, out_h, out_w), np.nan, dtype=np.float32)
+                reproject(
+                    q_raw.reshape(1, native_h, native_w),
+                    dst_quality,
+                    src_transform=src_transform,
+                    src_crs="EPSG:3857",
+                    dst_transform=dst_transform,
+                    dst_crs="EPSG:3857",
+                    resampling=Resampling.nearest,
+                    src_nodata=np.nan,
+                    dst_nodata=np.nan,
+                )
+                q = dst_quality[0]
             else:
                 q = np.full(d.shape, np.nan, dtype=np.float32)
                 
@@ -786,20 +824,19 @@ def _get_raw_geozarr_frame(
 
     slice_h = y_end - y_start
     slice_w = x_end - x_start
-    step = max(1, max(slice_h, slice_w) // max_size)
-
-    slab = np.asarray(group[frame.product][time_index, y_start:y_end:step, x_start:x_end:step], dtype=np.float32)
+    
+    slab = np.asarray(group[frame.product][time_index, y_start:y_end, x_start:x_end], dtype=np.float32)
 
     undetect = group[frame.product].attrs.get("undetect_value", None)
     if undetect is not None:
         slab[np.isclose(slab, float(undetect))] = -10.0
     status_name = f"{frame.product}_status"
     if status_name in group:
-        status_slab = np.asarray(group[status_name][time_index, y_start:y_end:step, x_start:x_end:step])
+        status_slab = np.asarray(group[status_name][time_index, y_start:y_end, x_start:x_end])
         slab = _apply_geozarr_status(slab, status_slab)
     slab[~np.isfinite(slab)] = np.nan
 
-    src_transform = metadata["transform"] * Affine.translation(x_start, y_start) * Affine.scale(step, step)
+    src_transform = metadata["transform"] * Affine.translation(x_start, y_start)
     src_h, src_w = slab.shape
 
     merc_bounds = transform_bounds("EPSG:4326", "EPSG:3857", *bounds)
@@ -832,7 +869,7 @@ def _get_raw_geozarr_frame(
         if quality_vars:
             q_var = quality_vars[0]
             if q_var in group:
-                q_slab = np.asarray(group[q_var][time_index, y_start:y_end:step, x_start:x_end:step], dtype=np.float32)
+                q_slab = np.asarray(group[q_var][time_index, y_start:y_end, x_start:x_end], dtype=np.float32)
                 q_slab[~np.isfinite(q_slab)] = np.nan
                 reproject(
                     q_slab.reshape(1, src_h, src_w),
