@@ -323,7 +323,7 @@ export function WeatherMap({
         const radarSources = Object.fromEntries(
           Object.entries(previousStyle?.sources ?? {}).filter(([sourceId]) => sourceId.startsWith("radar-source-")),
         );
-        const radarLayers = (previousStyle?.layers ?? []).filter((layer) => layer.id.startsWith("radar-layer-"));
+        const radarLayers = (previousStyle?.layers ?? []).filter((layer) => layer.id.startsWith("radar-layer-") && layer.type !== "custom");
         const radarIndex = radarOverlayInsertionIndex(nextStyle.layers);
         return {
           ...nextStyle,
