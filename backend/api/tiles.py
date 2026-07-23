@@ -512,7 +512,9 @@ def _render_cog_frame(
                 reproject_method="nearest",
                 vrt_options=COG_VRT_OPTIONS,
             )
-            destination_quality = np.asarray(q_image.array[0], dtype=np.float32)
+            q_mask = np.ma.getmaskarray(q_image.array[0])
+            destination_quality = np.asarray(q_image.array[0].data, dtype=np.float32)
+            destination_quality[q_mask] = np.nan
             known = np.isfinite(destination_quality) & (destination_quality >= 0) & (destination_quality <= 1)
             quality_filtered_mask = known & (destination_quality < min_quality)
         else:
@@ -780,7 +782,9 @@ def _get_raw_cog_frame(
                     reproject_method="nearest",
                     vrt_options=COG_VRT_OPTIONS,
                 )
-                q = np.asarray(q_image.array[0], dtype=np.float32)
+                q_mask = np.ma.getmaskarray(q_image.array[0])
+                q = np.asarray(q_image.array[0].data, dtype=np.float32)
+                q[q_mask] = np.nan
             else:
                 q = np.full(d.shape, np.nan, dtype=np.float32)
 
