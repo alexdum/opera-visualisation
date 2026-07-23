@@ -90,20 +90,20 @@ describe("zoom-aware radar resolution", () => {
 
   it("uses the fast continental texture below zoom 6", () => {
     const pyramid = getEuropeanScalePyramid(5.99, bounds, { width: 2000, height: 1400 });
-    expect(pyramid.bboxKey).toBeUndefined();
+    expect(pyramid.bboxKey).toBe("0.0000,40.0000,20.0000,60.0000");
     expect(pyramid.maxSize).toBe(2048);
   });
 
   it("snaps regional requests and sizes them for device pixels", () => {
     const pyramid = getEuropeanScalePyramid(6, bounds, { width: 1300, height: 900 });
-    expect(pyramid.bboxKey).toBe("0.00,40.00,20.00,60.00");
+    expect(pyramid.bboxKey).toBe("0.0000,40.0000,20.0000,60.0000");
     expect(pyramid.maxSize).toBe(2048);
   });
 
   it("caps high-resolution local requests at the backend limit", () => {
     const pyramid = getEuropeanScalePyramid(8, bounds, { width: 3000, height: 2000 });
-    expect(pyramid.bboxKey).toBe("0.00,40.00,20.00,60.00");
-    expect(pyramid.maxSize).toBe(4096);
+    expect(pyramid.bboxKey).toBe("0.0000,40.0000,20.0000,60.0000");
+    expect(pyramid.maxSize).toBe(2048);
   });
 });
 

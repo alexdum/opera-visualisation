@@ -183,8 +183,8 @@ export const getEuropeanScalePyramid = (
   // By using a large 10°, 20°, or 40° grid, we cover entire countries/regions in a single tile.
   // Panning within this huge tile generates NO new network requests.
   let step = 40.0;
-  if (zoom >= 7.0) step = 10.0;
-  else if (zoom >= 6.0) step = 20.0;
+  if (zoom >= 6.0) step = 10.0;
+  else if (zoom >= 5.0) step = 20.0;
 
   const minLon = Math.floor(west / step) * step;
   const minLat = Math.floor(south / step) * step;
@@ -197,8 +197,14 @@ export const getEuropeanScalePyramid = (
   const latSpan = maxLat - minLat;
   const maxSpan = Math.max(lonSpan, latSpan);
   
-  // Base size: 2048 pixels per `step` degrees.
-  const maxSize = Math.min(4096, Math.max(2048, Math.round((maxSpan / step) * 2048)));
+  // We target ~100 pixels per degree for full native resolution (1km).
+  // At zoom < 5.0 (continental), 40° span uses 2048px (half res) to save VRAM, 
+  // because the screen cannot display 4000 pixels anyway.
+  // At zoom 5+ (country level), we use 20° or 10° spans with 2048px or 1024px, achieving full 1km resolution.
+  let maxSize = 1024;
+  if (maxSpan >= 30) maxSize = 2048; // Continental 40° view or large straddle
+  else if (maxSpan >= 15) maxSize = 2048; // Regional 20° view (Full Resolution)
+  else maxSize = Math.max(1024, Math.round((maxSpan / 10.0) * 1024)); // Local 10° view (Full Resolution)
 
 
 
