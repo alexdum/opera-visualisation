@@ -98,7 +98,7 @@ export class RadarWebGLLayer implements CustomLayerInterface {
 
     for (let i = 1; i <= 255; i++) {
       const val = minVal + ((i - 1) / 254) * (maxVal - minVal);
-      let rgba: [number, number, number, number] = [200, 200, 200, 80];
+      let rgba: [number, number, number, number] = [120, 120, 120, 90];
 
       if (this.product === "DBZH") {
         if (val >= 0.0) {
