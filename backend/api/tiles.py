@@ -319,33 +319,42 @@ def _render_cog_image(frame: CatalogFrame, z: int, x: int, y: int, min_quality: 
         frame.product, frame.timestamp, frame.revision, frame.hot_cog
     )
     with cog_reader(cog_path, Reader) as cog:
-        indexes = (1, 2) if frame.product == "DBZH" and min_quality is not None and cog.dataset.count >= 2 else 1
+        has_quality = frame.product == "DBZH" and min_quality is not None and cog.dataset.count >= 2
         try:
             image = cog.tile(
-                x,
-                y,
-                z,
-                indexes=indexes,
+                x, y, z,
+                indexes=(1,),
                 resampling_method="bilinear",
-                reproject_method="max",
+                reproject_method="bilinear",
                 vrt_options=COG_VRT_OPTIONS,
             )
+            if has_quality:
+                q_image = cog.tile(
+                    x, y, z,
+                    indexes=(2,),
+                    resampling_method="nearest",
+                    reproject_method="nearest",
+                    vrt_options=COG_VRT_OPTIONS,
+                )
+                destination = np.copy(image.array)
+                destination_quality = q_image.array[0]
+                known = np.isfinite(destination_quality) & (destination_quality >= 0) & (destination_quality <= 1)
+                destination[0][known & (destination_quality < min_quality)] = np.nan
+                
+                return ImageData(
+                    np.ma.array(destination, copy=True),
+                    bounds=image.bounds,
+                    crs=image.crs,
+                    assets=image.assets,
+                    metadata=image.metadata,
+                    band_names=image.band_names,
+                )
         except TileOutsideBounds:
             # A map viewport routinely requests tiles beyond the finite OPERA
             # composite footprint. Those are transparent pixels, not storage
             # or rendering failures, and must not trigger GeoZarr fallback.
             return _empty_image()
-    if frame.product == "DBZH" and min_quality is not None:
-        return apply_quality_filter(image, min_quality)
-    if image.count > 1:
-        return ImageData(
-            np.ma.array(image.array[:1], copy=True),
-            assets=image.assets,
-            bounds=image.bounds,
-            crs=image.crs,
-            metadata=image.metadata,
-            band_names=image.band_names[:1],
-        )
+            
     return image
 
 
@@ -470,24 +479,36 @@ def _render_cog_frame(
         raise FileNotFoundError("Catalog does not advertise a hot COG")
     cog_path = local_cog(frame.product, frame.timestamp, frame.revision, frame.hot_cog)
     with cog_reader(cog_path, Reader) as cog:
-        indexes = (1, 2) if frame.product == "DBZH" and min_quality is not None and cog.dataset.count >= 2 else 1
+        has_quality = frame.product == "DBZH" and min_quality is not None and cog.dataset.count >= 2
+        
         image = cog.part(
             bounds,
             bounds_crs=CRS.from_epsg(4326),
             dst_crs=CRS.from_epsg(3857),
             max_size=max_size,
-            indexes=indexes,
+            indexes=(1,),
             resampling_method="bilinear",
-            reproject_method="max",
+            reproject_method="bilinear",
             vrt_options=COG_VRT_OPTIONS,
         )
         raw_b1 = np.asarray(image.array[0], dtype=np.float32)
         scanning_area_mask = np.isnan(raw_b1)
         nodata_mask = np.isclose(raw_b1, -9999000.0)
 
-        if frame.product == "DBZH" and min_quality is not None and image.count == 2:
-            image = apply_quality_filter(image, min_quality)
-            quality_filtered_mask = np.ma.getmaskarray(image.array[:1])[0]
+        if has_quality:
+            q_image = cog.part(
+                bounds,
+                bounds_crs=CRS.from_epsg(4326),
+                dst_crs=CRS.from_epsg(3857),
+                max_size=max_size,
+                indexes=(2,),
+                resampling_method="nearest",
+                reproject_method="nearest",
+                vrt_options=COG_VRT_OPTIONS,
+            )
+            destination_quality = np.asarray(q_image.array[0], dtype=np.float32)
+            known = np.isfinite(destination_quality) & (destination_quality >= 0) & (destination_quality <= 1)
+            quality_filtered_mask = known & (destination_quality < min_quality)
         else:
             quality_filtered_mask = np.zeros(raw_b1.shape, dtype=bool)
 
@@ -724,45 +745,18 @@ def _get_raw_cog_frame(
     try:
         with cog_reader(cog_path, Reader) as cog:
             has_quality = frame.product == "DBZH" and cog.dataset.count >= 2
-            indexes = (1, 2) if has_quality else (1,)
+            
             image = cog.part(
                 bounds,
                 bounds_crs=CRS.from_epsg(4326),
                 dst_crs=CRS.from_epsg(3857),
-                max_size=None,
-                indexes=indexes,
-                resampling_method="nearest",
-                reproject_method="nearest",
+                max_size=max_size,
+                indexes=(1,),
+                resampling_method="bilinear",
+                reproject_method="bilinear",
                 vrt_options=COG_VRT_OPTIONS,
             )
-            native_h, native_w = image.array.shape[1], image.array.shape[2]
-            merc_bounds = transform_bounds("EPSG:4326", "EPSG:3857", *bounds)
-            merc_w = merc_bounds[2] - merc_bounds[0]
-            merc_h = merc_bounds[3] - merc_bounds[1]
-            out_w = min(max_size, native_w)
-            out_h = max(1, int(out_w * merc_h / merc_w))
-            if out_h > max_size:
-                out_w = max(1, int(out_w * max_size / out_h))
-                out_h = max_size
-                
-            src_transform = from_bounds(*image.bounds, native_w, native_h)
-            dst_transform = from_bounds(*image.bounds, out_w, out_h)
-            
-            dst_data = np.full((1, out_h, out_w), np.nan, dtype=np.float32)
-            d_raw = np.asarray(image.array[0], dtype=np.float32)
-            
-            reproject(
-                d_raw.reshape(1, native_h, native_w),
-                dst_data,
-                src_transform=src_transform,
-                src_crs="EPSG:3857",
-                dst_transform=dst_transform,
-                dst_crs="EPSG:3857",
-                resampling=Resampling.bilinear,
-                src_nodata=np.nan,
-                dst_nodata=np.nan,
-            )
-            d = dst_data[0]
+            d = np.asarray(image.array[0], dtype=np.float32)
             scanning_area_mask = np.isnan(d)
             nodata_mask = np.isclose(d, -9999000.0)
             
@@ -770,20 +764,17 @@ def _get_raw_cog_frame(
             d[nodata_mask] = np.nan
             
             if has_quality:
-                q_raw = np.asarray(image.array[1], dtype=np.float32)
-                dst_quality = np.full((1, out_h, out_w), np.nan, dtype=np.float32)
-                reproject(
-                    q_raw.reshape(1, native_h, native_w),
-                    dst_quality,
-                    src_transform=src_transform,
-                    src_crs="EPSG:3857",
-                    dst_transform=dst_transform,
-                    dst_crs="EPSG:3857",
-                    resampling=Resampling.nearest,
-                    src_nodata=np.nan,
-                    dst_nodata=np.nan,
+                q_image = cog.part(
+                    bounds,
+                    bounds_crs=CRS.from_epsg(4326),
+                    dst_crs=CRS.from_epsg(3857),
+                    max_size=max_size,
+                    indexes=(2,),
+                    resampling_method="nearest",
+                    reproject_method="nearest",
+                    vrt_options=COG_VRT_OPTIONS,
                 )
-                q = dst_quality[0]
+                q = np.asarray(q_image.array[0], dtype=np.float32)
             else:
                 q = np.full(d.shape, np.nan, dtype=np.float32)
                 

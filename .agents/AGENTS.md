@@ -191,9 +191,10 @@ refactored.
 ## OPERA Radar Data Resampling
 
 When generating or downsampling meteorological radar data (like DBZH reflectivity) for map tiles or zoom pyramids:
-1. **Avoid Nearest Neighbor Downsampling**: Never use `nearest` neighbor resampling. Downsampling sparse radar data with `nearest` drops intermediate pixels (aliasing). This causes high-resolution radar echoes to randomly disappear and counter-intuitively makes higher zoom levels look sparser or "less detailed" than lower zoom levels.
-2. **Preserve Maximum Intensity**: Use `max` resampling to preserve severe storms without blurring, or `bilinear`/`average` for continuous fields.
-3. **Status Layers**: Use `nearest` only for categorical observation status layers or when exactly matching the native 1:1 resolution.
+1. **Avoid Nearest Neighbor Downsampling**: Never use `nearest` neighbor resampling for measurement data. Downsampling sparse radar data with `nearest` drops intermediate pixels (aliasing).
+2. **Universal Visual Continuity**: Use `bilinear` resampling for primary measurement values to provide reasonable, smooth visual results regardless of the zoom level. This MUST apply universally to **all products** (DBZH, RATE, ACRR) and **both storage backends** (hot COG and historical GeoZarr). Do not use `max` resampling as it creates overly blocky artifacts when zooming out.
+3. **Universal Zoom Fidelity**: Ensure frontend zooming logic dynamically requests sufficient resolution (e.g., `2048x2048` grids) to achieve full native 1km fidelity at country-level views (zoom >= 5). This resolution scaling applies identically to all products.
+4. **Status and Quality Layers**: Strictly use `nearest` resampling for categorical observation status layers and quality mask layers. Interpolating these values would invent false or partial quality states.
 <!-- END:opera-radar-resampling-rule -->
 
 <!-- BEGIN:opera-visualization-architecture-rules -->
