@@ -25,6 +25,7 @@ export interface CatalogResponse {
   archive_ready: boolean;
   hot_cog_ready: boolean;
   hot_window_start: string | null;
+  global_latest_time: string | null;
 }
 
 export type MapRenderStatus = "idle" | "loading" | "ready" | "degraded" | "error";

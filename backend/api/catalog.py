@@ -49,7 +49,7 @@ class Catalog(BaseModel):
     archive_ready: bool = False
     hot_cog_ready: bool = False
     hot_window_start: str | None = None
-
+    global_latest_time: str | None = None
 
 def normalize_product(product: str) -> str:
     value = product.upper()
@@ -193,6 +193,7 @@ def catalog_response(
     frames: list[CatalogFrame],
     date: str | None,
     hot_window_start: str | None = None,
+    global_latest_time: str | None = None,
 ) -> Catalog:
     timestamps = [f"{frame.timestamp}_{frame.revision}" for frame in frames]
     return Catalog(
@@ -205,8 +206,8 @@ def catalog_response(
         archive_ready=bool(frames),
         hot_cog_ready=bool(frames and frames[-1].hot_cog_ready),
         hot_window_start=hot_window_start,
+        global_latest_time=global_latest_time,
     )
-
 
 def apply_hot_window(frames: list[CatalogFrame], hot_window_start: str | None) -> list[CatalogFrame]:
     if not hot_window_start:
@@ -249,8 +250,13 @@ def load_day(product: str, date: str, archive_only: bool = False) -> Catalog:
     path = f"catalog/{parsed_date:%Y/%m}/{date}.json"
     frames = parse_daily_catalog(fetch_catalog_json(path), product)
     hot_window_start = None
+    global_latest_time = None
     try:
-        hot_window_start = fetch_catalog_json("catalog/latest.json").get("hot_window_start")
+        latest = fetch_catalog_json("catalog/latest.json")
+        hot_window_start = latest.get("hot_window_start")
+        latest_product = latest.get("products", {}).get(product, {})
+        if isinstance(latest_product, dict):
+            global_latest_time = latest_product.get("nominal_time")
     except HTTPException:
         # Historical archive access remains useful if the latest pointer is
         # temporarily unavailable; the renderer will attempt COG then GeoZarr.
@@ -263,8 +269,8 @@ def load_day(product: str, date: str, archive_only: bool = False) -> Catalog:
         frames=frames,
         date=date,
         hot_window_start=hot_window_start,
+        global_latest_time=global_latest_time,
     )
-
 
 def load_latest(product: str, hours: int) -> Catalog:
     product = normalize_product(product)
@@ -298,6 +304,7 @@ def load_latest(product: str, hours: int) -> Catalog:
         frames=frames,
         date=None,
         hot_window_start=latest.get("hot_window_start"),
+        global_latest_time=latest_time_value,
     )
 
 

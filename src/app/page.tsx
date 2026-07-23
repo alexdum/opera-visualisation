@@ -44,6 +44,7 @@ export default function OperaRadarPage() {
   const [pixelSeries, setPixelSeries] = useState<PixelSeriesEntry[]>([]);
   const [pixelLoading, setPixelLoading] = useState(false);
   const [pixelError, setPixelError] = useState<string | null>(null);
+  const [globalLatestTime, setGlobalLatestTime] = useState<string | null>(null);
   const initialTimeRef = useRef("");
   const lastPixelRequestKeyRef = useRef<string | null>(null);
 
@@ -132,6 +133,9 @@ export default function OperaRadarPage() {
         initialTimeRef.current = "";
         if (catalog.frames.length === 0) {
           setRenderState({ status: "idle", message: `No published ${product} frames are available.` });
+        }
+        if (catalog.global_latest_time) {
+          setGlobalLatestTime(catalog.global_latest_time);
         }
       })
       .catch((error: unknown) => {
@@ -263,6 +267,7 @@ export default function OperaRadarPage() {
             setProduct={setProduct}
             selectedDate={selectedDate}
             setSelectedDate={setSelectedDate}
+            globalLatestTime={globalLatestTime}
             frames={frames}
             currentTimeIndex={currentTimeIndex}
             setCurrentTimeIndex={setCurrentTimeIndex}

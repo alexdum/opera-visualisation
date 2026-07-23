@@ -23,6 +23,7 @@ interface SidebarProps {
   setProduct: (product: RadarProduct) => void;
   selectedDate: string;
   setSelectedDate: (date: string) => void;
+  globalLatestTime: string | null;
   frames: RadarFrame[];
   currentTimeIndex: number;
   setCurrentTimeIndex: (index: number | ((previous: number) => number)) => void;
@@ -67,6 +68,7 @@ export function Sidebar({
   setProduct,
   selectedDate,
   setSelectedDate,
+  globalLatestTime,
   frames,
   currentTimeIndex,
   setCurrentTimeIndex,
@@ -163,13 +165,14 @@ export function Sidebar({
 
         {selectedDate && (
           <div>
-            <FilterLabel htmlFor="historical-date" label="UTC date" help="Select a published daily catalog." />
+            <FilterLabel htmlFor="historical-date" label="UTC date" help="Select a published daily catalog. Data is available starting with 21 July 2026." />
             <div className="relative">
               <input
                 id="historical-date"
                 type="date"
                 value={selectedDate}
-                max={new Date().toISOString().slice(0, 10)}
+                min="2026-07-21"
+                max={globalLatestTime ? globalLatestTime.slice(0, 10) : new Date().toISOString().slice(0, 10)}
                 onChange={(event) => setSelectedDate(event.target.value)}
                 className="min-h-11 w-full rounded-xl border border-slate-300 bg-white py-2.5 pl-9 pr-3.5 text-sm font-medium text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
               />
