@@ -13,6 +13,20 @@ import type { CatalogResponse, MapRenderState, RadarFrame, RadarProduct } from "
 import { downloadPixelCsv } from "@/utils/pixelCsv";
 import { parseQualityUrlValue } from "@/utils/radar";
 
+interface FullscreenDocument extends Document {
+  webkitFullscreenElement?: Element;
+  mozFullScreenElement?: Element;
+  msFullscreenElement?: Element;
+  webkitExitFullscreen?: () => void;
+  mozCancelFullScreen?: () => void;
+  msExitFullscreen?: () => void;
+}
+
+interface FullscreenElement extends HTMLElement {
+  webkitRequestFullscreen?: () => Promise<void>;
+  mozRequestFullScreen?: () => Promise<void>;
+  msRequestFullscreen?: () => Promise<void>;
+}
 
 const PRODUCTS: RadarProduct[] = ["DBZH", "RATE", "ACRR"];
 const WeatherMap = dynamic(() => import("@/components/Map").then((module) => module.WeatherMap), { ssr: false });
@@ -60,7 +74,7 @@ export default function OperaRadarPage() {
 
   useEffect(() => {
     const handleFullscreenChange = () => {
-      const doc = document as any;
+      const doc = document as FullscreenDocument;
       setIsFullscreen(!!(doc.fullscreenElement || doc.webkitFullscreenElement || doc.mozFullScreenElement || doc.msFullscreenElement));
     };
     document.addEventListener("fullscreenchange", handleFullscreenChange);
@@ -76,8 +90,8 @@ export default function OperaRadarPage() {
   }, []);
 
   const toggleFullscreen = () => {
-    const doc = document as any;
-    const docEl = document.documentElement as any;
+    const doc = document as FullscreenDocument;
+    const docEl = document.documentElement as FullscreenElement;
 
     const isFull = !!(doc.fullscreenElement || doc.webkitFullscreenElement || doc.mozFullScreenElement || doc.msFullscreenElement);
     const requestFullScreen = docEl.requestFullscreen || docEl.webkitRequestFullscreen || docEl.mozRequestFullScreen || docEl.msRequestFullscreen;
@@ -87,7 +101,10 @@ export default function OperaRadarPage() {
       if (requestFullScreen) {
         const promise = requestFullScreen.call(docEl);
         if (promise !== undefined) {
-          promise.catch((err: any) => console.warn(`Fullscreen error: ${err.message}`));
+          promise.catch((err: unknown) => {
+            const message = err instanceof Error ? err.message : String(err);
+            console.warn(`Fullscreen error: ${message}`);
+          });
         }
       }
     } else {
