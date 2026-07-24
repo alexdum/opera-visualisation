@@ -21,10 +21,22 @@ function hexToRgba(hex: string): [number, number, number, number] {
   ] : [0, 0, 0, 0];
 }
 
+type PendingFrameData = {
+  frameId: string;
+  rawBinaryBuffer: Uint8Array;
+  width: number;
+  height: number;
+  bboxCoordinates: [number, number][];
+  backend: "cog" | "geozarr";
+  activate: boolean;
+};
+
 export class RadarWebGLLayer implements CustomLayerInterface {
   public id: string;
   public type = "custom" as const;
   public renderingMode = "2d" as const;
+
+  private pendingFrames: Map<string, PendingFrameData> = new Map();
 
   private program: WebGLProgram | null = null;
   private gl: WebGL2RenderingContext | null = null;
@@ -169,6 +181,22 @@ export class RadarWebGLLayer implements CustomLayerInterface {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    if (this.pendingFrames.size > 0) {
+      const frames = Array.from(this.pendingFrames.values());
+      this.pendingFrames.clear();
+      for (const frame of frames) {
+        this.setFrameData(
+          frame.frameId,
+          frame.rawBinaryBuffer,
+          frame.width,
+          frame.height,
+          frame.bboxCoordinates,
+          frame.backend,
+          frame.activate
+        );
+      }
+    }
   }
 
   public setProduct(product: string) {
@@ -190,13 +218,18 @@ export class RadarWebGLLayer implements CustomLayerInterface {
     this.currentTexture = null;
     this.currentFrameId = null;
     this.quadCoords = new Float32Array(0);
+    this.pendingFrames.clear();
   }
 
   public hasFrame(frameId: string): boolean {
-    return this.textureCache.has(frameId);
+    return this.textureCache.has(frameId) || this.pendingFrames.has(frameId);
   }
 
   public showFrame(frameId: string): boolean {
+    if (this.pendingFrames.has(frameId)) {
+      this.pendingFrames.get(frameId)!.activate = true;
+      return true;
+    }
     const entry = this.textureCache.get(frameId);
     if (entry) {
       this.currentTexture = entry.texture;
@@ -224,7 +257,7 @@ export class RadarWebGLLayer implements CustomLayerInterface {
   }
 
   public frameBackend(frameId: string): "cog" | "geozarr" | undefined {
-    return this.textureCache.get(frameId)?.backend;
+    return this.textureCache.get(frameId)?.backend ?? this.pendingFrames.get(frameId)?.backend;
   }
 
   /**
@@ -241,7 +274,18 @@ export class RadarWebGLLayer implements CustomLayerInterface {
     activate = false,
   ) {
     const gl = this.gl;
-    if (!gl) return;
+    if (!gl) {
+      this.pendingFrames.set(frameId, {
+        frameId,
+        rawBinaryBuffer,
+        width,
+        height,
+        bboxCoordinates,
+        backend,
+        activate,
+      });
+      return;
+    }
     if (width <= 0 || height <= 0 || rawBinaryBuffer.byteLength !== width * height * 2) {
       throw new Error("Invalid OPERA raw texture dimensions");
     }
@@ -342,6 +386,7 @@ export class RadarWebGLLayer implements CustomLayerInterface {
     }
     this.textureCache.clear();
     this.cacheKeys = [];
+    this.pendingFrames.clear();
     this.program = null;
     this.buffer = null;
     this.colormapTexture = null;
