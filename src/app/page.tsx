@@ -77,19 +77,32 @@ export default function OperaRadarPage() {
       const doc = document as FullscreenDocument;
       setIsFullscreen(!!(doc.fullscreenElement || doc.webkitFullscreenElement || doc.mozFullScreenElement || doc.msFullscreenElement));
     };
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === "radar-fullscreen-changed") {
+        setIsFullscreen(!!event.data.isFullscreen);
+      }
+    };
+
     document.addEventListener("fullscreenchange", handleFullscreenChange);
     document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
     document.addEventListener("mozfullscreenchange", handleFullscreenChange);
     document.addEventListener("MSFullscreenChange", handleFullscreenChange);
+    window.addEventListener("message", handleMessage);
     return () => {
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
       document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
       document.removeEventListener("mozfullscreenchange", handleFullscreenChange);
       document.removeEventListener("MSFullscreenChange", handleFullscreenChange);
+      window.removeEventListener("message", handleMessage);
     };
   }, []);
 
   const toggleFullscreen = () => {
+    if (window.parent !== window) {
+      window.parent.postMessage({ type: "radar-toggle-fullscreen" }, "*");
+      return;
+    }
+
     const doc = document as FullscreenDocument;
     const docEl = document.documentElement as FullscreenElement;
 
