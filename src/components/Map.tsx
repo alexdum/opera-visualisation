@@ -323,7 +323,7 @@ export function WeatherMap({
         const radarSources = Object.fromEntries(
           Object.entries(previousStyle?.sources ?? {}).filter(([sourceId]) => sourceId.startsWith("radar-source-")),
         );
-        const radarLayers = (previousStyle?.layers ?? []).filter((layer) => layer.id.startsWith("radar-layer-") && layer.type !== "custom");
+        const radarLayers = (previousStyle?.layers ?? []).filter((layer) => layer.id.startsWith("radar-layer-") && (layer.type as string) !== "custom");
         const radarIndex = radarOverlayInsertionIndex(nextStyle.layers);
         return {
           ...nextStyle,
@@ -484,10 +484,7 @@ export function WeatherMap({
         webglLayer.setProduct(currentFrame.product);
 
         const canvas = instance.getCanvas();
-        const pyramid = getEuropeanScalePyramid(instance.getZoom(), instance.getBounds(), {
-          width: canvas.width,
-          height: canvas.height,
-        });
+        const pyramid = getEuropeanScalePyramid(instance.getZoom(), instance.getBounds());
         const currentIdentity = frameIdentity(currentFrame, minQuality, pyramid.bboxKey, pyramid.maxSize);
         const continentalIdentity = continentalFrameIdentity(currentFrame, minQuality);
         const isCurrentRequest = () =>

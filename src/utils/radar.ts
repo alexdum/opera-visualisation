@@ -148,7 +148,6 @@ export interface EuropeanScalePyramid {
 export const getEuropeanScalePyramid = (
   zoom: number,
   bounds?: { getWest: () => number; getSouth: () => number; getEast: () => number; getNorth: () => number },
-  viewport?: { width: number; height: number },
 ): EuropeanScalePyramid => {
   // Level 0: Full Continental view (Zoom < 5.0)
   if (zoom < 5.0 || !bounds) {
