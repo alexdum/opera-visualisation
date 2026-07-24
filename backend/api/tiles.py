@@ -876,15 +876,16 @@ def _read_reprojected_cog(
 
 
 def _get_raw_cog_frame(
-    frame: CatalogFrame, max_size: int = 1024, bounds: tuple[float, ...] = OPERA_WGS84_BOUNDS,
-    dbzh_frame: CatalogFrame | None = None,
+    frame: CatalogFrame,
+    max_size: int = 1024,
+    bounds: tuple[float, ...] = OPERA_WGS84_BOUNDS,
 ) -> bytes:
     if not frame.hot_cog:
         raise FileNotFoundError("Catalog does not advertise a hot COG")
     cog_path = local_cog(frame.product, frame.timestamp, frame.revision, frame.hot_cog)
     try:
         with cog_reader(cog_path, Reader) as cog:
-            d, q, grid = _read_reprojected_cog(
+            d, q, _grid = _read_reprojected_cog(
                 cog.dataset,
                 frame.product,
                 bounds,
@@ -895,28 +896,6 @@ def _get_raw_cog_frame(
                 d = np.where((d < 0.12619) & np.isfinite(d), -10.0, d)
             elif frame.product in ("RATE", "ACRR"):
                 d = np.where((d < 0.1) & np.isfinite(d), -10.0, d)
-                d_dbzh = None
-                if dbzh_frame is not None and dbzh_frame.hot_cog:
-                    try:
-                        dbzh_cog_path = local_cog(dbzh_frame.product, dbzh_frame.timestamp, dbzh_frame.revision, dbzh_frame.hot_cog)
-                        with cog_reader(dbzh_cog_path, Reader) as dbzh_cog:
-                            d_dbzh, _dbzh_quality, _dbzh_grid = _read_reprojected_cog(
-                                dbzh_cog.dataset,
-                                dbzh_frame.product,
-                                bounds,
-                                max_size,
-                                destination_grid=grid,
-                                include_quality=False,
-                            )
-                    except Exception:
-                        pass
-                
-                if d_dbzh is not None:
-                    dbzh_missing = np.isnan(d_dbzh)
-                    # 1. Crop artifacts: if DBZH is transparent, RATE must be transparent
-                    d[dbzh_missing] = np.nan
-                    # 2. Fill holes: if DBZH is valid, but RATE is missing, paint scanning area
-                    d[np.isnan(d) & ~dbzh_missing] = -10.0
 
             return _pack_raw_buffer(d, q, frame.product)
     except TileOutsideBounds:
@@ -930,8 +909,9 @@ def _get_raw_cog_frame(
         return _pack_raw_buffer(d, q, frame.product)
 
 def _get_raw_geozarr_frame(
-    frame: CatalogFrame, max_size: int = 1024, bounds: tuple[float, ...] = OPERA_WGS84_BOUNDS,
-    dbzh_frame: CatalogFrame | None = None,
+    frame: CatalogFrame,
+    max_size: int = 1024,
+    bounds: tuple[float, ...] = OPERA_WGS84_BOUNDS,
 ) -> bytes:
     group = _open_geozarr(frame.geozarr)
     metadata = _geozarr_metadata(frame.geozarr, frame.product)
@@ -1014,46 +994,6 @@ def _get_raw_geozarr_frame(
         d = np.where((d < 0.12619) & np.isfinite(d), -10.0, d)
     elif frame.product in ("RATE", "ACRR"):
         d = np.where((d < 0.1) & np.isfinite(d), -10.0, d)
-        d_dbzh = None
-        if dbzh_frame is not None and dbzh_frame.geozarr:
-            try:
-                dbzh_group = _open_geozarr(dbzh_frame.geozarr)
-                dbzh_metadata = _geozarr_metadata(dbzh_frame.geozarr, dbzh_frame.product)
-                
-                dbzh_times = np.asarray(dbzh_group["time"][:], dtype=np.int64) if "time" in dbzh_group else dbzh_metadata.get("times", np.array([], dtype=np.int64))
-                dbzh_time_index = _frame_time_index(dbzh_times, dbzh_frame)
-                
-                dbzh_slab = np.asarray(dbzh_group[dbzh_frame.product][dbzh_time_index, y_start:y_end, x_start:x_end], dtype=np.float32)
-                
-                dbzh_undetect = dbzh_group[dbzh_frame.product].attrs.get("undetect_value", None)
-                if dbzh_undetect is not None:
-                    dbzh_slab[np.isclose(dbzh_slab, float(dbzh_undetect))] = -10.0
-                dbzh_status_name = f"{dbzh_frame.product}_status"
-                if dbzh_status_name in dbzh_group:
-                    dbzh_status_slab = np.asarray(dbzh_group[dbzh_status_name][dbzh_time_index, y_start:y_end, x_start:x_end])
-                    dbzh_slab = _apply_geozarr_status(dbzh_slab, dbzh_status_slab)
-                dbzh_slab[~np.isfinite(dbzh_slab)] = np.nan
-                
-                dbzh_dst_data = np.full((1, out_h, out_w), np.nan, dtype=np.float32)
-                reproject(
-                    dbzh_slab.reshape(1, src_h, src_w),
-                    dbzh_dst_data,
-                    src_transform=src_transform,
-                    src_crs=metadata["crs"],
-                    dst_transform=dst_transform,
-                    dst_crs="EPSG:3857",
-                    resampling=Resampling.bilinear,
-                    src_nodata=np.nan,
-                    dst_nodata=np.nan,
-                )
-                d_dbzh = dbzh_dst_data[0]
-            except Exception:
-                pass
-
-        if d_dbzh is not None:
-            dbzh_missing = np.isnan(d_dbzh)
-            d[dbzh_missing] = np.nan
-            d[np.isnan(d) & ~dbzh_missing] = -10.0
 
     return _pack_raw_buffer(d, q, frame.product)
 
@@ -1134,13 +1074,6 @@ def _render_and_compress(
         except ValueError:
             pass
 
-    dbzh_frame = None
-    if product in ("RATE", "ACRR"):
-        try:
-            dbzh_frame = resolve_catalog_frame("DBZH", timestamp, revision)
-        except Exception:
-            pass
-
     use_cog = (source != "geozarr" and frame.hot_cog and frame.hot_cog_ready)
     raw: bytes | None = None
     backend: str = "cog"
@@ -1153,10 +1086,10 @@ def _render_and_compress(
             )
         try:
             if use_cog:
-                raw = _get_raw_cog_frame(frame, max_size, bounds, dbzh_frame=dbzh_frame)
+                raw = _get_raw_cog_frame(frame, max_size, bounds)
                 backend = "cog"
             else:
-                raw = _get_raw_geozarr_frame(frame, max_size, bounds, dbzh_frame=dbzh_frame)
+                raw = _get_raw_geozarr_frame(frame, max_size, bounds)
                 backend = "geozarr"
         finally:
             RENDER_SLOTS.release()
@@ -1177,7 +1110,7 @@ def _render_and_compress(
                     detail="Server is busy rendering other frames. Please retry.",
                 )
             try:
-                raw = _get_raw_geozarr_frame(frame, max_size, bounds, dbzh_frame=dbzh_frame)
+                raw = _get_raw_geozarr_frame(frame, max_size, bounds)
                 backend = "geozarr"
             finally:
                 RENDER_SLOTS.release()
