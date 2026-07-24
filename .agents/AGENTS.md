@@ -374,7 +374,7 @@ When generating or downsampling meteorological radar data (like DBZH reflectivit
   those gaps.
 - Do not confuse ACRR's accumulation interval with its publication cadence.
   Preserve and display `start_time` and `end_time` separately from the slider's
-  update step.
+  update step. Accept the `start_time` and `end_time` values exactly as provided by the backend metadata. It is logically correct for RATE to have identical start and end times (exactly 0 minutes), for DBZH to have a compilation window (exactly 10 minutes), and for ACRR to have an accumulation window (exactly 60 minutes). Do not fabricate offsets to force identical or differing times.
 
 ### Build, deployment, and security gates
 

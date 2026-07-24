@@ -399,7 +399,7 @@ export default function OperaRadarPage() {
                       <MapPin size={14} className="text-blue-600" aria-hidden="true" />
                       Selected location: <strong>{selectedPixel.lat}°, {selectedPixel.lon}°</strong>
                     </p>
-                    <p className="text-xs text-slate-500">Showing the 24 hours ending at the selected radar frame.</p>
+                    <p className="text-xs text-slate-500">Showing the 24 hours ending at the selected radar frame. Generation of the plot will take approx 1 minute.</p>
                   </div>
                 ) : (
                   <p className="mb-6 text-slate-600">Return to the map and double-click a location to retrieve its cataloged GeoZarr series.</p>
@@ -457,7 +457,7 @@ export default function OperaRadarPage() {
                     <div className="mt-2 space-y-2 text-sm leading-relaxed text-slate-700">
                       <p>Normalized total quality values range from <strong>0 to 1</strong>; higher values indicate greater confidence in the radar estimate.</p>
                       <p>The optional DBZH quality filter hides only pixels with a known quality value below the selected threshold. It never rewrites COGs, GeoZarr measurements, pixel-analysis values, or exported data. Missing, non-finite, or out-of-range quality remains classified as unknown rather than being treated as zero.</p>
-                      <p><strong>Nodata</strong> means the pixel was not observed or is outside available coverage. <strong>Undetect</strong> means it was observed but the signal was below the radar detection threshold. These states are preserved separately.</p>
+                      <p><strong>Nodata</strong> means the pixel was not observed or is outside available coverage. <strong>Undetect (no phenomena occurred)</strong> means it was observed but the signal was below the radar detection threshold. These states are preserved separately.</p>
                       <p>Map quality filtering is currently available only for DBZH. RATE and ACRR quality layers remain preserved in GeoZarr for analysis and future product-specific filtering.</p>
                     </div>
                   </article>

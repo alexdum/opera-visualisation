@@ -32,7 +32,7 @@ interface ChartsProps {
 
 const STATUS_META: Record<TimelineStatus, { label: string; description: string; style: React.CSSProperties }> = {
   detected: { label: "Detected", description: "A numeric radar value is available.", style: { background: "#3b82f6" } },
-  undetect: { label: "Undetect", description: "Observed, but below the radar detection threshold.", style: { background: "repeating-linear-gradient(90deg, #7dd3fc 0 3px, #e0f2fe 3px 6px)" } },
+  undetect: { label: "Undetect (no phenomena occurred)", description: "Observed, but below the radar detection threshold.", style: { background: "repeating-linear-gradient(90deg, #7dd3fc 0 3px, #e0f2fe 3px 6px)" } },
   nodata: { label: "Nodata", description: "The pixel was not observed or usable.", style: { background: "repeating-linear-gradient(90deg, #94a3b8 0 4px, #cbd5e1 4px 8px)" } },
   missing: { label: "Missing frame", description: "The expected catalog timestamp is absent.", style: { background: "repeating-linear-gradient(135deg, #f59e0b 0 3px, #fef3c7 3px 6px)" } },
   unknown: { label: "Unknown", description: "The observation has an unrecognized status.", style: { background: "repeating-linear-gradient(45deg, #a78bfa 0 3px, #ede9fe 3px 6px)" } },
