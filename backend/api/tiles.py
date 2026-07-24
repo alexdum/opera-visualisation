@@ -765,7 +765,9 @@ def _get_raw_cog_frame(
             )
             d = np.asarray(image.array[0], dtype=np.float32)
             scanning_area_mask = np.isnan(d)
-            nodata_mask = np.isclose(d, -9999000.0)
+            # Any value well below the physical minimum is a blended nodata artifact
+            # from the COG overviews (which interpolate -9999000.0).
+            nodata_mask = np.isclose(d, -9999000.0) | (d < -100.0)
 
             d[scanning_area_mask] = -10.0
             d[nodata_mask] = np.nan
@@ -783,7 +785,9 @@ def _get_raw_cog_frame(
                 )
                 q_mask = np.ma.getmaskarray(q_image.array[0])
                 q = np.asarray(q_image.array[0].data, dtype=np.float32)
-                q[q_mask] = np.nan
+                # Quality is 0.0 to 1.0. Blended nodata from overviews is massive negative.
+                q_nodata = (q < 0.0) | np.isclose(q, -9999000.0)
+                q[q_mask | q_nodata] = np.nan
             else:
                 q = np.full(d.shape, np.nan, dtype=np.float32)
 
@@ -805,7 +809,7 @@ def _get_raw_cog_frame(
                             )
                             d_dbzh = np.asarray(dbzh_image.array[0], dtype=np.float32)
                             scanning_area_mask_dbzh = np.isnan(d_dbzh)
-                            nodata_mask_dbzh = np.isclose(d_dbzh, -9999000.0)
+                            nodata_mask_dbzh = np.isclose(d_dbzh, -9999000.0) | (d_dbzh < -100.0)
                             d_dbzh[scanning_area_mask_dbzh] = -10.0
                             d_dbzh[nodata_mask_dbzh] = np.nan
                     except Exception:
