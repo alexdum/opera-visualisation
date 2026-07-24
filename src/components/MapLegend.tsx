@@ -9,6 +9,7 @@ interface LegendStop {
   val: number;
   color: string;
   showLabel: boolean;
+  label?: string;
 }
 
 export const MapLegend: React.FC<MapLegendProps> = ({ product }) => {
@@ -37,7 +38,7 @@ export const MapLegend: React.FC<MapLegendProps> = ({ product }) => {
                 className="absolute left-9 font-semibold text-[11px] leading-none min-w-[24px] z-10 text-slate-300"
                 style={{ bottom: 0, transform: 'translateY(50%)' }}
               >
-                {stop.val}
+                {stop.label !== undefined ? stop.label : stop.val}
               </span>
             )}
           </div>

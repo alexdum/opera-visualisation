@@ -493,3 +493,24 @@ When extracting data from large Zarr arrays or Numpy grids for a specific geogra
 2. **Local step calculation**: Calculate the decimation `step` (e.g., `max(slice_w, slice_h) // max_size`) based *only* on the dimensions of the cropped slice, not the dimensions of the global grid.
 3. **Preserve High-Zoom Resolution**: Decimating the full global array before cropping mathematically locks the maximum possible resolution to the global decimation factor, completely destroying high-zoom data quality.
 <!-- END:geozarr-decimation-slicing-rule -->
+
+<!-- BEGIN:maplibre-custom-layer-lifecycle-rule -->
+## React MapLibre GL: Custom Layer Lifecycle & Style Readiness
+
+When implementing or debugging custom WebGL layers (`CustomLayerInterface`) in MapLibre GL JS (v5+):
+
+1. **Never gate custom layer creation on `isStyleLoaded()`**: MapLibre's `isStyleLoaded()` delegates to `style.loaded()`, which returns `false` until **every** raster/vector tile source has finished loading over the network. Custom WebGL layers do not depend on basemap tiles. MapLibre's own `addLayer` only requires the style JSON to be parsed (`_checkLoaded` checks `this._loaded`). Gating on `isStyleLoaded()` after a basemap switch blocks custom layer creation for seconds — or indefinitely if the retry mechanism races with tile-completion events. Use `try { instance.getStyle() } catch { return }` or listen for `style.load` instead.
+
+2. **`onAdd` for custom layers is synchronous**: MapLibre calls `CustomStyleLayer.onAdd(map, map.painter.context.gl)` synchronously inside `Style._addLayer()` during `map.addLayer()`. The WebGL context (`gl`) is always available immediately after `addLayer` returns. Do not build buffering or queuing mechanisms (e.g., pending-frame queues) based on the assumption that `gl` might be null after `addLayer`.
+
+3. **Verify library internals before proposing fixes**: When debugging timing issues between React, MapLibre, and WebGL, read the installed MapLibre source (e.g., `node_modules/maplibre-gl/dist/maplibre-gl-dev.js`) to verify assumptions about event ordering, synchronicity, and guard conditions. Do not rely on inferred behavior from API documentation alone — check the actual implementation of `isStyleLoaded()`, `_checkLoaded()`, `addLayer()`, and `onAdd()` before proposing a root cause.
+<!-- END:maplibre-custom-layer-lifecycle-rule -->
+
+<!-- BEGIN:ui-ux-legend-labels-rule -->
+## UI/UX: Map Legend Human-Readable Labels
+
+When configuring map legend palettes and stops for meteorological products:
+1. **Decouple Technical Minimums from Display**: If the lowest measurable threshold or calculation offset yields a technically precise but confusing float (e.g., `0.12619` for DBZH), do not display this raw number to users, as it is meaningless to them.
+2. **Preserve Data Integrity**: Do not round or alter the underlying mathematical threshold used for interpolation, backend queries, or pixel analysis, as doing so will break data processing.
+3. **Use Explicit Overrides**: Implement and use an optional display label override (e.g., `label: "0"`) in the palette configuration to ensure common users see an intuitive value while the system operates on the precise bounds.
+<!-- END:ui-ux-legend-labels-rule -->

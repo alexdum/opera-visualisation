@@ -1,6 +1,6 @@
 // OPERA DBZH Palette (Horizontal reflectivity, dBZ - exact MeteoRomania ANM 15-color bar)
 export const OPERA_DBZH_PALETTE = [
-  { val: 0.12619,   color: "#287490" }, // dark teal blue
+  { val: 0.12619,   color: "#287490", label: "0" }, // dark teal blue
   { val: 5,   color: "#2899C0" }, // medium teal blue
   { val: 10,  color: "#20BFEF" }, // sky blue cyan
   { val: 15,  color: "#00FF00" }, // bright green ("slab")
@@ -64,7 +64,8 @@ export const getLegendStops = (product: string) => {
     return {
       val: stop.val,
       color: stop.color,
-      showLabel: true
+      showLabel: true,
+      label: 'label' in stop ? stop.label : undefined
     };
   });
 };
