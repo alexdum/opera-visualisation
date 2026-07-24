@@ -269,8 +269,6 @@ export default function OperaRadarPage() {
             setCurrentTimeIndex={setCurrentTimeIndex}
             opacity={opacity}
             setOpacity={setOpacity}
-            minQuality={minQuality}
-            setMinQuality={setMinQuality}
             renderState={renderState}
             isPlaying={animation.isPlaying}
             setIsPlaying={animation.setIsPlaying}

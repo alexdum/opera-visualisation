@@ -8,7 +8,6 @@ import {
   Play,
   Radar,
   RotateCw,
-  ShieldCheck,
   SkipBack,
   SkipForward,
   TimerReset,
@@ -29,8 +28,6 @@ interface SidebarProps {
   setCurrentTimeIndex: (index: number | ((previous: number) => number)) => void;
   opacity: number;
   setOpacity: (opacity: number) => void;
-  minQuality: number | null;
-  setMinQuality: (quality: number | null) => void;
   renderState: MapRenderState;
   isPlaying: boolean;
   setIsPlaying: (playing: boolean) => void;
@@ -75,8 +72,6 @@ export function Sidebar({
   setCurrentTimeIndex,
   opacity,
   setOpacity,
-  minQuality,
-  setMinQuality,
   renderState,
   isPlaying,
   setIsPlaying,
@@ -249,43 +244,6 @@ export function Sidebar({
                 </label>
               </div>
             </div>
-          </section>
-        )}
-
-        {product === "DBZH" && (
-          <section className="border-t border-slate-100 pt-4" aria-labelledby="quality-heading">
-            <div id="quality-heading">
-              <FilterLabel
-                label="DBZH quality mask"
-                help="Masks only pixels with known normalized quality below the threshold. Raw data remains unchanged."
-              />
-            </div>
-            <label className="flex min-h-11 items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold">
-              <span className="flex items-center gap-2">
-                <ShieldCheck size={17} className="text-blue-600" aria-hidden="true" />
-                Filter low quality
-              </span>
-              <input
-                type="checkbox"
-                checked={minQuality !== null}
-                onChange={(event) => setMinQuality(event.target.checked ? 0.1 : null)}
-                className="h-5 w-5 accent-blue-600"
-              />
-            </label>
-            <label htmlFor="quality-threshold" className="mt-3 block text-xs font-semibold text-slate-700">
-              Minimum quality: {minQuality === null ? "Off — original composite" : minQuality.toFixed(2)}
-            </label>
-            <input
-              id="quality-threshold"
-              type="range"
-              min="0"
-              max="1"
-              step="0.05"
-              disabled={minQuality === null}
-              value={minQuality ?? 0.1}
-              onChange={(event) => setMinQuality(Number(event.target.value))}
-              className="mt-2 h-2 w-full cursor-pointer accent-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
-            />
           </section>
         )}
 

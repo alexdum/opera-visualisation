@@ -471,11 +471,7 @@ export function WeatherMap({
         webglLayer.minQuality = minQuality ?? 0;
         webglLayer.setProduct(currentFrame.product);
 
-        const canvas = instance.getCanvas();
-        const pyramid = getEuropeanScalePyramid(instance.getZoom(), instance.getBounds(), {
-          width: canvas.width,
-          height: canvas.height,
-        });
+        const pyramid = getEuropeanScalePyramid(instance.getZoom(), instance.getBounds());
         const currentIdentity = frameIdentity(currentFrame, minQuality, pyramid.bboxKey, pyramid.maxSize);
         const continentalIdentity = continentalFrameIdentity(currentFrame, minQuality);
         const isCurrentRequest = () =>
