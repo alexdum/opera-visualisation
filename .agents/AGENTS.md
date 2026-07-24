@@ -514,3 +514,12 @@ When configuring map legend palettes and stops for meteorological products:
 2. **Preserve Data Integrity**: Do not round or alter the underlying mathematical threshold used for interpolation, backend queries, or pixel analysis, as doing so will break data processing.
 3. **Use Explicit Overrides**: Implement and use an optional display label override (e.g., `label: "0"`) in the palette configuration to ensure common users see an intuitive value while the system operates on the precise bounds.
 <!-- END:ui-ux-legend-labels-rule -->
+
+<!-- BEGIN:typescript-static-arrays-rule -->
+## TypeScript: Static Configuration Arrays
+
+When defining static configuration arrays (e.g., color palettes, legend stops, dropdown options, or lookup tables) that are passed to strictly-typed React components:
+1. **Never rely on implicit inference for optional properties**: If an array contains objects where some properties are optional (like a `label` applied to only one item), implicit inference under strict mode will often resolve the missing property as `unknown` instead of `string | undefined`.
+2. **Explicitly type the array at the source**: Always define an explicit interface (e.g., `interface PaletteStop`) and apply it directly to the exported constant (e.g., `export const PALETTE: PaletteStop[] = [...]`). 
+3. **Fix at the root**: Do not suppress type errors downstream in the component or cast types during `map()` operations. Fix the typing at the source array definition.
+<!-- END:typescript-static-arrays-rule -->

@@ -315,11 +315,7 @@ def _extract_store_frames(
         value = raw_value if status == "detected" and math.isfinite(raw_value) else None
 
         if value is not None:
-            if product == "DBZH" and value < 0.12619:
-                status = "undetect"
-                status_code = 1
-                value = None
-            elif product in ("RATE", "ACRR") and value < 0.1:
+            if product in ("RATE", "ACRR") and value < 0.1:
                 status = "undetect"
                 status_code = 1
                 value = None

@@ -787,8 +787,6 @@ def _get_raw_cog_frame(
             else:
                 q = np.full(d.shape, np.nan, dtype=np.float32)
 
-            if frame.product == "DBZH":
-                d = np.where((d < 0.12619) & np.isfinite(d), -10.0, d)
             elif frame.product in ("RATE", "ACRR"):
                 d = np.where((d < 0.1) & np.isfinite(d), -10.0, d)
                 d_dbzh = None
@@ -920,9 +918,7 @@ def _get_raw_geozarr_frame(
 
     d = dst_data[0]
     q = dst_quality[0]
-    if frame.product == "DBZH":
-        d = np.where((d < 0.12619) & np.isfinite(d), -10.0, d)
-    elif frame.product in ("RATE", "ACRR"):
+    if frame.product in ("RATE", "ACRR"):
         d = np.where((d < 0.1) & np.isfinite(d), -10.0, d)
         d_dbzh = None
         if dbzh_frame is not None and dbzh_frame.geozarr:
