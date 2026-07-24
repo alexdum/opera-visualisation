@@ -131,3 +131,133 @@ describe("RadarWebGLLayer texture activation", () => {
     expect(deleted).toHaveLength(1);
   });
 });
+
+describe("RadarWebGLLayer render matrix extraction", () => {
+  function setupRenderLayer(fakeGl: WebGL2RenderingContext) {
+    const layer = new RadarWebGLLayer("radar", "DBZH");
+    Object.defineProperty(layer, "gl", { value: fakeGl, configurable: true });
+    Object.defineProperty(layer, "program", { value: {} as WebGLProgram, writable: true, configurable: true });
+    layer.setFrameData("frame-1", new Uint8Array(8), 2, 2, [[0, 0], [1, 0], [1, 1], [0, 1]], "cog", true);
+    return layer;
+  }
+
+  it("extracts matrix from direct Float32Array options", () => {
+    let passedMatrix: Float32Array | number[] | undefined;
+    const fakeGl = {
+      ARRAY_BUFFER: 34962,
+      STATIC_DRAW: 35044,
+      FLOAT: 5126,
+      TEXTURE0: 33984,
+      TEXTURE1: 33985,
+      TRIANGLES: 4,
+      createTexture: () => ({}) as WebGLTexture,
+      bindTexture: () => undefined,
+      pixelStorei: () => undefined,
+      texImage2D: () => undefined,
+      texParameteri: () => undefined,
+      useProgram: () => undefined,
+      uniformMatrix4fv: (_loc: unknown, _trans: boolean, mat: Float32Array | number[]) => {
+        passedMatrix = mat;
+      },
+      uniform1f: () => undefined,
+      uniform1i: () => undefined,
+      bindBuffer: () => undefined,
+      bufferData: () => undefined,
+      enableVertexAttribArray: () => undefined,
+      vertexAttribPointer: () => undefined,
+      activeTexture: () => undefined,
+      drawArrays: () => undefined,
+    } as unknown as WebGL2RenderingContext;
+
+    const layer = setupRenderLayer(fakeGl);
+    const directMatrix = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+
+    layer.render(fakeGl, directMatrix);
+    expect(passedMatrix).toBe(directMatrix);
+  });
+
+  it("extracts matrix from options object with defaultProjectionData or modelViewProjectionMatrix", () => {
+    let passedMatrix: Float32Array | number[] | undefined;
+    const fakeGl = {
+      ARRAY_BUFFER: 34962,
+      STATIC_DRAW: 35044,
+      FLOAT: 5126,
+      TEXTURE0: 33984,
+      TEXTURE1: 33985,
+      TRIANGLES: 4,
+      createTexture: () => ({}) as WebGLTexture,
+      bindTexture: () => undefined,
+      pixelStorei: () => undefined,
+      texImage2D: () => undefined,
+      texParameteri: () => undefined,
+      useProgram: () => undefined,
+      uniformMatrix4fv: (_loc: unknown, _trans: boolean, mat: Float32Array | number[]) => {
+        passedMatrix = mat;
+      },
+      uniform1f: () => undefined,
+      uniform1i: () => undefined,
+      bindBuffer: () => undefined,
+      bufferData: () => undefined,
+      enableVertexAttribArray: () => undefined,
+      vertexAttribPointer: () => undefined,
+      activeTexture: () => undefined,
+      drawArrays: () => undefined,
+    } as unknown as WebGL2RenderingContext;
+
+    const layer = setupRenderLayer(fakeGl);
+    const mainMatrix = new Float32Array([2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 1]);
+    const mvpMatrix = new Float32Array([3, 0, 0, 0, 0, 3, 0, 0, 0, 0, 3, 0, 0, 0, 0, 1]);
+
+    // Test defaultProjectionData.mainMatrix
+    layer.render(fakeGl, { defaultProjectionData: { mainMatrix } });
+    expect(passedMatrix).toBe(mainMatrix);
+
+    // Test modelViewProjectionMatrix fallback when defaultProjectionData is absent
+    layer.render(fakeGl, { modelViewProjectionMatrix: mvpMatrix });
+    expect(passedMatrix).toBe(mvpMatrix);
+  });
+
+  it("falls back to map transform customLayerMatrix when options has no matrix", () => {
+    let passedMatrix: Float32Array | number[] | undefined;
+    const fakeGl = {
+      ARRAY_BUFFER: 34962,
+      STATIC_DRAW: 35044,
+      FLOAT: 5126,
+      TEXTURE0: 33984,
+      TEXTURE1: 33985,
+      TRIANGLES: 4,
+      createTexture: () => ({}) as WebGLTexture,
+      bindTexture: () => undefined,
+      pixelStorei: () => undefined,
+      texImage2D: () => undefined,
+      texParameteri: () => undefined,
+      useProgram: () => undefined,
+      uniformMatrix4fv: (_loc: unknown, _trans: boolean, mat: Float32Array | number[]) => {
+        passedMatrix = mat;
+      },
+      uniform1f: () => undefined,
+      uniform1i: () => undefined,
+      bindBuffer: () => undefined,
+      bufferData: () => undefined,
+      enableVertexAttribArray: () => undefined,
+      vertexAttribPointer: () => undefined,
+      activeTexture: () => undefined,
+      drawArrays: () => undefined,
+    } as unknown as WebGL2RenderingContext;
+
+    const layer = setupRenderLayer(fakeGl);
+    const transformMatrix = new Float32Array([4, 0, 0, 0, 0, 4, 0, 0, 0, 0, 4, 0, 0, 0, 0, 1]);
+
+    const fakeMap = {
+      transform: {
+        customLayerMatrix: () => transformMatrix,
+      },
+    };
+    Object.defineProperty(layer, "map", { value: fakeMap, configurable: true });
+
+    // Call render with empty options object
+    layer.render(fakeGl, {});
+    expect(passedMatrix).toBe(transformMatrix);
+  });
+});
+
