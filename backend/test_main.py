@@ -22,8 +22,11 @@ from api.pixel import (
 from api.tiles import (
     COLORMAPS,
     _apply_geozarr_status,
+    _destination_grid,
     _frame_time_index,
     _get_raw_cog_frame,
+    _prepare_cog_measurement,
+    _read_reprojected_cog,
     _render_and_compress,
     _render_cog_image,
     _render_geozarr_image,
@@ -918,13 +921,10 @@ def test_raw_cog_reader_resolves_the_cataloged_cog_path(monkeypatch):
         backend="cog",
     )
     opened_paths: list[str] = []
-    part_options: dict[str, object] = {}
+    rendered_datasets: list[object] = []
 
     class FakeDataset:
         count = 2
-
-    class FakeImage:
-        array = np.array([[[20.0]], [[0.8]]], dtype=np.float32)
 
     class FakeReader:
         dataset = FakeDataset()
@@ -938,19 +938,21 @@ def test_raw_cog_reader_resolves_the_cataloged_cog_path(monkeypatch):
         def __exit__(self, *_args):
             return None
 
-        def part(self, *_args, **kwargs):
-            if kwargs.get("indexes") == (1,):
-                part_options.update(kwargs)
-            return FakeImage()
-
     monkeypatch.setattr("api.tiles.local_cog", lambda *_args: "/tmp/cataloged-frame.tif")
     monkeypatch.setattr("api.tiles.Reader", FakeReader)
+    monkeypatch.setattr(
+        "api.tiles._read_reprojected_cog",
+        lambda dataset, *_args, **_kwargs: (
+            rendered_datasets.append(dataset) or np.array([[20.0]], dtype=np.float32),
+            np.array([[0.8]], dtype=np.float32),
+            _destination_grid((0.0, 0.0, 1.0, 1.0), 256, 1),
+        ),
+    )
 
     content = _get_raw_cog_frame(published, max_size=256)
 
     assert opened_paths == ["/tmp/cataloged-frame.tif"]
-    assert part_options["resampling_method"] == "bilinear"
-    assert part_options["reproject_method"] == "bilinear"
+    assert rendered_datasets == [FakeReader.dataset]
     assert len(content) == 18
 
 
@@ -975,9 +977,6 @@ def test_raw_frame_thresholding_for_rate_and_acrr(monkeypatch):
     class FakeDataset:
         count = 1
 
-    class FakeImage:
-        array = np.array([[[0.05, 0.15, np.nan, -9999000.0]]], dtype=np.float32)
-
     class FakeReader:
         dataset = FakeDataset()
         def __init__(self, path: str):
@@ -986,11 +985,17 @@ def test_raw_frame_thresholding_for_rate_and_acrr(monkeypatch):
             return self
         def __exit__(self, *_args):
             pass
-        def part(self, *_args, **kwargs):
-            return FakeImage()
 
     monkeypatch.setattr("api.tiles.local_cog", lambda *_args: "/tmp/rate-frame.tif")
     monkeypatch.setattr("api.tiles.Reader", FakeReader)
+    monkeypatch.setattr(
+        "api.tiles._read_reprojected_cog",
+        lambda *_args, **_kwargs: (
+            np.array([[0.05, 0.15, -10.0, np.nan]], dtype=np.float32),
+            np.full((1, 4), np.nan, dtype=np.float32),
+            _destination_grid((0.0, 0.0, 4.0, 1.0), 256, 4),
+        ),
+    )
 
     content = _get_raw_cog_frame(published, max_size=256)
     
@@ -1008,9 +1013,9 @@ def test_raw_frame_thresholding_for_rate_and_acrr(monkeypatch):
     assert meas_uint8[0] == 1
     # 0.15 -> >= 0.1 threshold -> left as 0.15, > min_val, thus > 1
     assert meas_uint8[1] > 1
-    # np.nan -> scanning area mask -> mapped to -10.0 -> encoded as 1
+    # Undetect was restored before reprojection and remains encoded as no echo.
     assert meas_uint8[2] == 1
-    # -9999000.0 -> nodata -> mapped to np.nan -> encoded as 0
+    # True nodata remains transparent.
     assert meas_uint8[3] == 0
 
 
@@ -1248,28 +1253,30 @@ def test_dbzh_masking_for_rate_cog(monkeypatch):
     class FakeDataset:
         count = 1
 
-    class FakeImageRATE:
-        array = np.array([[[0.15, -9999000.0, -9999000.0, np.nan]]], dtype=np.float32)
-
-    class FakeImageDBZH:
-        array = np.array([[[10.0, 20.0, np.nan, -9999000.0]]], dtype=np.float32)
+        def __init__(self, product: str):
+            self.product = product
 
     class FakeReader:
-        dataset = FakeDataset()
         def __init__(self, path: str):
             self.path = path
+            self.dataset = FakeDataset("RATE" if "RATE" in path else "DBZH")
         def __enter__(self):
             return self
         def __exit__(self, *_args):
             pass
-        def part(self, *_args, **kwargs):
-            if "RATE" in self.path:
-                return FakeImageRATE()
-            else:
-                return FakeImageDBZH()
 
     monkeypatch.setattr("api.tiles.local_cog", lambda product, *args: f"/tmp/{product}-frame.tif")
     monkeypatch.setattr("api.tiles.Reader", FakeReader)
+    grid = _destination_grid((0.0, 0.0, 4.0, 1.0), 256, 4)
+
+    def fake_reprojected_cog(dataset, *_args, **_kwargs):
+        if dataset.product == "RATE":
+            data = np.array([[0.15, np.nan, np.nan, -10.0]], dtype=np.float32)
+        else:
+            data = np.array([[10.0, 20.0, -10.0, np.nan]], dtype=np.float32)
+        return data, np.full(data.shape, np.nan, dtype=np.float32), grid
+
+    monkeypatch.setattr("api.tiles._read_reprojected_cog", fake_reprojected_cog)
 
     content = _get_raw_cog_frame(published, max_size=256, dbzh_frame=dbzh_frame)
     
@@ -1283,3 +1290,57 @@ def test_dbzh_masking_for_rate_cog(monkeypatch):
     assert meas_uint8[1] == 1
     assert meas_uint8[2] == 1
     assert meas_uint8[3] == 0
+
+
+def test_cog_measurement_classification_precedes_reprojection(monkeypatch):
+    raw = np.array([[20.0, np.nan, -9_999_000.0]], dtype=np.float32)
+    prepared = _prepare_cog_measurement(raw, -9_999_000.0)
+
+    assert prepared[0, 0] == pytest.approx(20.0)
+    assert prepared[0, 1] == pytest.approx(-10.0)
+    assert np.isnan(prepared[0, 2])
+
+    class FakeDataset:
+        crs = CRS.from_epsg(4326)
+        transform = Affine.identity()
+        width = 3
+        height = 1
+        count = 1
+        nodata = -9_999_000.0
+
+        def read(self, _index, **_kwargs):
+            return raw
+
+        def window_transform(self, _window):
+            return self.transform
+
+    monkeypatch.setattr(
+        "api.tiles._expanded_dataset_window",
+        lambda *_args: __import__("rasterio").windows.Window(0, 0, 3, 1),
+    )
+    sources: list[np.ndarray] = []
+
+    def capture_reproject(*, source, destination, **_kwargs):
+        sources.append(np.array(source, copy=True))
+        destination[:] = np.array([[20.0, -10.0, np.nan]], dtype=np.float32)
+
+    monkeypatch.setattr("api.tiles.reproject", capture_reproject)
+    grid = (
+        (0.0, 0.0, 3.0, 1.0),
+        3,
+        1,
+        Affine.identity(),
+    )
+
+    _read_reprojected_cog(
+        FakeDataset(),
+        "DBZH",
+        (0.0, 0.0, 3.0, 1.0),
+        256,
+        destination_grid=grid,
+        include_quality=False,
+    )
+
+    assert sources[0][0, 0] == pytest.approx(20.0)
+    assert sources[0][0, 1] == pytest.approx(-10.0)
+    assert np.isnan(sources[0][0, 2])

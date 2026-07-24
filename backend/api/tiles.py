@@ -17,6 +17,7 @@ import numpy as np
 from rasterio.crs import CRS
 from rasterio.enums import Resampling
 from rasterio.transform import from_bounds
+from rasterio.windows import Window, from_bounds as window_from_bounds
 from rasterio.warp import reproject, transform_bounds
 from rio_tiler.io import Reader
 from rio_tiler.errors import TileOutsideBounds
@@ -42,6 +43,7 @@ WEB_MERCATOR_LIMIT = 20037508.342789244
 OPERA_WGS84_BOUNDS = (-39.552438, 31.749398, 57.81137, 73.931257)
 STATUS_UNDETECT = 1
 STATUS_NODATA = 2
+RAW_RENDER_VERSION = 2
 
 
 DBZH_CMAP = [
@@ -742,6 +744,127 @@ def _pack_raw_buffer(measurement: np.ndarray, quality: np.ndarray, product: str 
 
     return header + payload.tobytes()
 
+
+def _destination_grid(
+    bounds: tuple[float, ...],
+    max_size: int,
+    source_width: int,
+) -> tuple[tuple[float, ...], int, int, Affine]:
+    """Return the shared COG/GeoZarr Web Mercator output grid."""
+    merc_bounds = transform_bounds("EPSG:4326", "EPSG:3857", *bounds)
+    merc_w = max(1.0, merc_bounds[2] - merc_bounds[0])
+    merc_h = max(1.0, merc_bounds[3] - merc_bounds[1])
+    out_w = min(max_size, max(1, source_width))
+    out_h = max(1, int(out_w * merc_h / merc_w))
+    if out_h > max_size:
+        out_w = max(1, int(out_w * max_size / out_h))
+        out_h = max_size
+    return merc_bounds, out_w, out_h, from_bounds(*merc_bounds, out_w, out_h)
+
+
+def _expanded_dataset_window(dataset: Any, bounds: tuple[float, ...]) -> Window:
+    """Crop after transforming the requested bounds, retaining one edge cell."""
+    source_bounds = transform_bounds(
+        "EPSG:4326", dataset.crs, *bounds, densify_pts=21
+    )
+    fractional = window_from_bounds(*source_bounds, transform=dataset.transform)
+    col_start = max(0, math.floor(fractional.col_off) - 1)
+    row_start = max(0, math.floor(fractional.row_off) - 1)
+    col_end = min(
+        dataset.width,
+        math.ceil(fractional.col_off + fractional.width) + 1,
+    )
+    row_end = min(
+        dataset.height,
+        math.ceil(fractional.row_off + fractional.height) + 1,
+    )
+    if col_start >= col_end or row_start >= row_end:
+        raise TileOutsideBounds("Requested bounds do not intersect the COG")
+    return Window(
+        col_start,
+        row_start,
+        col_end - col_start,
+        row_end - row_start,
+    )
+
+
+def _prepare_cog_measurement(
+    raw: np.ndarray,
+    nodata: float | None,
+) -> np.ndarray:
+    """Restore OPERA undetect before interpolation and preserve true nodata."""
+    data = np.asarray(raw, dtype=np.float32).copy()
+    # The upstream OPERA COG uses NaN for undetect and an explicit finite
+    # sentinel (normally -9999000) for nodata. Classification must happen
+    # before bilinear reprojection; otherwise NaNs erode sparse echo edges.
+    undetect = np.isnan(data)
+    true_nodata = (
+        np.isclose(data, float(nodata))
+        if nodata is not None and math.isfinite(float(nodata))
+        else np.zeros(data.shape, dtype=bool)
+    )
+    data[undetect] = -10.0
+    data[true_nodata] = np.nan
+    data[~np.isfinite(data)] = np.nan
+    return data
+
+
+def _read_reprojected_cog(
+    dataset: Any,
+    product: str,
+    bounds: tuple[float, ...],
+    max_size: int,
+    *,
+    destination_grid: tuple[tuple[float, ...], int, int, Affine] | None = None,
+    include_quality: bool = True,
+) -> tuple[np.ndarray, np.ndarray, tuple[tuple[float, ...], int, int, Affine]]:
+    """Read native COG cells, classify them, then reproject like GeoZarr."""
+    window = _expanded_dataset_window(dataset, bounds)
+    source = _prepare_cog_measurement(
+        dataset.read(1, window=window, masked=False),
+        dataset.nodata,
+    )
+    source_transform = dataset.window_transform(window)
+    grid = destination_grid or _destination_grid(bounds, max_size, source.shape[1])
+    _merc_bounds, out_w, out_h, destination_transform = grid
+    destination = np.full((out_h, out_w), np.nan, dtype=np.float32)
+    reproject(
+        source=source,
+        destination=destination,
+        src_transform=source_transform,
+        src_crs=dataset.crs,
+        dst_transform=destination_transform,
+        dst_crs="EPSG:3857",
+        resampling=Resampling.bilinear,
+        src_nodata=np.nan,
+        dst_nodata=np.nan,
+    )
+
+    quality = np.full((out_h, out_w), np.nan, dtype=np.float32)
+    if include_quality and product == "DBZH" and dataset.count >= 2:
+        source_quality = np.asarray(
+            dataset.read(2, window=window, masked=False),
+            dtype=np.float32,
+        )
+        if dataset.nodata is not None and math.isfinite(float(dataset.nodata)):
+            source_quality[
+                np.isclose(source_quality, float(dataset.nodata))
+            ] = np.nan
+        source_quality[~np.isfinite(source_quality)] = np.nan
+        reproject(
+            source=source_quality,
+            destination=quality,
+            src_transform=source_transform,
+            src_crs=dataset.crs,
+            dst_transform=destination_transform,
+            dst_crs="EPSG:3857",
+            resampling=Resampling.nearest,
+            src_nodata=np.nan,
+            dst_nodata=np.nan,
+        )
+    return destination, quality, grid
+
+
 def _get_raw_cog_frame(
     frame: CatalogFrame, max_size: int = 1024, bounds: tuple[float, ...] = OPERA_WGS84_BOUNDS,
     dbzh_frame: CatalogFrame | None = None,
@@ -751,41 +874,12 @@ def _get_raw_cog_frame(
     cog_path = local_cog(frame.product, frame.timestamp, frame.revision, frame.hot_cog)
     try:
         with cog_reader(cog_path, Reader) as cog:
-            has_quality = frame.product == "DBZH" and cog.dataset.count >= 2
-
-            image = cog.part(
+            d, q, grid = _read_reprojected_cog(
+                cog.dataset,
+                frame.product,
                 bounds,
-                bounds_crs=CRS.from_epsg(4326),
-                dst_crs=CRS.from_epsg(3857),
-                max_size=max_size,
-                indexes=(1,),
-                resampling_method="bilinear",
-                reproject_method="bilinear",
-                vrt_options=COG_VRT_OPTIONS,
+                max_size,
             )
-            d = np.asarray(image.array[0], dtype=np.float32)
-            scanning_area_mask = np.isnan(d)
-            nodata_mask = np.isclose(d, -9999000.0)
-
-            d[scanning_area_mask] = -10.0
-            d[nodata_mask] = np.nan
-
-            if has_quality:
-                q_image = cog.part(
-                    bounds,
-                    bounds_crs=CRS.from_epsg(4326),
-                    dst_crs=CRS.from_epsg(3857),
-                    max_size=max_size,
-                    indexes=(2,),
-                    resampling_method="nearest",
-                    reproject_method="nearest",
-                    vrt_options=COG_VRT_OPTIONS,
-                )
-                q_mask = np.ma.getmaskarray(q_image.array[0])
-                q = np.asarray(q_image.array[0].data, dtype=np.float32)
-                q[q_mask] = np.nan
-            else:
-                q = np.full(d.shape, np.nan, dtype=np.float32)
 
             if frame.product == "DBZH":
                 d = np.where((d < 0.12619) & np.isfinite(d), -10.0, d)
@@ -796,21 +890,14 @@ def _get_raw_cog_frame(
                     try:
                         dbzh_cog_path = local_cog(dbzh_frame.product, dbzh_frame.timestamp, dbzh_frame.revision, dbzh_frame.hot_cog)
                         with cog_reader(dbzh_cog_path, Reader) as dbzh_cog:
-                            dbzh_image = dbzh_cog.part(
+                            d_dbzh, _dbzh_quality, _dbzh_grid = _read_reprojected_cog(
+                                dbzh_cog.dataset,
+                                dbzh_frame.product,
                                 bounds,
-                                bounds_crs=CRS.from_epsg(4326),
-                                dst_crs=CRS.from_epsg(3857),
-                                max_size=max_size,
-                                indexes=(1,),
-                                resampling_method="bilinear",
-                                reproject_method="bilinear",
-                                vrt_options=COG_VRT_OPTIONS,
+                                max_size,
+                                destination_grid=grid,
+                                include_quality=False,
                             )
-                            d_dbzh = np.asarray(dbzh_image.array[0], dtype=np.float32)
-                            scanning_area_mask_dbzh = np.isnan(d_dbzh)
-                            nodata_mask_dbzh = np.isclose(d_dbzh, -9999000.0)
-                            d_dbzh[scanning_area_mask_dbzh] = -10.0
-                            d_dbzh[nodata_mask_dbzh] = np.nan
                     except Exception:
                         pass
                 
@@ -874,16 +961,9 @@ def _get_raw_geozarr_frame(
     src_transform = metadata["transform"] * Affine.translation(x_start, y_start)
     src_h, src_w = slab.shape
 
-    merc_bounds = transform_bounds("EPSG:4326", "EPSG:3857", *bounds)
-    merc_w = merc_bounds[2] - merc_bounds[0]
-    merc_h = merc_bounds[3] - merc_bounds[1]
-    out_w = min(max_size, src_w)
-    out_h = max(1, int(out_w * merc_h / merc_w))
-    if out_h > max_size:
-        out_w = max(1, int(out_w * max_size / out_h))
-        out_h = max_size
-
-    dst_transform = from_bounds(*merc_bounds, out_w, out_h)
+    merc_bounds, out_w, out_h, dst_transform = _destination_grid(
+        bounds, max_size, src_w
+    )
     dst_data = np.full((1, out_h, out_w), np.nan, dtype=np.float32)
 
     reproject(
@@ -995,11 +1075,15 @@ def _normalize_bbox(bbox_key: str) -> str:
 
 
 def _cache_key(product: str, timestamp: str, revision: str, source: str,
-               max_size: int, bbox_key: str, allow_archive_fallback: bool) -> str:
+               max_size: int, bbox_key: str, allow_archive_fallback: bool,
+               render_version: int) -> str:
     norm_product = product.upper()
     norm_source = source.lower()
     norm_bbox = _normalize_bbox(bbox_key)
-    return f"{norm_product}:{timestamp}:{revision}:{norm_source}:{max_size}:{norm_bbox}:{allow_archive_fallback}"
+    return (
+        f"{norm_product}:{timestamp}:{revision}:{norm_source}:{max_size}:"
+        f"{norm_bbox}:{allow_archive_fallback}:v{render_version}"
+    )
 
 
 def _put_cache(key: str, entry: _CacheEntry) -> None:
@@ -1165,8 +1249,18 @@ def get_raw_frame(
     max_size: int = Query(1024, ge=256, le=4096),
     bbox: str = Query(""),
     allow_archive_fallback: bool = Query(True),
+    render_version: int = Query(RAW_RENDER_VERSION, ge=RAW_RENDER_VERSION, le=RAW_RENDER_VERSION),
 ) -> Response:
-    key = _cache_key(product, timestamp, revision, source, max_size, bbox, allow_archive_fallback)
+    key = _cache_key(
+        product,
+        timestamp,
+        revision,
+        source,
+        max_size,
+        bbox,
+        allow_archive_fallback,
+        render_version,
+    )
     use_gzip = _wants_gzip(request)
 
     # 1. Check cache
