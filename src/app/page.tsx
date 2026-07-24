@@ -1,12 +1,13 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BarChart3, CloudRain, Database, Download, Info, Layers, Loader2, Map as MapIcon, MapPin, Menu, Radar, ShieldCheck, TimerReset, TriangleAlert, X } from "lucide-react";
+import { BarChart3, CloudRain, Database, Download, Info, Layers, Loader2, Map as MapIcon, MapPin, Maximize, Menu, Minimize, Radar, ShieldCheck, TimerReset, TriangleAlert, X } from "lucide-react";
 import dynamic from "next/dynamic";
 
 import type { PixelSeriesEntry } from "@/components/Charts";
 import { MapLegend } from "@/components/MapLegend";
 import { Sidebar } from "@/components/Sidebar";
+import { Tooltip } from "@/components/Tooltip";
 import { useRadarAnimation } from "@/hooks/useRadarAnimation";
 import type { CatalogResponse, MapRenderState, RadarFrame, RadarProduct } from "@/types/radar";
 import { downloadPixelCsv } from "@/utils/pixelCsv";
@@ -24,6 +25,7 @@ const apiBase = () => (process.env.NODE_ENV === "development" ? "http://localhos
 
 export default function OperaRadarPage() {
   const [isOpen, setIsOpen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [activeTab, setActiveTab] = useState<"map" | "analysis" | "about">("map");
   const [urlHydrated, setUrlHydrated] = useState(false);
   const [product, setProduct] = useState<RadarProduct>("DBZH");
@@ -55,6 +57,26 @@ export default function OperaRadarPage() {
     setCurrentTimeIndex,
     canAdvance: renderState.status === "ready" || renderState.status === "degraded",
   });
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", handleFullscreenChange);
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch((err) => {
+        console.warn(`Error attempting to enable fullscreen: ${err.message}`);
+      });
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+      }
+    }
+  };
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -99,6 +121,18 @@ export default function OperaRadarPage() {
     }
     const query = params.toString();
     window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
+    if (window.parent !== window) {
+      window.parent.postMessage({
+        type: "radar-state-update",
+        product,
+        date: selectedDate || null,
+        time: currentFrame?.timestamp || null,
+        basemap,
+        min_quality: product === "DBZH" ? (minQuality === null ? "off" : minQuality.toFixed(2)) : "off",
+        lon: selectedPixel?.lon.toString() || null,
+        lat: selectedPixel?.lat.toString() || null,
+      }, "*");
+    }
   }, [basemap, currentFrame, minQuality, product, selectedDate, selectedPixel, urlHydrated]);
 
   useEffect(() => {
@@ -301,6 +335,11 @@ export default function OperaRadarPage() {
               </button>
             ))}
             </nav>
+            <Tooltip content="Toggle Fullscreen" position="bottom">
+              <button type="button" onClick={toggleFullscreen} aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"} className="flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-slate-200 bg-white/95 text-slate-700 shadow-lg backdrop-blur-md transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+                {isFullscreen ? <Minimize size={20} aria-hidden="true" /> : <Maximize size={20} aria-hidden="true" />}
+              </button>
+            </Tooltip>
           </div>
 
           {activeTab === "map" && <div className="absolute left-2.5 top-[130px] z-30">
