@@ -231,6 +231,12 @@ export function WeatherMap({
         name: `${lat.toFixed(2)}, ${lng.toFixed(2)}${valueStr}`,
       });
     });
+    const handleSettledStyleRender = () => {
+      // React reconciles the radar graph only after MapLibre has rendered the
+      // replacement style once. At this point isStyleLoaded() is stable and
+      // custom sources cannot be discarded by the remainder of setStyle().
+      setStyleRevision((revision) => revision + 1);
+    };
     const handleStyleLoad = () => {
       if (basemapRef.current === "satellite") {
         if (!instance.getSource("sentinel")) {
@@ -276,10 +282,9 @@ export function WeatherMap({
         }
       });
       // A style replacement removes all custom radar sources and layers.
-      // Synchronously increment styleRevision so React re-runs the radar
-      // reconciliation effect immediately for the new style.
-      setStyleRevision((revision) => revision + 1);
-      instance.triggerRepaint();
+      // Wait for the first native render so the replacement graph is settled
+      // before asking React to restore them.
+      instance.once("render", handleSettledStyleRender);
     };
     instance.on("style.load", handleStyleLoad);
     instance.once("load", () => {
@@ -288,6 +293,7 @@ export function WeatherMap({
     });
     return () => {
       instance.off("style.load", handleStyleLoad);
+      instance.off("render", handleSettledStyleRender);
       instance.remove();
       map.current = null;
     };
@@ -304,7 +310,6 @@ export function WeatherMap({
     // different style (the same guard used by EuroMeteo).
     if (appliedBasemapRef.current === basemap) return;
     appliedBasemapRef.current = basemap;
-    webglLayersRef.current.delete(SINGLE_WEBGL_LAYER_ID);
     instance.setStyle(STYLE_URLS[basemap] ?? STYLE_URLS.positron, {
       diff: false,
     });
@@ -445,10 +450,8 @@ export function WeatherMap({
       if (webGLAvailable) {
         desiredLayerIds.push(SINGLE_WEBGL_LAYER_ID);
         let webglLayer = webglLayersRef.current.get(SINGLE_WEBGL_LAYER_ID);
-        if (webglLayer && !webglLayer.isInitialized()) {
-          if (instance.getLayer(SINGLE_WEBGL_LAYER_ID)) {
-            instance.removeLayer(SINGLE_WEBGL_LAYER_ID);
-          }
+        if (webglLayer && instance.getLayer(SINGLE_WEBGL_LAYER_ID) && !webglLayer.isInitialized()) {
+          instance.removeLayer(SINGLE_WEBGL_LAYER_ID);
           webglLayersRef.current.delete(SINGLE_WEBGL_LAYER_ID);
           webglLayer = undefined;
         }
@@ -507,7 +510,6 @@ export function WeatherMap({
             parsed.backend,
             activate,
           );
-          instance.triggerRepaint();
           rawBufferMapRef.current.delete(identity);
           rawBufferMapRef.current.set(identity, {
             data: parsed.data,
@@ -529,13 +531,10 @@ export function WeatherMap({
         // an empty GPU texture cache, but rawBufferMapRef (CPU-side)
         // survives. Re-upload the needed buffers synchronously so the
         // radar appears on the very first frame — no flash, no re-fetch.
-        const restoreFromCpuCache = (identity: string, activate: boolean): boolean => {
-          if (webglLayer!.hasFrame(identity)) {
-            if (activate) webglLayer!.showFrame(identity);
-            return true;
-          }
+        const restoreFromCpuCache = (identity: string, activate: boolean) => {
+          if (webglLayer!.hasFrame(identity)) return;
           const cached = rawBufferMapRef.current.get(identity);
-          if (!cached) return false;
+          if (!cached) return;
           const { data, width, height, bounds } = cached;
           const mercCoords: [number, number][] = (
             [
@@ -549,28 +548,13 @@ export function WeatherMap({
             return [mc.x, mc.y] as [number, number];
           });
           webglLayer!.setFrameData(identity, data, width, height, mercCoords, currentFrame.backend, activate);
-          return true;
         };
+        restoreFromCpuCache(currentIdentity, true);
+        restoreFromCpuCache(continentalIdentity, false);
 
-        let restored = restoreFromCpuCache(currentIdentity, true);
-        if (!restored) {
-          restored = restoreFromCpuCache(continentalIdentity, true);
-        }
-        if (!restored) {
-          for (const [key] of rawBufferMapRef.current) {
-            if (isFrameIdentityVariant(key, currentFrame, minQuality)) {
-              if (restoreFromCpuCache(key, true)) {
-                restored = true;
-                break;
-              }
-            }
-          }
-        }
-
-        const activeFrameKey = webglLayer.visibleFrameId();
-        if (activeFrameKey && webglLayer.hasFrame(activeFrameKey)) {
-          webglLayer.showFrame(activeFrameKey);
-          finishReady(webglLayer.frameBackend(activeFrameKey) ?? currentFrame.backend);
+        if (webglLayer.hasFrame(currentIdentity)) {
+          webglLayer.showFrame(currentIdentity);
+          finishReady(webglLayer.frameBackend(currentIdentity) ?? currentFrame.backend);
         } else {
           // --- Fallback priority ---
           // 1. Keep the CURRENT visible texture (any zoom level) as the primary

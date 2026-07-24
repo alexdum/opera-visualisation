@@ -295,23 +295,11 @@ export class RadarWebGLLayer implements CustomLayerInterface {
     // `defaultProjectionData.mainMatrix` — it is pre-scaled by EXTENT so
     // Mercator inputs map correctly to clip space. The top-level
     // `modelViewProjectionMatrix` uses unscaled tile/pixel units.
-    let matrix: Float32Array | number[] | undefined;
-    if (ArrayBuffer.isView(options) || Array.isArray(options)) {
-      matrix = options as Float32Array | number[];
-    } else if (options && typeof options === "object") {
-      const opts = options as Record<string, unknown>;
-      const projData = opts.defaultProjectionData as Record<string, unknown> | undefined;
-      matrix =
-        (projData?.mainMatrix as Float32Array | number[] | undefined) ??
-        (opts.modelViewProjectionMatrix as Float32Array | number[] | undefined);
-    }
-
-    if (!matrix && this.map) {
-      const tr = (this.map as unknown as { transform?: { customLayerMatrix?: () => Float32Array | number[] } }).transform;
-      if (typeof tr?.customLayerMatrix === "function") {
-        matrix = tr.customLayerMatrix();
-      }
-    }
+    const opts = options as Record<string, unknown> | undefined;
+    const projData = opts?.defaultProjectionData as Record<string, unknown> | undefined;
+    const matrix: Float32Array | number[] | undefined =
+      (projData?.mainMatrix as Float32Array | undefined) ??
+      (opts?.modelViewProjectionMatrix as Float32Array | undefined);
 
     if (!matrix || !this.program || !this.currentTexture || this.quadCoords.length === 0) return;
 
