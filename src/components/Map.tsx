@@ -231,12 +231,6 @@ export function WeatherMap({
         name: `${lat.toFixed(2)}, ${lng.toFixed(2)}${valueStr}`,
       });
     });
-    const handleSettledStyleRender = () => {
-      // React reconciles the radar graph only after MapLibre has rendered the
-      // replacement style once. At this point isStyleLoaded() is stable and
-      // custom sources cannot be discarded by the remainder of setStyle().
-      setStyleRevision((revision) => revision + 1);
-    };
     const handleStyleLoad = () => {
       if (basemapRef.current === "satellite") {
         if (!instance.getSource("sentinel")) {
@@ -282,9 +276,10 @@ export function WeatherMap({
         }
       });
       // A style replacement removes all custom radar sources and layers.
-      // Wait for the first native render so the replacement graph is settled
-      // before asking React to restore them.
-      instance.once("render", handleSettledStyleRender);
+      // Synchronously increment styleRevision so React re-runs the radar
+      // reconciliation effect immediately for the new style.
+      setStyleRevision((revision) => revision + 1);
+      instance.triggerRepaint();
     };
     instance.on("style.load", handleStyleLoad);
     instance.once("load", () => {
@@ -293,7 +288,6 @@ export function WeatherMap({
     });
     return () => {
       instance.off("style.load", handleStyleLoad);
-      instance.off("render", handleSettledStyleRender);
       instance.remove();
       map.current = null;
     };
