@@ -527,6 +527,31 @@ export function WeatherMap({
           return parsed.backend;
         };
 
+        // After a basemap switch the WebGL layer is freshly created with
+        // an empty GPU texture cache, but rawBufferMapRef (CPU-side)
+        // survives. Re-upload the needed buffers synchronously so the
+        // radar appears on the very first frame — no flash, no re-fetch.
+        const restoreFromCpuCache = (identity: string, activate: boolean) => {
+          if (webglLayer!.hasFrame(identity)) return;
+          const cached = rawBufferMapRef.current.get(identity);
+          if (!cached) return;
+          const { data, width, height, bounds } = cached;
+          const mercCoords: [number, number][] = (
+            [
+              [bounds.west, bounds.north], // NW
+              [bounds.east, bounds.north], // NE
+              [bounds.east, bounds.south], // SE
+              [bounds.west, bounds.south], // SW
+            ] as [number, number][]
+          ).map(([lng, lat]) => {
+            const mc = maplibregl.MercatorCoordinate.fromLngLat({ lng, lat });
+            return [mc.x, mc.y] as [number, number];
+          });
+          webglLayer!.setFrameData(identity, data, width, height, mercCoords, currentFrame.backend, activate);
+        };
+        restoreFromCpuCache(currentIdentity, true);
+        restoreFromCpuCache(continentalIdentity, false);
+
         if (webglLayer.hasFrame(currentIdentity)) {
           webglLayer.showFrame(currentIdentity);
           finishReady(webglLayer.frameBackend(currentIdentity) ?? currentFrame.backend);
