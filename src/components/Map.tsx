@@ -428,12 +428,18 @@ export function WeatherMap({
     };
 
     const reconcileLayers = () => {
-      if (layersReconciled || !instance.isStyleLoaded() || generation !== renderGeneration.current) return;
+      // Custom WebGL layers only need the style graph — not all tile sources —
+      // to be ready.  isStyleLoaded() blocks until every raster/vector source
+      // has finished loading tiles, which can delay radar restoration after a
+      // basemap switch by seconds (or indefinitely if a styledata event is
+      // missed).  The style.load event guarantees the JSON is parsed and
+      // _loaded is set, which is all addLayer needs (_checkLoaded).
+      if (layersReconciled || generation !== renderGeneration.current) return;
+      try { instance.getStyle(); } catch { return; } // style not yet initialized
       layersReconciled = true;
       const activeViewportGeneration = ++viewportGeneration;
       const signal = loadController.signal;
       instance.off("style.load", reconcileLayers);
-      instance.off("styledata", reconcileLayers);
       const reportLoadingState = () => {
         renderHandlerRef.current({
           status: "loading",
@@ -764,12 +770,8 @@ export function WeatherMap({
       }
     };
 
-    if (instance.isStyleLoaded()) reconcileLayers();
+    reconcileLayers();
     instance.on("style.load", reconcileLayers);
-    // style.load means the style JSON has been installed, but its sprite and
-    // source graph may not yet satisfy isStyleLoaded(). styledata is the
-    // native follow-up signal used to retry without timing guesses.
-    instance.on("styledata", reconcileLayers);
     instance.on("moveend", handleMoveEnd);
     return () => {
       loadController.abort();
@@ -777,7 +779,6 @@ export function WeatherMap({
       if (fallbackTimer) clearTimeout(fallbackTimer);
       if (moveThrottleTimer) clearTimeout(moveThrottleTimer);
       instance.off("style.load", reconcileLayers);
-      instance.off("styledata", reconcileLayers);
       instance.off("moveend", handleMoveEnd);
       instance.off("idle", handleIdle);
       instance.off("render", handleRender);
