@@ -954,7 +954,7 @@ def test_raw_cog_reader_resolves_the_cataloged_cog_path(monkeypatch):
     assert len(content) == 18
 
 
-def test_raw_frame_thresholding_for_rate_and_acrr(monkeypatch):
+def test_raw_frame_preserves_faint_rate_and_acrr(monkeypatch):
     from api.tiles import _get_raw_cog_frame, _get_raw_geozarr_frame
     import struct
     import numpy as np
@@ -1004,8 +1004,9 @@ def test_raw_frame_thresholding_for_rate_and_acrr(monkeypatch):
     payload = content[16:]
     meas_uint8 = payload[0::2]
     
-    # 0.05 -> < 0.1 threshold -> gets mapped to -10.0, which is min_val, thus encoded as 1
-    assert meas_uint8[0] == 1
+    # 0.05 -> no longer thresholded -> preserved as 0.05.
+    # 0.05 maps to byte 17
+    assert meas_uint8[0] == 17
     # 0.15 -> >= 0.1 threshold -> left as 0.15, > min_val, thus > 1
     assert meas_uint8[1] > 1
     # np.nan -> scanning area mask -> mapped to -10.0 -> encoded as 1
