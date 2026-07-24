@@ -127,6 +127,8 @@ export class RadarWebGLLayer implements CustomLayerInterface {
   public onAdd(map: MapLibreMap, gl: WebGL2RenderingContext) {
     this.map = map;
     this.gl = gl;
+    if (this.program) return;
+
     const vertexShader = this.compileShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
     const fragmentShader = this.compileShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
 

@@ -323,7 +323,7 @@ export function WeatherMap({
         const radarSources = Object.fromEntries(
           Object.entries(previousStyle?.sources ?? {}).filter(([sourceId]) => sourceId.startsWith("radar-source-")),
         );
-        const radarLayers = (previousStyle?.layers ?? []).filter((layer) => layer.id.startsWith("radar-layer-") && (layer.type as string) !== "custom");
+        const radarLayers = (previousStyle?.layers ?? []).filter((layer) => layer.id.startsWith("radar-layer-"));
         const radarIndex = radarOverlayInsertionIndex(nextStyle.layers);
         return {
           ...nextStyle,
@@ -473,7 +473,15 @@ export function WeatherMap({
       if (webGLAvailable) {
         desiredLayerIds.push(SINGLE_WEBGL_LAYER_ID);
         let webglLayer = webglLayersRef.current.get(SINGLE_WEBGL_LAYER_ID);
-        if (!webglLayer || !instance.getLayer(SINGLE_WEBGL_LAYER_ID)) {
+        if (webglLayer) {
+          // If the style was replaced (diff: false), MapLibre's transformStyle carries over 
+          // a JSON dummy of the custom layer but drops our class instance. 
+          // We must remove the dummy and re-attach our live instance to preserve textures.
+          if (instance.getLayer(SINGLE_WEBGL_LAYER_ID)) {
+            instance.removeLayer(SINGLE_WEBGL_LAYER_ID);
+          }
+          instance.addLayer(webglLayer, radarBeforeId);
+        } else {
           webglLayer = new RadarWebGLLayer(SINGLE_WEBGL_LAYER_ID, currentFrame.product);
           webglLayersRef.current.set(SINGLE_WEBGL_LAYER_ID, webglLayer);
           instance.addLayer(webglLayer, radarBeforeId);
@@ -483,7 +491,6 @@ export function WeatherMap({
         webglLayer.minQuality = minQuality ?? 0;
         webglLayer.setProduct(currentFrame.product);
 
-        const canvas = instance.getCanvas();
         const pyramid = getEuropeanScalePyramid(instance.getZoom(), instance.getBounds());
         const currentIdentity = frameIdentity(currentFrame, minQuality, pyramid.bboxKey, pyramid.maxSize);
         const continentalIdentity = continentalFrameIdentity(currentFrame, minQuality);
