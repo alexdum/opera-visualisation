@@ -155,7 +155,7 @@ rules, image morphology, or modifications to the archived source data.
 The DBZH COG uses band 1 for reflectivity and band 2 for its quality indicator.
 Apply the following visualization policy:
 
-1. **Default DBZH threshold:** The map MUST default to `min_quality=off` (null/unchecked) to display the authoritative raw composite, but allow users to enable quality filtering uniformly across the full DBZH coverage.
+1. **Default DBZH threshold:** The map MUST default to `min_quality=off` (null/unchecked) to display the authoritative raw composite. Do NOT display a UI option in the sidebar to toggle the quality mask. The quality filtering capability remains at the API/URL level but should not be exposed in the UI.
 2. **Preserve the authoritative view:** Users MUST be able to disable the
    filter and view the original OPERA composite. Filtering is a display mask;
    it MUST NOT rewrite source COGs, GeoZarr measurements, pixel-analysis values,
@@ -173,9 +173,7 @@ Apply the following visualization policy:
    identity. Raw and differently filtered tiles MUST never share a cache key.
    Validate public thresholds server-side as finite values from `0` through
    `1`.
-6. **Visible state:** Keep the active threshold and filtered/unfiltered state
-   visible and accessible in the DBZH sidebar. Preserve shareable URL state;
-   use `min_quality=off` for the raw view.
+6. **Hidden UI state:** Do NOT display the DBZH quality mask controls in the sidebar. Preserve shareable URL state; use `min_quality=off` for the raw view, which acts as a static background configuration.
 7. **Regression verification:** Tests MUST cover low known quality, accepted
    quality, quality nodata/unknown, invalid thresholds, and at least one real
    DBZH tile comparison demonstrating that filtering removes pixels while
