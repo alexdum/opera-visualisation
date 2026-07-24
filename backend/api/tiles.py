@@ -330,7 +330,6 @@ def _render_cog_image(frame: CatalogFrame, z: int, x: int, y: int, min_quality: 
                 indexes=(1,),
                 resampling_method="bilinear",
                 reproject_method="bilinear",
-                nodata=float('nan'),
                 vrt_options=COG_VRT_OPTIONS,
             )
             if has_quality:
@@ -494,13 +493,11 @@ def _render_cog_frame(
             indexes=(1,),
             resampling_method="bilinear",
             reproject_method="bilinear",
-            nodata=float('nan'),
             vrt_options=COG_VRT_OPTIONS,
         )
         raw_b1 = np.asarray(image.array[0], dtype=np.float32)
         scanning_area_mask = np.isnan(raw_b1)
-        min_phys = PRODUCT_BOUNDS.get(frame.product, (-35.0, 75.0))[0]
-        nodata_mask = np.isclose(raw_b1, -9999000.0) | (raw_b1 < min_phys)
+        nodata_mask = np.isclose(raw_b1, -9999000.0)
 
         if has_quality:
             q_image = cog.part(
@@ -764,16 +761,11 @@ def _get_raw_cog_frame(
                 indexes=(1,),
                 resampling_method="bilinear",
                 reproject_method="bilinear",
-                nodata=float('nan'),
                 vrt_options=COG_VRT_OPTIONS,
             )
             d = np.asarray(image.array[0], dtype=np.float32)
             scanning_area_mask = np.isnan(d)
-            # With nodata=NaN, GDAL excludes NaN from bilinear so edge
-            # echoes are preserved.  But -9999000 is no longer excluded,
-            # so it may appear exact or blended into large negatives.
-            min_phys = PRODUCT_BOUNDS.get(frame.product, (-35.0, 75.0))[0]
-            nodata_mask = np.isclose(d, -9999000.0) | (d < min_phys)
+            nodata_mask = np.isclose(d, -9999000.0)
 
             d[scanning_area_mask] = -10.0
             d[nodata_mask] = np.nan
@@ -795,7 +787,10 @@ def _get_raw_cog_frame(
             else:
                 q = np.full(d.shape, np.nan, dtype=np.float32)
 
-            if frame.product in ("RATE", "ACRR"):
+            if frame.product == "DBZH":
+                d = np.where((d < 0.12619) & np.isfinite(d), -10.0, d)
+            elif frame.product in ("RATE", "ACRR"):
+                d = np.where((d < 0.1) & np.isfinite(d), -10.0, d)
                 d_dbzh = None
                 if dbzh_frame is not None and dbzh_frame.hot_cog:
                     try:
@@ -809,12 +804,11 @@ def _get_raw_cog_frame(
                                 indexes=(1,),
                                 resampling_method="bilinear",
                                 reproject_method="bilinear",
-                                nodata=float('nan'),
                                 vrt_options=COG_VRT_OPTIONS,
                             )
                             d_dbzh = np.asarray(dbzh_image.array[0], dtype=np.float32)
                             scanning_area_mask_dbzh = np.isnan(d_dbzh)
-                            nodata_mask_dbzh = np.isclose(d_dbzh, -9999000.0) | (d_dbzh < -35.0)
+                            nodata_mask_dbzh = np.isclose(d_dbzh, -9999000.0)
                             d_dbzh[scanning_area_mask_dbzh] = -10.0
                             d_dbzh[nodata_mask_dbzh] = np.nan
                     except Exception:
@@ -926,7 +920,10 @@ def _get_raw_geozarr_frame(
 
     d = dst_data[0]
     q = dst_quality[0]
-    if frame.product in ("RATE", "ACRR"):
+    if frame.product == "DBZH":
+        d = np.where((d < 0.12619) & np.isfinite(d), -10.0, d)
+    elif frame.product in ("RATE", "ACRR"):
+        d = np.where((d < 0.1) & np.isfinite(d), -10.0, d)
         d_dbzh = None
         if dbzh_frame is not None and dbzh_frame.geozarr:
             try:
