@@ -23,6 +23,7 @@ from api.tiles import (
     COLORMAPS,
     _apply_geozarr_status,
     _destination_grid,
+    _expanded_dataset_window,
     _frame_time_index,
     _get_raw_cog_frame,
     _prepare_cog_measurement,
@@ -1344,3 +1345,28 @@ def test_cog_measurement_classification_precedes_reprojection(monkeypatch):
     assert sources[0][0, 0] == pytest.approx(20.0)
     assert sources[0][0, 1] == pytest.approx(-10.0)
     assert np.isnan(sources[0][0, 2])
+
+
+def test_two_kilometre_cog_crop_matches_geozarr_pixel_centres():
+    class TwoKilometreOperaGrid:
+        crs = CRS.from_proj4(
+            "+proj=laea +lat_0=55 +lon_0=10 +x_0=1950000 "
+            "+y_0=-2100000 +ellps=WGS84 +units=m +no_defs"
+        )
+        transform = Affine(
+            2000.0,
+            0.0,
+            -1000.0002714332659,
+            0.0,
+            -2000.0,
+            999.9999123872258,
+        )
+        width = 1900
+        height = 2200
+
+    window = _expanded_dataset_window(
+        TwoKilometreOperaGrid(),
+        (20.0, 40.0, 30.0, 50.0),
+    )
+
+    assert window == __import__("rasterio").windows.Window(1332, 1227, 494, 627)

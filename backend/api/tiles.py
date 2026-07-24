@@ -17,7 +17,7 @@ import numpy as np
 from rasterio.crs import CRS
 from rasterio.enums import Resampling
 from rasterio.transform import from_bounds
-from rasterio.windows import Window, from_bounds as window_from_bounds
+from rasterio.windows import Window
 from rasterio.warp import reproject, transform_bounds
 from rio_tiler.io import Reader
 from rio_tiler.errors import TileOutsideBounds
@@ -43,7 +43,7 @@ WEB_MERCATOR_LIMIT = 20037508.342789244
 OPERA_WGS84_BOUNDS = (-39.552438, 31.749398, 57.81137, 73.931257)
 STATUS_UNDETECT = 1
 STATUS_NODATA = 2
-RAW_RENDER_VERSION = 2
+RAW_RENDER_VERSION = 3
 
 
 DBZH_CMAP = [
@@ -763,21 +763,31 @@ def _destination_grid(
 
 
 def _expanded_dataset_window(dataset: Any, bounds: tuple[float, ...]) -> Window:
-    """Crop after transforming the requested bounds, retaining one edge cell."""
+    """Select the same pixel-center crop used by the GeoZarr renderer."""
     source_bounds = transform_bounds(
         "EPSG:4326", dataset.crs, *bounds, densify_pts=21
     )
-    fractional = window_from_bounds(*source_bounds, transform=dataset.transform)
-    col_start = max(0, math.floor(fractional.col_off) - 1)
-    row_start = max(0, math.floor(fractional.row_off) - 1)
+    transform = dataset.transform
+    if not math.isclose(transform.b, 0.0) or not math.isclose(transform.d, 0.0):
+        raise ValueError("Rotated OPERA COG grids are not supported")
+
+    x_coords = transform.c + (np.arange(dataset.width) + 0.5) * transform.a
+    y_coords = transform.f + (np.arange(dataset.height) + 0.5) * transform.e
+    col_start = max(
+        0,
+        int(np.searchsorted(x_coords, source_bounds[0], side="left")) - 1,
+    )
     col_end = min(
         dataset.width,
-        math.ceil(fractional.col_off + fractional.width) + 1,
+        int(np.searchsorted(x_coords, source_bounds[2], side="right")) + 1,
     )
-    row_end = min(
-        dataset.height,
-        math.ceil(fractional.row_off + fractional.height) + 1,
+    row_hits = np.flatnonzero(
+        (y_coords >= source_bounds[1]) & (y_coords <= source_bounds[3])
     )
+    if len(row_hits) == 0:
+        raise TileOutsideBounds("Requested bounds do not intersect the COG")
+    row_start = max(0, int(row_hits[0]) - 1)
+    row_end = min(dataset.height, int(row_hits[-1]) + 2)
     if col_start >= col_end or row_start >= row_end:
         raise TileOutsideBounds("Requested bounds do not intersect the COG")
     return Window(

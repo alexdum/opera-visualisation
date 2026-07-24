@@ -71,7 +71,7 @@ describe("radar tile identity", () => {
 
   it("versions immutable raw renders so renderer changes bypass browser caches", () => {
     const frame = makeFrame("DBZH", "202607210000", "revision");
-    expect(buildRawFrameUrl(frame)).toContain("render_version=2");
+    expect(buildRawFrameUrl(frame)).toContain("render_version=3");
   });
 
   it("uses the actual continental request size as its reusable fallback identity", () => {

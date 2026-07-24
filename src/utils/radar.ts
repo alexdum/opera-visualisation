@@ -246,7 +246,7 @@ export const buildRawFrameUrl = (
   allowArchiveFallback = true,
 ) => {
   const normalizedBase = apiBase.replace(/\/$/, "");
-  let url = `${normalizedBase}/tiles/raw/${encodeURIComponent(frame.product)}/${frame.timestamp}/${encodeURIComponent(frame.revision)}.bin?source=${encodeURIComponent(frame.backend)}&render_version=2`;
+  let url = `${normalizedBase}/tiles/raw/${encodeURIComponent(frame.product)}/${frame.timestamp}/${encodeURIComponent(frame.revision)}.bin?source=${encodeURIComponent(frame.backend)}&render_version=3`;
   if (maxSize) url += `&max_size=${maxSize}`;
   if (bbox) url += `&bbox=${encodeURIComponent(bbox)}`;
   if (!allowArchiveFallback) url += "&allow_archive_fallback=false";
