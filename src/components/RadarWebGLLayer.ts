@@ -63,6 +63,10 @@ export class RadarWebGLLayer implements CustomLayerInterface {
     this.product = product;
   }
 
+  public isInitialized(): boolean {
+    return this.program !== null;
+  }
+
   private compileShader(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
     const shader = gl.createShader(type);
     if (!shader) throw new Error("Cannot create shader");
@@ -127,8 +131,6 @@ export class RadarWebGLLayer implements CustomLayerInterface {
   public onAdd(map: MapLibreMap, gl: WebGL2RenderingContext) {
     this.map = map;
     this.gl = gl;
-    if (this.program) return;
-
     const vertexShader = this.compileShader(gl, gl.VERTEX_SHADER, vertexShaderSource);
     const fragmentShader = this.compileShader(gl, gl.FRAGMENT_SHADER, fragmentShaderSource);
 
@@ -340,6 +342,10 @@ export class RadarWebGLLayer implements CustomLayerInterface {
     }
     this.textureCache.clear();
     this.cacheKeys = [];
+    this.program = null;
+    this.buffer = null;
+    this.colormapTexture = null;
+    this.gl = null;
     this.currentTexture = null;
     this.currentFrameId = null;
     this.quadCoords = new Float32Array(0);

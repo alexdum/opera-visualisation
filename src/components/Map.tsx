@@ -17,7 +17,6 @@ import {
   isPlaceLabelLayer,
   OPERA_IMAGE_COORDINATES,
   radarOverlayBeforeId,
-  radarOverlayInsertionIndex,
   selectAnimationFrames,
   tileLoadTimeoutMs,
 } from "@/utils/radar";
@@ -312,29 +311,7 @@ export function WeatherMap({
     if (appliedBasemapRef.current === basemap) return;
     appliedBasemapRef.current = basemap;
     instance.setStyle(STYLE_URLS[basemap] ?? STYLE_URLS.positron, {
-      // Positron and Satellite intentionally share the same vector style URL.
-      // Force the hybrid rebuild so switching between them still emits the
-      // style lifecycle needed to add/remove the Sentinel layer.
       diff: false,
-      // MapLibre's transformStyle hook carries application-owned layers into
-      // the incoming basemap before it is committed. This makes style changes
-      // atomic from the radar overlay's perspective and avoids a blank frame.
-      transformStyle: (previousStyle, nextStyle) => {
-        const radarSources = Object.fromEntries(
-          Object.entries(previousStyle?.sources ?? {}).filter(([sourceId]) => sourceId.startsWith("radar-source-")),
-        );
-        const radarLayers = (previousStyle?.layers ?? []).filter((layer) => layer.id.startsWith("radar-layer-"));
-        const radarIndex = radarOverlayInsertionIndex(nextStyle.layers);
-        return {
-          ...nextStyle,
-          sources: { ...nextStyle.sources, ...radarSources },
-          layers: [
-            ...nextStyle.layers.slice(0, radarIndex),
-            ...radarLayers,
-            ...nextStyle.layers.slice(radarIndex),
-          ],
-        };
-      },
     });
   }, [basemap, mapReady]);
 
@@ -473,15 +450,12 @@ export function WeatherMap({
       if (webGLAvailable) {
         desiredLayerIds.push(SINGLE_WEBGL_LAYER_ID);
         let webglLayer = webglLayersRef.current.get(SINGLE_WEBGL_LAYER_ID);
-        if (webglLayer) {
-          // If the style was replaced (diff: false), MapLibre's transformStyle carries over 
-          // a JSON dummy of the custom layer but drops our class instance. 
-          // We must remove the dummy and re-attach our live instance to preserve textures.
-          if (instance.getLayer(SINGLE_WEBGL_LAYER_ID)) {
-            instance.removeLayer(SINGLE_WEBGL_LAYER_ID);
-          }
-          instance.addLayer(webglLayer, radarBeforeId);
-        } else {
+        if (webglLayer && instance.getLayer(SINGLE_WEBGL_LAYER_ID) && !webglLayer.isInitialized()) {
+          instance.removeLayer(SINGLE_WEBGL_LAYER_ID);
+          webglLayersRef.current.delete(SINGLE_WEBGL_LAYER_ID);
+          webglLayer = undefined;
+        }
+        if (!webglLayer || !instance.getLayer(SINGLE_WEBGL_LAYER_ID)) {
           webglLayer = new RadarWebGLLayer(SINGLE_WEBGL_LAYER_ID, currentFrame.product);
           webglLayersRef.current.set(SINGLE_WEBGL_LAYER_ID, webglLayer);
           instance.addLayer(webglLayer, radarBeforeId);
@@ -491,7 +465,11 @@ export function WeatherMap({
         webglLayer.minQuality = minQuality ?? 0;
         webglLayer.setProduct(currentFrame.product);
 
-        const pyramid = getEuropeanScalePyramid(instance.getZoom(), instance.getBounds());
+        const canvas = instance.getCanvas();
+        const pyramid = getEuropeanScalePyramid(instance.getZoom(), instance.getBounds(), {
+          width: canvas.width,
+          height: canvas.height,
+        });
         const currentIdentity = frameIdentity(currentFrame, minQuality, pyramid.bboxKey, pyramid.maxSize);
         const continentalIdentity = continentalFrameIdentity(currentFrame, minQuality);
         const isCurrentRequest = () =>

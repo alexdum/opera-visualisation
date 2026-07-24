@@ -27,7 +27,6 @@ export default function OperaRadarPage() {
   const [activeTab, setActiveTab] = useState<"map" | "analysis" | "about">("map");
   const [urlHydrated, setUrlHydrated] = useState(false);
   const [product, setProduct] = useState<RadarProduct>("DBZH");
-  const [renderedProduct, setRenderedProduct] = useState<RadarProduct>("DBZH");
   const [selectedDate, setSelectedDate] = useState("");
   const [basemap, setBasemap] = useState("positron");
   const [showLabels, setShowLabels] = useState(true);
@@ -121,7 +120,6 @@ export default function OperaRadarPage() {
         return response.json() as Promise<CatalogResponse>;
       })
       .then((catalog) => {
-        setRenderedProduct(product);
         setFrames(catalog.frames);
         const requestedTime = initialTimeRef.current;
         const requestedIndex = requestedTime
@@ -182,7 +180,7 @@ export default function OperaRadarPage() {
       return;
     }
     const query = new URLSearchParams({
-      product: renderedProduct,
+      product,
       lon: selectedPixel.lon.toString(),
       lat: selectedPixel.lat.toString(),
       start: pixelWindow.start,
@@ -218,7 +216,7 @@ export default function OperaRadarPage() {
         if (!controller.signal.aborted) setPixelLoading(false);
       });
     return () => controller.abort();
-  }, [activeTab, pixelWindow, renderedProduct, selectedPixel]);
+  }, [activeTab, pixelWindow, product, selectedPixel]);
 
   useEffect(() => {
     if (renderState.status !== "loading" || !renderState.frameKey) return;
@@ -242,7 +240,7 @@ export default function OperaRadarPage() {
   const handleExportCsv = () => {
     if (pixelSeries.length === 0) return;
     const timestamp = currentFrame?.timestamp ?? "series";
-    downloadPixelCsv(pixelSeries, renderedProduct, `opera-${renderedProduct.toLowerCase()}-pixel-${timestamp}`);
+    downloadPixelCsv(pixelSeries, product, `opera-${product.toLowerCase()}-pixel-${timestamp}`);
   };
 
   const showLoader = catalogLoading || renderState.status === "loading";
@@ -360,7 +358,7 @@ export default function OperaRadarPage() {
           </div>}
 
           <WeatherMap
-            product={renderedProduct}
+            product={product}
             basemap={basemap}
             showLabels={showLabels}
             currentTimeIndex={currentTimeIndex}
@@ -371,7 +369,7 @@ export default function OperaRadarPage() {
             onMapClick={handleMapClick}
             selectedPixel={selectedPixel}
           />
-          {activeTab === "map" && <MapLegend product={renderedProduct} />}
+          {activeTab === "map" && <MapLegend product={product} />}
 
           {showLoader && activeTab === "map" && (
             <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-slate-50/40 backdrop-blur-[2px]">
@@ -409,7 +407,7 @@ export default function OperaRadarPage() {
                   <p className="mb-6 text-slate-600">Return to the map and double-click a location to retrieve its cataloged GeoZarr series.</p>
                 )}
                 {pixelError && <p role="alert" className="mb-4 rounded-lg bg-rose-50 p-3 text-sm font-medium text-rose-800">{pixelError}</p>}
-                <PixelAnalysisChart data={pixelSeries} product={renderedProduct} isLoading={pixelLoading} windowStart={pixelWindow?.start} windowEnd={pixelWindow?.end} />
+                <PixelAnalysisChart data={pixelSeries} product={product} isLoading={pixelLoading} windowStart={pixelWindow?.start} windowEnd={pixelWindow?.end} />
                 {selectedPixel && pixelSeries.length > 0 && (
                   <button type="button" onClick={handleExportCsv} className="mt-4 flex min-h-11 items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 font-bold text-white hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
                     <Download size={16} aria-hidden="true" /> Export cataloged CSV
