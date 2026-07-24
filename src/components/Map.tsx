@@ -310,6 +310,7 @@ export function WeatherMap({
     // different style (the same guard used by EuroMeteo).
     if (appliedBasemapRef.current === basemap) return;
     appliedBasemapRef.current = basemap;
+    webglLayersRef.current.delete(SINGLE_WEBGL_LAYER_ID);
     instance.setStyle(STYLE_URLS[basemap] ?? STYLE_URLS.positron, {
       diff: false,
     });
@@ -450,8 +451,10 @@ export function WeatherMap({
       if (webGLAvailable) {
         desiredLayerIds.push(SINGLE_WEBGL_LAYER_ID);
         let webglLayer = webglLayersRef.current.get(SINGLE_WEBGL_LAYER_ID);
-        if (webglLayer && instance.getLayer(SINGLE_WEBGL_LAYER_ID) && !webglLayer.isInitialized()) {
-          instance.removeLayer(SINGLE_WEBGL_LAYER_ID);
+        if (webglLayer && !webglLayer.isInitialized()) {
+          if (instance.getLayer(SINGLE_WEBGL_LAYER_ID)) {
+            instance.removeLayer(SINGLE_WEBGL_LAYER_ID);
+          }
           webglLayersRef.current.delete(SINGLE_WEBGL_LAYER_ID);
           webglLayer = undefined;
         }

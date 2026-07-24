@@ -92,4 +92,42 @@ describe("RadarWebGLLayer texture activation", () => {
     expect(layer.hasFrame("visible")).toBe(true);
     expect(deleted).toHaveLength(2);
   });
+
+  it("resets initialization status and clears texture cache on removal", () => {
+    const deleted: WebGLTexture[] = [];
+    const fakeGl = {
+      TEXTURE_2D: 3553,
+      RG8: 33323,
+      RG: 33319,
+      UNSIGNED_BYTE: 5121,
+      TEXTURE_MIN_FILTER: 10241,
+      TEXTURE_MAG_FILTER: 10240,
+      TEXTURE_WRAP_S: 10242,
+      TEXTURE_WRAP_T: 10243,
+      NEAREST: 9728,
+      CLAMP_TO_EDGE: 33071,
+      createTexture: () => ({}) as WebGLTexture,
+      bindTexture: () => undefined,
+      pixelStorei: () => undefined,
+      texImage2D: () => undefined,
+      texParameteri: () => undefined,
+      deleteProgram: () => undefined,
+      deleteBuffer: () => undefined,
+      deleteTexture: (texture: WebGLTexture) => deleted.push(texture),
+    } as unknown as WebGL2RenderingContext;
+    const layer = new RadarWebGLLayer("radar", "DBZH");
+    Object.defineProperty(layer, "gl", { value: fakeGl, configurable: true });
+    Object.defineProperty(layer, "program", { value: {} as WebGLProgram, writable: true, configurable: true });
+
+    expect(layer.isInitialized()).toBe(true);
+    layer.setFrameData("frame-1", new Uint8Array(8), 2, 2, [[0, 0], [1, 0], [1, 1], [0, 1]], "cog", true);
+    expect(layer.hasFrame("frame-1")).toBe(true);
+
+    layer.onRemove({} as never, fakeGl);
+
+    expect(layer.isInitialized()).toBe(false);
+    expect(layer.hasFrame("frame-1")).toBe(false);
+    expect(layer.visibleFrameId()).toBeNull();
+    expect(deleted).toHaveLength(1);
+  });
 });
