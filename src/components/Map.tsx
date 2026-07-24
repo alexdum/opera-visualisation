@@ -507,6 +507,7 @@ export function WeatherMap({
             parsed.backend,
             activate,
           );
+          instance.triggerRepaint();
           rawBufferMapRef.current.delete(identity);
           rawBufferMapRef.current.set(identity, {
             data: parsed.data,
@@ -528,10 +529,13 @@ export function WeatherMap({
         // an empty GPU texture cache, but rawBufferMapRef (CPU-side)
         // survives. Re-upload the needed buffers synchronously so the
         // radar appears on the very first frame — no flash, no re-fetch.
-        const restoreFromCpuCache = (identity: string, activate: boolean) => {
-          if (webglLayer!.hasFrame(identity)) return;
+        const restoreFromCpuCache = (identity: string, activate: boolean): boolean => {
+          if (webglLayer!.hasFrame(identity)) {
+            if (activate) webglLayer!.showFrame(identity);
+            return true;
+          }
           const cached = rawBufferMapRef.current.get(identity);
-          if (!cached) return;
+          if (!cached) return false;
           const { data, width, height, bounds } = cached;
           const mercCoords: [number, number][] = (
             [
@@ -545,13 +549,28 @@ export function WeatherMap({
             return [mc.x, mc.y] as [number, number];
           });
           webglLayer!.setFrameData(identity, data, width, height, mercCoords, currentFrame.backend, activate);
+          return true;
         };
-        restoreFromCpuCache(currentIdentity, true);
-        restoreFromCpuCache(continentalIdentity, false);
 
-        if (webglLayer.hasFrame(currentIdentity)) {
-          webglLayer.showFrame(currentIdentity);
-          finishReady(webglLayer.frameBackend(currentIdentity) ?? currentFrame.backend);
+        let restored = restoreFromCpuCache(currentIdentity, true);
+        if (!restored) {
+          restored = restoreFromCpuCache(continentalIdentity, true);
+        }
+        if (!restored) {
+          for (const [key] of rawBufferMapRef.current) {
+            if (isFrameIdentityVariant(key, currentFrame, minQuality)) {
+              if (restoreFromCpuCache(key, true)) {
+                restored = true;
+                break;
+              }
+            }
+          }
+        }
+
+        const activeFrameKey = webglLayer.visibleFrameId();
+        if (activeFrameKey && webglLayer.hasFrame(activeFrameKey)) {
+          webglLayer.showFrame(activeFrameKey);
+          finishReady(webglLayer.frameBackend(activeFrameKey) ?? currentFrame.backend);
         } else {
           // --- Fallback priority ---
           // 1. Keep the CURRENT visible texture (any zoom level) as the primary
