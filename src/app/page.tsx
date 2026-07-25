@@ -399,7 +399,14 @@ export default function OperaRadarPage() {
             {activeTab === "map" && currentFrame && (
               <div className="pointer-events-none flex min-h-12 items-center gap-2 rounded-xl border border-slate-200 bg-white/95 px-4 text-xs font-bold tracking-wide text-slate-700 shadow-lg backdrop-blur-md sm:text-sm">
                 <Clock size={16} className="text-blue-600" aria-hidden="true" />
-                {formatUtc(currentFrame.nominal_time)} UTC
+                {(() => {
+                  if (currentFrame.start_time && currentFrame.end_time) {
+                    const startFull = formatUtc(currentFrame.start_time);
+                    const endTime = new Intl.DateTimeFormat(undefined, { timeZone: "UTC", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(currentFrame.end_time));
+                    return `${startFull} - ${endTime} UTC`;
+                  }
+                  return `${formatUtc(currentFrame.nominal_time)} UTC`;
+                })()}
               </div>
             )}
 
