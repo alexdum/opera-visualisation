@@ -7,6 +7,7 @@ import dynamic from "next/dynamic";
 import type { PixelSeriesEntry } from "@/components/Charts";
 import { MapLegend } from "@/components/MapLegend";
 import { Sidebar } from "@/components/Sidebar";
+import { MobileDrawer } from "@/components/MobileDrawer";
 import { Tooltip } from "@/components/Tooltip";
 import { useRadarAnimation } from "@/hooks/useRadarAnimation";
 import type { CatalogResponse, MapRenderState, RadarFrame, RadarProduct } from "@/types/radar";
@@ -77,22 +78,6 @@ export default function OperaRadarPage() {
   const globalLatestTimeRef = useRef<string | null>(null); // Replaced state with ref if not used in render, but it is passed to Sidebar. Wait, I should just keep the state.
   const initialTimeRef = useRef("");
   const lastPixelRequestKeyRef = useRef<string | null>(null);
-  const touchStartX = useRef<number | null>(null);
-
-  const handleTouchStart = (e: React.TouchEvent) => {
-    if ((e.target as HTMLElement).tagName.toLowerCase() === 'input') return;
-    touchStartX.current = e.touches[0].clientX;
-  };
-
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    if (touchStartX.current === null) return;
-    const touchEndX = e.changedTouches[0].clientX;
-    const distance = touchStartX.current - touchEndX;
-    if (distance > 50) {
-      setIsOpen(false);
-    }
-    touchStartX.current = null;
-  };
 
   const currentFrame = frames[currentTimeIndex];
   const animation = useRadarAnimation({
@@ -360,21 +345,10 @@ export default function OperaRadarPage() {
 
   return (
     <main className="relative flex h-[100dvh] w-full overflow-hidden bg-slate-50 text-slate-900">
-      {isOpen && (
-        <button
-          type="button"
-          aria-label="Close radar controls"
-          className="fixed inset-0 z-40 bg-slate-900/20 backdrop-blur-sm lg:hidden"
-          onClick={() => setIsOpen(false)}
-        />
-      )}
-
-      <div 
-        className={`glass-sidebar fixed z-50 flex h-full w-[280px] flex-shrink-0 flex-col border-r border-slate-200 transition-transform duration-300 lg:relative lg:translate-x-0 ${isOpen ? "translate-x-0" : "-translate-x-full"}`}
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
-      >
-        <div className="flex-1 overflow-hidden">
+      
+      {/* Mobile Sidebar (Drawer) */}
+      <div className="lg:hidden">
+        <MobileDrawer isOpen={isOpen} onClose={() => setIsOpen(false)}>
           <Sidebar
             product={product}
             setProduct={setProduct}
@@ -398,7 +372,34 @@ export default function OperaRadarPage() {
             isLoading={catalogLoading}
             onCloseMobile={() => setIsOpen(false)}
           />
-        </div>
+        </MobileDrawer>
+      </div>
+
+      {/* Desktop Sidebar (Static Grid) */}
+      <div className="glass-sidebar hidden lg:block w-[280px] flex-shrink-0 h-full border-r border-slate-200">
+        <Sidebar
+          product={product}
+          setProduct={setProduct}
+          selectedDate={selectedDate}
+          setSelectedDate={setSelectedDate}
+          globalLatestTime={globalLatestTime}
+          frames={frames}
+          currentTimeIndex={currentTimeIndex}
+          setCurrentTimeIndex={setCurrentTimeIndex}
+          opacity={opacity}
+          setOpacity={setOpacity}
+          renderState={renderState}
+          isPlaying={animation.isPlaying}
+          setIsPlaying={animation.setIsPlaying}
+          speed={animation.speed}
+          setSpeed={animation.setSpeed}
+          loop={animation.loop}
+          setLoop={animation.setLoop}
+          stepForward={animation.stepForward}
+          stepBackward={animation.stepBackward}
+          isLoading={catalogLoading}
+          onCloseMobile={() => setIsOpen(false)}
+        />
       </div>
 
       <div className="relative min-w-0 flex-1 overflow-hidden">
