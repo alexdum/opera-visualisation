@@ -435,7 +435,7 @@ export default function OperaRadarPage() {
           </div>
 
           {activeTab === "map" && currentFrame && (
-            <div className="pointer-events-none absolute bottom-3 sm:bottom-6 left-1/2 -translate-x-1/2 z-30 flex min-h-10 items-center gap-2 rounded-full border border-white/20 bg-slate-900/40 px-4 text-xs sm:text-sm font-medium tracking-wide text-white shadow-lg backdrop-blur-md whitespace-nowrap">
+            <div className="pointer-events-none absolute bottom-1.5 sm:bottom-4 left-1/2 -translate-x-1/2 z-30 flex min-h-10 items-center gap-2 rounded-full border border-white/20 bg-slate-900/40 px-4 text-xs sm:text-sm font-medium tracking-wide text-white shadow-lg backdrop-blur-md whitespace-nowrap">
               <Clock size={16} className="text-white/80 shrink-0" aria-hidden="true" />
               <span>
               {(() => {
