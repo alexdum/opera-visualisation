@@ -133,7 +133,7 @@ export const PixelAnalysisChart = React.memo(({ data, product, isLoading, window
   );
 
   return (
-    <div ref={chartRef} className="relative flex h-[450px] w-full flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div ref={chartRef} className="relative flex h-[300px] sm:h-[450px] w-full flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-3 sm:p-5 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{config.title} ({config.unit})</h3>
         {chartData.length > 0 && (

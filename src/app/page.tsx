@@ -566,10 +566,10 @@ export default function OperaRadarPage() {
           )}
 
           {activeTab === "analysis" && (
-            <section className="pointer-events-none absolute inset-x-0 bottom-0 top-[66px] z-20 flex items-start justify-center p-4" aria-labelledby="pixel-heading">
-              <div className="pointer-events-auto max-h-full w-full max-w-4xl overflow-y-auto overscroll-contain rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
+            <section className="pointer-events-none absolute inset-x-0 bottom-0 top-[66px] z-20 flex items-start justify-center p-2 sm:p-4" aria-labelledby="pixel-heading">
+              <div className="pointer-events-auto max-h-full w-full max-w-4xl overflow-y-auto overscroll-contain rounded-2xl border border-slate-200 bg-white p-4 sm:p-6 shadow-2xl">
                 <header className="mb-2 flex items-start justify-between gap-4">
-                  <h2 id="pixel-heading" className="flex items-center text-xl font-bold text-slate-800"><BarChart3 className="mr-2 text-blue-600" aria-hidden="true" /> Pixel analysis</h2>
+                  <h2 id="pixel-heading" className="flex items-center text-lg sm:text-xl font-bold text-slate-800"><BarChart3 className="mr-2 text-blue-600" aria-hidden="true" /> Pixel analysis</h2>
                   <button type="button" onClick={closePixelAnalysis} aria-label="Close pixel analysis and clear selected point" className="flex min-h-12 min-w-12 shrink-0 items-center justify-center rounded-xl text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
                     <X size={20} aria-hidden="true" />
                   </button>
