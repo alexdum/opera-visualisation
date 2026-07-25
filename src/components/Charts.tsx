@@ -86,12 +86,25 @@ export const PixelAnalysisChart = React.memo(({ data, product, isLoading, window
     if (!active || !row) return null;
     const status = STATUS_META[row.status];
     return (
-      <div className="max-w-xs rounded-xl border border-slate-200 bg-white/95 p-3 text-sm text-slate-700 shadow-lg">
-        <p className="font-semibold text-slate-900">{row.time}</p>
-        <p className="mt-1"><strong>Status:</strong> {status.label}</p>
-        <p className="text-xs text-slate-300 sm:text-slate-500">{status.description}</p>
-        {row.value !== null && row.value !== undefined && <p className="mt-1 font-semibold text-blue-600">{config.title}: {row.value} {config.unit}</p>}
-        {row.interval && <p className="mt-1 text-xs text-slate-300 sm:text-slate-500">Interval: {row.interval}</p>}
+      <div className="max-w-xs rounded-xl border border-white/20 bg-slate-900/90 sm:border-slate-200 sm:bg-white/95 p-2 sm:p-3 text-xs sm:text-sm text-white sm:text-slate-700 shadow-lg backdrop-blur-md pointer-events-none">
+        <p className="font-semibold text-slate-100 sm:text-slate-900">{row.time}</p>
+        
+        {/* Desktop-only verbose details */}
+        <div className="hidden sm:block">
+          <p className="mt-1"><strong>Status:</strong> {status.label}</p>
+          <p className="text-xs text-slate-300 sm:text-slate-500">{status.description}</p>
+          {row.interval && <p className="mt-1 text-xs text-slate-300 sm:text-slate-500">Interval: {row.interval}</p>}
+        </div>
+
+        {/* Value always visible if present, otherwise fallback to status label on mobile */}
+        {row.value !== null && row.value !== undefined ? (
+          <p className="mt-0.5 sm:mt-1 font-bold text-blue-400 sm:text-blue-600">
+            <span className="hidden sm:inline">{config.title}: </span>
+            {row.value} {config.unit}
+          </p>
+        ) : (
+          <p className="mt-0.5 font-bold text-slate-300 sm:hidden">{status.label}</p>
+        )}
       </div>
     );
   };
