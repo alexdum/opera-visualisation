@@ -580,7 +580,7 @@ export default function OperaRadarPage() {
                       <MapPin size={14} className="text-blue-600" aria-hidden="true" />
                       Selected location: <strong>{selectedPixel.lat}°, {selectedPixel.lon}°</strong>
                     </p>
-                    <p className="text-xs text-slate-500">Showing the 24 hours ending at the selected radar frame. Generation of the plot will take approx 1 minute.</p>
+                    <p className="hidden sm:block text-xs text-slate-500">Showing the 24 hours ending at the selected radar frame. Generation of the plot will take approx 1 minute.</p>
                   </div>
                 ) : (
                   <p className="mb-6 text-slate-600">Return to the map and double-click a location to retrieve its cataloged GeoZarr series.</p>

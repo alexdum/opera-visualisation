@@ -32,7 +32,7 @@ interface ChartsProps {
 
 const STATUS_META: Record<TimelineStatus, { label: string; description: string; style: React.CSSProperties }> = {
   detected: { label: "Detected", description: "A numeric radar value is available.", style: { background: "#3b82f6" } },
-  undetect: { label: "Undetect (no phenomena occurred)", description: "Observed, but below the radar detection threshold.", style: { background: "repeating-linear-gradient(90deg, #7dd3fc 0 3px, #e0f2fe 3px 6px)" } },
+  undetect: { label: "Undetect", description: "Observed, but below the radar detection threshold (no phenomena occurred).", style: { background: "repeating-linear-gradient(90deg, #7dd3fc 0 3px, #e0f2fe 3px 6px)" } },
   nodata: { label: "Nodata", description: "The pixel was not observed or usable.", style: { background: "repeating-linear-gradient(90deg, #94a3b8 0 4px, #cbd5e1 4px 8px)" } },
   missing: { label: "Missing frame", description: "The expected catalog timestamp is absent.", style: { background: "repeating-linear-gradient(135deg, #f59e0b 0 3px, #fef3c7 3px 6px)" } },
   unknown: { label: "Unknown", description: "The observation has an unrecognized status.", style: { background: "repeating-linear-gradient(45deg, #a78bfa 0 3px, #ede9fe 3px 6px)" } },
@@ -137,8 +137,8 @@ export const PixelAnalysisChart = React.memo(({ data, product, isLoading, window
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{config.title} ({config.unit})</h3>
         {chartData.length > 0 && (
-          <p className="text-xs font-medium text-slate-500" aria-label="Pixel observation status summary">
-            <strong className="text-blue-700">{statusCounts.detected}</strong> detected · {statusCounts.undetect} undetect · {statusCounts.nodata} nodata · <strong className="text-amber-700">{statusCounts.missing}</strong> missing
+          <p className="text-[11px] sm:text-xs font-medium text-slate-500 leading-tight" aria-label="Pixel observation status summary">
+             <strong className="text-blue-700">{statusCounts.detected}</strong> detected · {statusCounts.undetect} undetect · {statusCounts.nodata} nodata · <strong className="text-amber-700">{statusCounts.missing}</strong> missing
             {statusCounts.unknown > 0 && <> · {statusCounts.unknown} unknown</>}
           </p>
         )}
@@ -151,9 +151,9 @@ export const PixelAnalysisChart = React.memo(({ data, product, isLoading, window
         )}
       </div>
       {chartData.length > 0 && (
-        <figure className="space-y-2" aria-labelledby="status-timeline-caption">
-          <figcaption id="status-timeline-caption" className="text-[11px] font-bold uppercase tracking-wider text-slate-600">Observation status</figcaption>
-          <div className="pl-12 pr-2">
+        <figure className="space-y-1 sm:space-y-2 mt-2" aria-labelledby="status-timeline-caption">
+          <figcaption id="status-timeline-caption" className="hidden sm:block text-[11px] font-bold uppercase tracking-wider text-slate-600">Observation status</figcaption>
+          <div className="pl-8 sm:pl-12 pr-2">
             <div
               className="flex h-3 overflow-hidden rounded-full border border-slate-300 bg-slate-100"
               role="img"

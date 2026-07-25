@@ -523,3 +523,27 @@ When defining static configuration arrays (e.g., color palettes, legend stops, d
 2. **Explicitly type the array at the source**: Always define an explicit interface (e.g., `interface PaletteStop`) and apply it directly to the exported constant (e.g., `export const PALETTE: PaletteStop[] = [...]`). 
 3. **Fix at the root**: Do not suppress type errors downstream in the component or cast types during `map()` operations. Fix the typing at the source array definition.
 <!-- END:typescript-static-arrays-rule -->
+
+<!-- BEGIN:ui-ux-map-overlays-pointer-events-rule -->
+## UI/UX: Pointer Events on Map Overlays
+
+When creating floating map controls, toolbars, or pills (e.g., date windows, legends) that sit on top of the MapLibre canvas:
+1. **Prevent Dead Zones**: Never block map interactivity with empty space. Apply `pointer-events-none` to the outer flex/grid container.
+2. **Enable Interactive Elements**: Apply `pointer-events-auto` exclusively to the interactive children (buttons, inputs) inside that container so they remain clickable while letting taps on the empty space pass through to the map.
+<!-- END:ui-ux-map-overlays-pointer-events-rule -->
+
+<!-- BEGIN:ui-ux-popover-scroll-snap-rule -->
+## UI/UX: Popover + CSS Scroll Snap Drawer Animation
+
+When implementing a native mobile drawer using `popover="manual"`, a CSS `snap-x` container, and an `IntersectionObserver` for swipe-to-close detection:
+1. **Prevent Instant-Close Race Condition**: When the drawer opens, you must instantly scroll it out of view before smoothly scrolling it in. This instant scroll causes the `IntersectionObserver` to fire immediately with a `0` intersection ratio, which will erroneously close the drawer.
+2. **Transition Guard**: You MUST use a ref (e.g., `isTransitioningRef`) set to `true` *before* the instant scroll, and configure the `IntersectionObserver` to ignore hide events (`intersectionRatio < threshold`) while `isOpen && isTransitioningRef.current` is true.
+<!-- END:ui-ux-popover-scroll-snap-rule -->
+
+<!-- BEGIN:ui-ux-glassmorphism-theme-rule -->
+## UI/UX: Map Overlay Glassmorphism Theme
+
+When styling floating widgets, cards, or legends over the main map canvas:
+1. **Consistent Styling**: Use the unified dark glassmorphism theme to ensure high contrast against the weather map: `bg-slate-900/50 backdrop-blur-md border border-white/20 text-white shadow-lg`.
+2. **Hover States**: For interactive buttons within these glass containers, use `hover:bg-white/10` for subtle feedback.
+<!-- END:ui-ux-glassmorphism-theme-rule -->
