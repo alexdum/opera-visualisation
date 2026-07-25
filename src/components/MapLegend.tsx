@@ -17,15 +17,15 @@ export const MapLegend: React.FC<MapLegendProps> = ({ product }) => {
   const unit = getUnitForParam(product);
 
   return (
-    <div className="absolute bottom-8 right-8 bg-slate-800/90 backdrop-blur-md p-3.5 pr-12 rounded-xl shadow-lg border border-slate-700 z-10 font-sans text-xs flex-col text-slate-100">
-      <div className="font-bold text-center text-sm border-b border-slate-600 pb-2 mb-2">
+    <div className="absolute bottom-12 right-2 sm:bottom-10 sm:right-3 md:bottom-8 md:right-8 bg-slate-800/90 backdrop-blur-md p-2 md:p-3.5 pr-10 md:pr-12 rounded-xl shadow-lg border border-slate-700 z-10 font-sans flex-col text-slate-100">
+      <div className="font-bold text-center text-[11px] md:text-sm border-b border-slate-600 pb-1.5 md:pb-2 mb-1.5 md:mb-2">
         {unit}
       </div>
       <div className="flex flex-col">
         {stops.map((stop: LegendStop, i: number) => (
-          <div key={`${stop.val}`} className="relative flex items-center h-4">
+          <div key={`${stop.val}`} className="relative flex items-center h-2.5 sm:h-3 md:h-4">
             <div
-              className="w-7 h-full border-x border-black/40"
+              className="w-4 sm:w-5 md:w-7 h-full border-x border-black/40"
               style={{
                 backgroundColor: stop.color,
                 opacity: 0.9,
@@ -35,7 +35,7 @@ export const MapLegend: React.FC<MapLegendProps> = ({ product }) => {
             />
             {stop.showLabel && (
               <span
-                className="absolute left-9 font-semibold text-[11px] leading-none min-w-[24px] z-10 text-slate-300"
+                className="absolute left-6 sm:left-7 md:left-9 font-semibold text-[10px] md:text-[11px] leading-none min-w-[24px] z-10 text-slate-300"
                 style={{ bottom: 0, transform: 'translateY(50%)' }}
               >
                 {stop.label !== undefined ? stop.label : stop.val}
