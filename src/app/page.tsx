@@ -329,7 +329,7 @@ export default function OperaRadarPage() {
   const showLoader = catalogLoading || renderState.status === "loading";
 
   return (
-    <main className="relative flex h-screen w-full overflow-hidden bg-slate-50 text-slate-900">
+    <main className="relative flex h-full w-full overflow-hidden bg-slate-50 text-slate-900">
       {isOpen && (
         <button
           type="button"
@@ -369,22 +369,22 @@ export default function OperaRadarPage() {
       <div className="relative min-w-0 flex-1 overflow-hidden">
         <div className="relative h-full w-full overflow-hidden">
           <div className="absolute left-1/2 top-3 z-30 flex -translate-x-1/2 items-center gap-2">
-            <button type="button" onClick={() => setIsOpen(!isOpen)} aria-label={isOpen ? "Close radar controls" : "Open radar controls"} className="min-h-11 min-w-11 rounded-xl border border-slate-200 bg-white/95 p-2 text-slate-700 shadow-lg backdrop-blur-md lg:hidden">
+            <button type="button" onClick={() => setIsOpen(!isOpen)} aria-label={isOpen ? "Close radar controls" : "Open radar controls"} className="min-h-12 min-w-12 rounded-xl border border-slate-200 bg-white/95 p-2 text-slate-700 shadow-lg backdrop-blur-md lg:hidden">
               {isOpen ? <X size={20} aria-hidden="true" /> : <Menu size={20} aria-hidden="true" />}
             </button>
-            <nav aria-label="Visualization views" className="flex space-x-1 rounded-xl border border-slate-200 bg-white/95 p-1 shadow-lg backdrop-blur-md">
+            <nav aria-label="Visualization views" className="flex space-x-2 rounded-xl border border-slate-200 bg-white/95 p-1 shadow-lg backdrop-blur-md">
             {([
               ["map", "Map", MapIcon],
               ["analysis", "Pixel analysis", BarChart3],
             ] as const).map(([id, label, Icon]) => (
-              <button key={id} type="button" onClick={() => { setActiveTab(id); setMapStylesOpen(false); }} aria-label={label} aria-pressed={activeTab === id} className={`flex min-h-11 items-center rounded-lg px-3 text-sm font-semibold ${activeTab === id ? "bg-white text-blue-700 shadow-sm" : "text-slate-600"}`}>
+              <button key={id} type="button" onClick={() => { setActiveTab(id); setMapStylesOpen(false); }} aria-label={label} aria-pressed={activeTab === id} className={`flex min-h-12 items-center rounded-lg px-3 text-sm font-semibold ${activeTab === id ? "bg-white text-blue-700 shadow-sm" : "text-slate-600"}`}>
                 <Icon size={16} className="mr-2" aria-hidden="true" />
                 <span className="hidden sm:inline">{label}</span>
               </button>
             ))}
             </nav>
             <Tooltip content="Toggle Fullscreen" position="bottom">
-              <button type="button" onClick={toggleFullscreen} aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"} className="flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-slate-200 bg-white/95 text-slate-700 shadow-lg backdrop-blur-md transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+              <button type="button" onClick={toggleFullscreen} aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"} className="flex min-h-12 min-w-12 items-center justify-center rounded-xl border border-slate-200 bg-white/95 text-slate-700 shadow-lg backdrop-blur-md transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
                 {isFullscreen ? <Minimize size={20} aria-hidden="true" /> : <Maximize size={20} aria-hidden="true" />}
               </button>
             </Tooltip>
@@ -397,7 +397,7 @@ export default function OperaRadarPage() {
               aria-expanded={mapStylesOpen}
               aria-controls="map-styles-menu"
               onClick={() => setMapStylesOpen((open) => !open)}
-              className="flex min-h-11 min-w-11 items-center justify-center rounded-md border border-slate-200 bg-white/95 text-slate-600 shadow-sm backdrop-blur-md transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+              className="flex min-h-12 min-w-12 items-center justify-center rounded-md border border-slate-200 bg-white/95 text-slate-600 shadow-sm backdrop-blur-md transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
             >
               <Layers size={20} aria-hidden="true" />
             </button>
@@ -412,7 +412,7 @@ export default function OperaRadarPage() {
                     ["bright", "OpenFreeMap Bright"],
                     ["satellite", "Satellite imagery"],
                   ].map(([id, label]) => (
-                    <label key={id} className="flex min-h-11 cursor-pointer items-center gap-2 text-xs font-semibold text-slate-600 hover:text-slate-900">
+                    <label key={id} className="flex min-h-12 cursor-pointer items-center gap-2 text-xs font-semibold text-slate-600 hover:text-slate-900">
                       <input
                         type="radio"
                         name="basemap"
@@ -427,7 +427,7 @@ export default function OperaRadarPage() {
                     </label>
                   ))}
                   <div className="mt-1 border-t border-slate-100 pt-2">
-                    <label className="flex min-h-11 cursor-pointer items-center gap-2 text-xs font-semibold text-slate-600 hover:text-slate-900">
+                    <label className="flex min-h-12 cursor-pointer items-center gap-2 text-xs font-semibold text-slate-600 hover:text-slate-900">
                       <input
                         type="checkbox"
                         checked={showLabels}
@@ -476,7 +476,7 @@ export default function OperaRadarPage() {
               <div className="pointer-events-auto max-h-full w-full max-w-4xl overflow-y-auto overscroll-contain rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl">
                 <header className="mb-2 flex items-start justify-between gap-4">
                   <h2 id="pixel-heading" className="flex items-center text-xl font-bold text-slate-800"><BarChart3 className="mr-2 text-blue-600" aria-hidden="true" /> Pixel analysis</h2>
-                  <button type="button" onClick={closePixelAnalysis} aria-label="Close pixel analysis and clear selected point" className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+                  <button type="button" onClick={closePixelAnalysis} aria-label="Close pixel analysis and clear selected point" className="flex min-h-12 min-w-12 shrink-0 items-center justify-center rounded-xl text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
                     <X size={20} aria-hidden="true" />
                   </button>
                 </header>
@@ -494,7 +494,7 @@ export default function OperaRadarPage() {
                 {pixelError && <p role="alert" className="mb-4 rounded-lg bg-rose-50 p-3 text-sm font-medium text-rose-800">{pixelError}</p>}
                 <PixelAnalysisChart data={pixelSeries} product={product} isLoading={pixelLoading} windowStart={pixelWindow?.start} windowEnd={pixelWindow?.end} />
                 {selectedPixel && pixelSeries.length > 0 && (
-                  <button type="button" onClick={handleExportCsv} className="mt-4 flex min-h-11 items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 font-bold text-white hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+                  <button type="button" onClick={handleExportCsv} className="mt-4 flex min-h-12 items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 font-bold text-white hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
                     <Download size={16} aria-hidden="true" /> Export cataloged CSV
                   </button>
                 )}

@@ -123,7 +123,7 @@ export function Sidebar({
                 type="button"
                 aria-pressed={product === id}
                 onClick={() => setProduct(id)}
-                className={`flex min-h-11 w-full items-center gap-3 rounded-xl border px-3.5 py-3 text-left text-sm font-medium transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${
+                className={`flex min-h-12 w-full items-center gap-3 rounded-xl border px-3.5 py-3 text-left text-sm font-medium transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${
                   product === id
                     ? "border-blue-200 bg-blue-50 text-blue-700 ring-2 ring-blue-500/10"
                     : "border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"
@@ -145,7 +145,7 @@ export function Sidebar({
               type="button"
               aria-pressed={!selectedDate}
               onClick={() => setSelectedDate("")}
-              className={`min-h-11 flex-1 rounded-lg px-3 py-2 text-sm font-medium ${!selectedDate ? "border border-slate-200 bg-white text-blue-700 shadow" : "text-slate-600"}`}
+              className={`min-h-12 flex-1 rounded-lg px-3 py-2 text-sm font-medium ${!selectedDate ? "border border-slate-200 bg-white text-blue-700 shadow" : "text-slate-600"}`}
             >
               Latest
             </button>
@@ -153,7 +153,7 @@ export function Sidebar({
               type="button"
               aria-pressed={Boolean(selectedDate)}
               onClick={() => setSelectedDate(new Date().toISOString().slice(0, 10))}
-              className={`min-h-11 flex-1 rounded-lg px-3 py-2 text-sm font-medium ${selectedDate ? "border border-slate-200 bg-white text-blue-700 shadow" : "text-slate-600"}`}
+              className={`min-h-12 flex-1 rounded-lg px-3 py-2 text-sm font-medium ${selectedDate ? "border border-slate-200 bg-white text-blue-700 shadow" : "text-slate-600"}`}
             >
               Historical
             </button>
@@ -171,7 +171,7 @@ export function Sidebar({
                 min="2026-07-21"
                 max={globalLatestTime ? globalLatestTime.slice(0, 10) : new Date().toISOString().slice(0, 10)}
                 onChange={(event) => setSelectedDate(event.target.value)}
-                className="min-h-11 w-full rounded-xl border border-slate-300 bg-white py-2.5 pl-9 pr-3.5 text-sm font-medium text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                className="min-h-12 w-full rounded-xl border border-slate-300 bg-white py-2.5 pl-9 pr-3.5 text-sm font-medium text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
               />
               <Calendar className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" size={15} aria-hidden="true" />
             </div>
@@ -220,20 +220,20 @@ export function Sidebar({
               )}
               <div className="mt-4 border-t border-slate-200 pt-4">
                 <div className="grid grid-cols-4 gap-1.5">
-                  <button type="button" onClick={stepBackward} aria-label="Previous frame" className="min-h-11 min-w-11 rounded-lg border border-slate-300 bg-white p-2 text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600">
+                  <button type="button" onClick={stepBackward} aria-label="Previous frame" className="min-h-12 min-w-12 rounded-lg border border-slate-300 bg-white p-2 text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600">
                     <SkipBack size={16} aria-hidden="true" />
                   </button>
-                  <button type="button" onClick={() => setIsPlaying(!isPlaying)} aria-label={isPlaying ? "Pause animation" : "Play animation"} className="min-h-11 min-w-11 rounded-lg bg-blue-600 p-2 text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+                  <button type="button" onClick={() => setIsPlaying(!isPlaying)} aria-label={isPlaying ? "Pause animation" : "Play animation"} className="min-h-12 min-w-12 rounded-lg bg-blue-600 p-2 text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
                     {isPlaying ? <Pause size={18} aria-hidden="true" /> : <Play size={18} aria-hidden="true" />}
                   </button>
-                  <button type="button" onClick={stepForward} aria-label="Next frame" className="min-h-11 min-w-11 rounded-lg border border-slate-300 bg-white p-2 text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600">
+                  <button type="button" onClick={stepForward} aria-label="Next frame" className="min-h-12 min-w-12 rounded-lg border border-slate-300 bg-white p-2 text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600">
                     <SkipForward size={16} aria-hidden="true" />
                   </button>
-                  <button type="button" onClick={() => setLoop(!loop)} aria-label={loop ? "Disable animation loop" : "Enable animation loop"} aria-pressed={loop} className={`min-h-11 min-w-11 rounded-lg border p-2 ${loop ? "border-blue-300 bg-blue-50 text-blue-700" : "border-slate-300 bg-white text-slate-600"}`}>
+                  <button type="button" onClick={() => setLoop(!loop)} aria-label={loop ? "Disable animation loop" : "Enable animation loop"} aria-pressed={loop} className={`min-h-12 min-w-12 rounded-lg border p-2 ${loop ? "border-blue-300 bg-blue-50 text-blue-700" : "border-slate-300 bg-white text-slate-600"}`}>
                     <RotateCw size={16} aria-hidden="true" />
                   </button>
                 </div>
-                <label className="mt-3 flex min-h-11 items-center justify-between gap-3 text-[0.65rem] font-bold uppercase text-slate-600">
+                <label className="mt-3 flex min-h-12 items-center justify-between gap-3 text-[0.65rem] font-bold uppercase text-slate-600">
                   Animation speed
                   <select aria-label="Animation speed" value={speed} onChange={(event) => setSpeed(Number(event.target.value))} className="w-24 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800">
                     <option value="0.5">0.5×</option>

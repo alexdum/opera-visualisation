@@ -814,7 +814,7 @@ export function WeatherMap({
           type="button"
           onClick={handleHomeClick}
           aria-label="Fit map to OPERA radar coverage"
-          className="flex min-h-11 min-w-11 items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-600 shadow-sm transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+          className="flex min-h-12 min-w-12 items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-600 shadow-sm transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
         >
           <Home size={20} aria-hidden="true" />
         </button>
