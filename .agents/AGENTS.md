@@ -544,6 +544,16 @@ When implementing a native mobile drawer using `popover="manual"`, a CSS `snap-x
 ## UI/UX: Map Overlay Glassmorphism Theme
 
 When styling floating widgets, cards, or legends over the main map canvas:
-1. **Consistent Styling**: Use the unified dark glassmorphism theme to ensure high contrast against the weather map: `bg-slate-900/50 backdrop-blur-md border border-white/20 text-white shadow-lg`.
-2. **Hover States**: For interactive buttons within these glass containers, use `hover:bg-white/10` for subtle feedback.
+1. **Responsive Scoping**: If applying the dark glassmorphism theme exclusively to mobile devices, you MUST explicitly preserve the desktop light theme by pairing the mobile classes with `sm:` (desktop) prefixes. Failing to do so causes "dark theme bleed". For example: `bg-slate-900/90 sm:bg-white/95 text-white sm:text-slate-700`.
+2. **Consistent Styling**: Use the unified dark glassmorphism theme to ensure high contrast against the weather map: `bg-slate-900/50 backdrop-blur-md border border-white/20 text-white shadow-lg`.
+3. **Hover States**: For interactive buttons within these glass containers, use `hover:bg-white/10` (or `sm:hover:bg-slate-100` for desktop) for subtle feedback.
 <!-- END:ui-ux-glassmorphism-theme-rule -->
+
+<!-- BEGIN:ui-ux-mobile-charts-rule -->
+## UI/UX: Mobile Chart Layout and Tooltips
+
+When implementing or modifying charts (e.g., Recharts) for mobile views:
+1. **Maximize Data Ink**: Mobile screens have limited horizontal space. Explicitly override default chart margins (e.g., using `margin={{ left: -15, right: 10 }}`) and reduce the `YAxis` width (e.g., `width={40}` instead of the default `60`) to prevent excessive blank space on the left side of the chart.
+2. **Minimize Sticky Hover Tooltips**: Mobile browsers treat a "tap" as a "hover". Do not render large, verbose tooltip boxes that obscure the entire chart when a user taps a data point. 
+3. **Responsive Tooltip Content**: Use responsive CSS classes (e.g., `hidden sm:block`) inside custom tooltips to hide verbose descriptions, secondary metrics, or long intervals on mobile. The mobile tooltip MUST be reduced to a minimal "pill" showing only the essential timestamp and primary value.
+<!-- END:ui-ux-mobile-charts-rule -->
