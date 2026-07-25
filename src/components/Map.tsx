@@ -117,6 +117,7 @@ export interface MapProps {
   onRenderState: (state: MapRenderState) => void;
   onMapClick?: (info: { lon: number; lat: number; name: string }) => void;
   selectedPixel?: { lon: number; lat: number } | null;
+  resetViewTrigger?: number;
 }
 
 export function WeatherMap({
@@ -130,6 +131,7 @@ export function WeatherMap({
   onRenderState,
   onMapClick,
   selectedPixel,
+  resetViewTrigger,
 }: MapProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -802,26 +804,15 @@ export function WeatherMap({
       .addTo(instance);
   }, [selectedPixel]);
 
-  const handleHomeClick = () => {
-    if (map.current) fitRadarExtent(map.current, 1500);
-  };
+  useEffect(() => {
+    if (resetViewTrigger && resetViewTrigger > 0 && map.current) {
+      fitRadarExtent(map.current, 1500);
+    }
+  }, [resetViewTrigger]);
 
   return (
     <>
       <div ref={mapContainer} className="absolute inset-0 h-full w-full" aria-label="Interactive OPERA radar map. Double-click to select a pixel for analysis." />
-      <div className="absolute left-2.5 top-[80px] z-20 group">
-        <button
-          type="button"
-          onClick={handleHomeClick}
-          aria-label="Fit map to OPERA radar coverage"
-          className="flex min-h-12 min-w-12 items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-600 shadow-sm transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
-        >
-          <Home size={20} aria-hidden="true" />
-        </button>
-        <span className="tooltip-content pointer-events-none absolute left-full top-1/2 z-50 ml-2 -translate-y-1/2 whitespace-nowrap rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 opacity-0 shadow-md transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-          Fit OPERA radar coverage
-        </span>
-      </div>
     </>
   );
 }

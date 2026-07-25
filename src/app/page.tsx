@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BarChart3, Clock, Download, Layers, Loader2, Map as MapIcon, MapPin, Maximize, Menu, Minimize, X } from "lucide-react";
+import { BarChart3, Clock, Download, Home, Layers, Loader2, Map as MapIcon, MapPin, Maximize, Menu, Minimize, X } from "lucide-react";
 import dynamic from "next/dynamic";
 
 import type { PixelSeriesEntry } from "@/components/Charts";
@@ -73,6 +73,7 @@ export default function OperaRadarPage() {
   const [pixelLoading, setPixelLoading] = useState(false);
   const [pixelError, setPixelError] = useState<string | null>(null);
   const [globalLatestTime, setGlobalLatestTime] = useState<string | null>(null);
+  const [resetMapView, setResetMapView] = useState(0);
   const globalLatestTimeRef = useRef<string | null>(null); // Replaced state with ref if not used in render, but it is passed to Sidebar. Wait, I should just keep the state.
   const initialTimeRef = useRef("");
   const lastPixelRequestKeyRef = useRef<string | null>(null);
@@ -407,6 +408,13 @@ export default function OperaRadarPage() {
               <button type="button" onClick={() => setIsOpen(!isOpen)} aria-label={isOpen ? "Close radar controls" : "Open radar controls"} className="min-h-12 min-w-12 rounded-xl border border-slate-200 bg-white/95 p-2 text-slate-700 shadow-lg backdrop-blur-md lg:hidden">
                 {isOpen ? <X size={20} aria-hidden="true" /> : <Menu size={20} aria-hidden="true" />}
               </button>
+
+              <Tooltip content="Reset Map View" position="bottom">
+                <button type="button" onClick={() => setResetMapView(v => v + 1)} aria-label="Fit map to OPERA radar coverage" className="flex min-h-12 min-w-12 items-center justify-center rounded-xl border border-slate-200 bg-white/95 text-slate-700 shadow-lg backdrop-blur-md transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+                  <Home size={20} aria-hidden="true" />
+                </button>
+              </Tooltip>
+
               <nav aria-label="Visualization views" className="flex space-x-2 rounded-xl border border-slate-200 bg-white/95 p-1 shadow-lg backdrop-blur-md">
               {([
                 ["map", "Map", MapIcon],
@@ -424,21 +432,23 @@ export default function OperaRadarPage() {
                 </button>
               </Tooltip>
             </div>
-
-            {activeTab === "map" && currentFrame && (
-              <div className="pointer-events-none flex min-h-12 items-center gap-1.5 rounded-xl border border-slate-200 bg-white/95 px-3 sm:px-4 text-[11px] sm:text-sm font-bold tracking-wide text-slate-700 shadow-lg backdrop-blur-md whitespace-nowrap">
-                <Clock size={14} className="text-blue-600 shrink-0" aria-hidden="true" />
-                {(() => {
-                  if (currentFrame.start_time && currentFrame.end_time) {
-                    const startFull = formatUtc(currentFrame.start_time);
-                    const endTime = new Intl.DateTimeFormat(undefined, { timeZone: "UTC", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(currentFrame.end_time));
-                    return `${startFull} - ${endTime} UTC`;
-                  }
-                  return `${formatUtc(currentFrame.nominal_time)} UTC`;
-                })()}
-              </div>
-            )}
           </div>
+
+          {activeTab === "map" && currentFrame && (
+            <div className="pointer-events-none absolute bottom-8 sm:bottom-10 left-1/2 -translate-x-1/2 z-30 flex min-h-10 items-center gap-2 rounded-full border border-white/20 bg-slate-900/40 px-4 text-xs sm:text-sm font-medium tracking-wide text-white shadow-lg backdrop-blur-md whitespace-nowrap">
+              <Clock size={16} className="text-white/80 shrink-0" aria-hidden="true" />
+              <span>
+              {(() => {
+                if (currentFrame.start_time && currentFrame.end_time) {
+                  const startFull = formatUtc(currentFrame.start_time);
+                  const endTime = new Intl.DateTimeFormat(undefined, { timeZone: "UTC", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(currentFrame.end_time));
+                  return `${startFull} - ${endTime} UTC`;
+                }
+                return `${formatUtc(currentFrame.nominal_time)} UTC`;
+              })()}
+              </span>
+            </div>
+          )}
 
           {activeTab === "map" && <div className="hidden sm:block absolute left-2.5 top-[130px] z-30">
             <button
@@ -500,6 +510,7 @@ export default function OperaRadarPage() {
             frames={frames}
             opacity={opacity}
             minQuality={minQuality}
+            resetViewTrigger={resetMapView}
             onRenderState={setRenderState}
             onMapClick={handleMapClick}
             selectedPixel={selectedPixel}
