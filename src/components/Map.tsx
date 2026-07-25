@@ -87,8 +87,8 @@ export const OPERA_RADAR_BOUNDS: maplibregl.LngLatBoundsLike = [
 ];
 
 export const OPERA_MAX_BOUNDS: maplibregl.LngLatBoundsLike = [
-  [-50.0, 20.0],
-  [70.0, 85.0],
+  [-47.1, 25.0],
+  [65.4, 75.8],
 ];
 
 
