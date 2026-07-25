@@ -329,7 +329,7 @@ export default function OperaRadarPage() {
   const showLoader = catalogLoading || renderState.status === "loading";
 
   return (
-    <main className="relative flex h-full w-full overflow-hidden bg-slate-50 text-slate-900">
+    <main className="relative flex flex-1 w-full overflow-hidden bg-slate-50 text-slate-900">
       {isOpen && (
         <button
           type="button"
