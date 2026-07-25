@@ -86,6 +86,11 @@ export const OPERA_RADAR_BOUNDS: maplibregl.LngLatBoundsLike = [
   [57.81137, 73.931257],
 ];
 
+export const OPERA_MAX_BOUNDS: maplibregl.LngLatBoundsLike = [
+  [-50.0, 20.0],
+  [70.0, 85.0],
+];
+
 
 
 const fitRadarExtent = (instance: maplibregl.Map, duration: number) => {
@@ -179,6 +184,7 @@ export function WeatherMap({
       dragRotate: false,
       touchPitch: false,
       maxPitch: 0,
+      maxBounds: OPERA_MAX_BOUNDS,
     });
     map.current = instance;
     instance.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
