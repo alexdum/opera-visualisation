@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BarChart3, CloudRain, Database, Download, Info, Layers, Loader2, Map as MapIcon, MapPin, Maximize, Menu, Minimize, Radar, ShieldCheck, TimerReset, TriangleAlert, X } from "lucide-react";
+import { BarChart3, Download, Layers, Loader2, Map as MapIcon, MapPin, Maximize, Menu, Minimize, X } from "lucide-react";
 import dynamic from "next/dynamic";
 
 import type { PixelSeriesEntry } from "@/components/Charts";
@@ -376,7 +376,6 @@ export default function OperaRadarPage() {
             {([
               ["map", "Map", MapIcon],
               ["analysis", "Pixel analysis", BarChart3],
-              ["about", "About", Info],
             ] as const).map(([id, label, Icon]) => (
               <button key={id} type="button" onClick={() => { setActiveTab(id); setMapStylesOpen(false); }} aria-label={label} aria-pressed={activeTab === id} className={`flex min-h-11 items-center rounded-lg px-3 text-sm font-semibold ${activeTab === id ? "bg-white text-blue-700 shadow-sm" : "text-slate-600"}`}>
                 <Icon size={16} className="mr-2" aria-hidden="true" />
@@ -503,71 +502,7 @@ export default function OperaRadarPage() {
             </section>
           )}
 
-          {activeTab === "about" && (
-            <section className="pointer-events-none absolute inset-x-0 bottom-0 top-[66px] z-20 flex items-start justify-center p-4" aria-labelledby="about-heading">
-              <div className="pointer-events-auto max-h-full w-full max-w-5xl overflow-y-auto overscroll-contain rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl sm:p-8">
-                <header className="mb-6 flex items-start justify-between gap-4">
-                  <div>
-                    <h2 id="about-heading" className="flex items-center text-2xl font-bold text-slate-800"><Info className="mr-3 text-blue-600" aria-hidden="true" /> About OPERA Radar</h2>
-                    <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-600">
-                      OPERA composites combine weather-radar observations from participating European networks. All displayed times are UTC, and only catalog-committed frames are available to the map and analysis tools.
-                    </p>
-                  </div>
-                  <button type="button" onClick={() => setActiveTab("map")} aria-label="Close About" className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-xl text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
-                    <X size={20} aria-hidden="true" />
-                  </button>
-                </header>
 
-                <div className="grid gap-4 md:grid-cols-3">
-                  <article className="rounded-2xl border border-blue-100 bg-blue-50/60 p-5">
-                    <h3 className="flex items-center gap-2 text-base font-bold text-slate-800"><Radar className="text-blue-600" size={19} aria-hidden="true" /> DBZH — Reflectivity</h3>
-                    <p className="mt-2 text-sm leading-relaxed text-slate-700">
-                      Radar echo intensity expressed in <strong>dBZ</strong>. It is useful for locating precipitation and examining storm structure, but it is not a direct measurement of rainfall rate.
-                    </p>
-                  </article>
-
-                  <article className="rounded-2xl border border-cyan-100 bg-cyan-50/60 p-5">
-                    <h3 className="flex items-center gap-2 text-base font-bold text-slate-800"><CloudRain className="text-cyan-700" size={19} aria-hidden="true" /> RATE — Precipitation rate</h3>
-                    <p className="mt-2 text-sm leading-relaxed text-slate-700">
-                      Estimated precipitation intensity expressed in <strong>mm/h</strong>. It describes the rate associated with the selected composite and must not be interpreted as accumulated rainfall.
-                    </p>
-                  </article>
-
-                  <article className="rounded-2xl border border-indigo-100 bg-indigo-50/60 p-5">
-                    <h3 className="flex items-center gap-2 text-base font-bold text-slate-800"><TimerReset className="text-indigo-600" size={19} aria-hidden="true" /> ACRR — Accumulation</h3>
-                    <p className="mt-2 text-sm leading-relaxed text-slate-700">
-                      Estimated rainfall accumulated over the displayed interval, expressed in <strong>mm</strong>. The current product represents one hour; its exact start and end times are preserved and displayed.
-                    </p>
-                  </article>
-
-                  <article className="rounded-2xl border border-emerald-100 bg-emerald-50/50 p-5 md:col-span-2">
-                    <h3 className="flex items-center gap-2 text-base font-bold text-slate-800"><ShieldCheck className="text-emerald-700" size={19} aria-hidden="true" /> Quality and observation status</h3>
-                    <div className="mt-2 space-y-2 text-sm leading-relaxed text-slate-700">
-                      <p>Normalized total quality values range from <strong>0 to 1</strong>; higher values indicate greater confidence in the radar estimate.</p>
-                      <p>The optional DBZH quality filter hides only pixels with a known quality value below the selected threshold. It never rewrites COGs, GeoZarr measurements, pixel-analysis values, or exported data. Missing, non-finite, or out-of-range quality remains classified as unknown rather than being treated as zero.</p>
-                      <p><strong>Nodata</strong> means the pixel was not observed or is outside available coverage. <strong>Undetect (no phenomena occurred)</strong> means it was observed but the signal was below the radar detection threshold. These states are preserved separately.</p>
-                      <p>Map quality filtering is currently available only for DBZH. RATE and ACRR quality layers remain preserved in GeoZarr for analysis and future product-specific filtering.</p>
-                    </div>
-                  </article>
-
-                  <article className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-                    <h3 className="flex items-center gap-2 text-base font-bold text-slate-800"><Database className="text-slate-600" size={19} aria-hidden="true" /> Data delivery</h3>
-                    <p className="mt-2 text-sm leading-relaxed text-slate-700">
-                      Recent map frames use the rolling COG cache. Older cataloged frames transparently use the permanent GeoZarr archive. Pixel analysis always reads GeoZarr, including quality, status, provenance, and ACRR interval bounds.
-                    </p>
-                  </article>
-                </div>
-
-                <aside className="mt-4 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm leading-relaxed text-amber-950" aria-label="Radar interpretation limitations">
-                  <TriangleAlert className="mt-0.5 shrink-0 text-amber-600" size={20} aria-hidden="true" />
-                  <div>
-                    <h3 className="font-bold">Interpret with care</h3>
-                    <p className="mt-1">Radar-derived precipitation is an estimate. Ground clutter, beam blockage, anomalous propagation, attenuation, distance from radar sites, and composite processing can introduce artifacts or uncertainty. Use official warnings and local observations for safety-critical decisions.</p>
-                  </div>
-                </aside>
-              </div>
-            </section>
-          )}
         </div>
       </div>
     </main>
