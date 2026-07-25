@@ -145,3 +145,10 @@ dialog.chart-modal[open] {
 }
 
 .maplibregl-ctrl-compass .maplibregl-ctrl-icon { background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns=\"http://www.w3.org/2000/svg\" width=\"29\" height=\"29\" viewBox=\"0 0 29 29\"%3E%3Cpath d=\"M10.5 14l4-8 4 8h-8z\" fill=\"%23ccc\"/%3E%3Cpath d=\"M10.5 16l4 8 4-8h-8z\" fill=\"%23ccc\"/%3E%3C/svg%3E") !important; }
+
+@media (max-width: 639px) {
+  .maplibregl-ctrl-group {
+    display: none !important;
+  }
+}
+

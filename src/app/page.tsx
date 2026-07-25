@@ -418,7 +418,7 @@ export default function OperaRadarPage() {
                 </button>
               ))}
               </nav>
-              <Tooltip content="Toggle Fullscreen" position="bottom">
+              <Tooltip content="Toggle Fullscreen" position="bottom" className="hidden sm:inline-flex">
                 <button type="button" onClick={toggleFullscreen} aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"} className="flex min-h-12 min-w-12 items-center justify-center rounded-xl border border-slate-200 bg-white/95 text-slate-700 shadow-lg backdrop-blur-md transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
                   {isFullscreen ? <Minimize size={20} aria-hidden="true" /> : <Maximize size={20} aria-hidden="true" />}
                 </button>
@@ -440,7 +440,7 @@ export default function OperaRadarPage() {
             )}
           </div>
 
-          {activeTab === "map" && <div className="absolute left-2.5 top-[130px] z-30">
+          {activeTab === "map" && <div className="hidden sm:block absolute left-2.5 top-[130px] z-30">
             <button
               type="button"
               aria-label="Choose map style"
