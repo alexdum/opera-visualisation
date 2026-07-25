@@ -17,8 +17,8 @@ export const MapLegend: React.FC<MapLegendProps> = ({ product }) => {
   const unit = getUnitForParam(product);
 
   return (
-    <div className="absolute bottom-12 right-2 sm:bottom-10 sm:right-3 md:bottom-8 md:right-8 bg-slate-800/90 backdrop-blur-md p-2 md:p-3.5 pr-10 md:pr-12 rounded-xl shadow-lg border border-slate-700 z-10 font-sans flex-col text-slate-100">
-      <div className="font-bold text-center text-[11px] md:text-sm border-b border-slate-600 pb-1.5 md:pb-2 mb-1.5 md:mb-2">
+    <div className="absolute bottom-12 right-2 sm:bottom-10 sm:right-3 md:bottom-8 md:right-8 bg-slate-900/50 backdrop-blur-md p-2 md:p-3.5 pr-10 md:pr-12 rounded-xl shadow-lg border border-white/20 z-10 font-sans flex-col text-white">
+      <div className="font-bold text-center text-sm border-b border-white/20 pb-1.5 md:pb-2 mb-1.5 md:mb-2">
         {unit}
       </div>
       <div className="flex flex-col">

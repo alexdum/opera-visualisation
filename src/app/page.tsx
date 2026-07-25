@@ -409,7 +409,7 @@ export default function OperaRadarPage() {
                 {isOpen ? <X size={20} aria-hidden="true" /> : <Menu size={20} aria-hidden="true" />}
               </button>
 
-              <Tooltip content="Reset Map View" position="bottom">
+              <Tooltip content="Reset Map View" position="bottom" className="sm:hidden">
                 <button type="button" onClick={() => setResetMapView(v => v + 1)} aria-label="Fit map to OPERA radar coverage" className="flex min-h-12 min-w-12 items-center justify-center rounded-xl border border-slate-200 bg-white/95 text-slate-700 shadow-lg backdrop-blur-md transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
                   <Home size={20} aria-hidden="true" />
                 </button>
@@ -435,7 +435,7 @@ export default function OperaRadarPage() {
           </div>
 
           {activeTab === "map" && currentFrame && (
-            <div className="pointer-events-none absolute bottom-1.5 sm:bottom-4 left-1/2 -translate-x-1/2 z-30 flex min-h-10 items-center gap-2 rounded-full border border-white/20 bg-slate-900/40 px-4 text-xs sm:text-sm font-medium tracking-wide text-white shadow-lg backdrop-blur-md whitespace-nowrap">
+            <div className="pointer-events-none absolute bottom-1.5 sm:bottom-4 left-1/2 -translate-x-1/2 z-30 flex min-h-10 items-center gap-2 rounded-full border border-white/20 bg-slate-900/50 px-4 text-xs sm:text-sm font-medium tracking-wide text-white shadow-lg backdrop-blur-md whitespace-nowrap">
               <Clock size={16} className="text-white/80 shrink-0" aria-hidden="true" />
               <span>
               {(() => {
@@ -446,6 +446,22 @@ export default function OperaRadarPage() {
                 }
                 return `${formatUtc(currentFrame.nominal_time)} UTC`;
               })()}
+              </span>
+            </div>
+          )}
+
+          {activeTab === "map" && (
+            <div className="hidden sm:block absolute left-2.5 top-[80px] z-30 group">
+              <button
+                type="button"
+                onClick={() => setResetMapView(v => v + 1)}
+                aria-label="Fit map to OPERA radar coverage"
+                className="flex min-h-12 min-w-12 items-center justify-center rounded-md border border-slate-200 bg-white/95 p-1.5 text-slate-600 shadow-sm backdrop-blur-md transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+              >
+                <Home size={20} aria-hidden="true" />
+              </button>
+              <span className="tooltip-content pointer-events-none absolute left-full top-1/2 z-50 ml-2 -translate-y-1/2 whitespace-nowrap rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 opacity-0 shadow-md transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                Fit OPERA radar coverage
               </span>
             </div>
           )}
