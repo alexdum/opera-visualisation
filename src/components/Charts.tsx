@@ -89,9 +89,9 @@ export const PixelAnalysisChart = React.memo(({ data, product, isLoading, window
       <div className="max-w-xs rounded-xl border border-slate-200 bg-white/95 p-3 text-sm text-slate-700 shadow-lg">
         <p className="font-semibold text-slate-900">{row.time}</p>
         <p className="mt-1"><strong>Status:</strong> {status.label}</p>
-        <p className="text-xs text-slate-500">{status.description}</p>
+        <p className="text-xs text-slate-300 sm:text-slate-500">{status.description}</p>
         {row.value !== null && row.value !== undefined && <p className="mt-1 font-semibold text-blue-600">{config.title}: {row.value} {config.unit}</p>}
-        {row.interval && <p className="mt-1 text-xs text-slate-500">Interval: {row.interval}</p>}
+        {row.interval && <p className="mt-1 text-xs text-slate-300 sm:text-slate-500">Interval: {row.interval}</p>}
       </div>
     );
   };
@@ -133,29 +133,29 @@ export const PixelAnalysisChart = React.memo(({ data, product, isLoading, window
   );
 
   return (
-    <div ref={chartRef} className="relative flex h-[300px] sm:h-[450px] w-full flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-3 sm:p-5 shadow-sm">
+    <div ref={chartRef} className="relative flex h-[300px] sm:h-[450px] w-full flex-col gap-3 rounded-2xl border border-white/20 bg-slate-900/50 backdrop-blur-md sm:border-slate-200 sm:bg-white sm:backdrop-blur-none p-3 sm:p-5 shadow-sm text-white sm:text-slate-800">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wider">{config.title} ({config.unit})</h3>
+        <h3 className="text-sm font-bold text-white sm:text-slate-700 uppercase tracking-wider">{config.title} ({config.unit})</h3>
         {chartData.length > 0 && (
-          <p className="text-[11px] sm:text-xs font-medium text-slate-500 leading-tight" aria-label="Pixel observation status summary">
-             <strong className="text-blue-700">{statusCounts.detected}</strong> detected · {statusCounts.undetect} undetect · {statusCounts.nodata} nodata · <strong className="text-amber-700">{statusCounts.missing}</strong> missing
+          <p className="text-[11px] sm:text-xs font-medium text-slate-300 sm:text-slate-500 leading-tight" aria-label="Pixel observation status summary">
+             <strong className="text-blue-400 sm:text-blue-700">{statusCounts.detected}</strong> detected · {statusCounts.undetect} undetect · {statusCounts.nodata} nodata · <strong className="text-amber-400 sm:text-amber-700">{statusCounts.missing}</strong> missing
             {statusCounts.unknown > 0 && <> · {statusCounts.unknown} unknown</>}
           </p>
         )}
       </div>
       <div className={`min-h-0 w-full flex-1 ${isLoading ? "pointer-events-none opacity-25" : ""}`}>
         {chartData.length > 0 ? chartContent : (
-          <div className="flex h-full items-center justify-center text-center font-medium text-slate-500">
+          <div className="flex h-full items-center justify-center text-center font-medium text-slate-300 sm:text-slate-500">
           No cataloged measurements are available. Double-click a location on the map.
           </div>
         )}
       </div>
       {chartData.length > 0 && (
         <figure className="space-y-1 sm:space-y-2 mt-2" aria-labelledby="status-timeline-caption">
-          <figcaption id="status-timeline-caption" className="hidden sm:block text-[11px] font-bold uppercase tracking-wider text-slate-600">Observation status</figcaption>
+          <figcaption id="status-timeline-caption" className="hidden sm:block text-[11px] font-bold uppercase tracking-wider text-slate-300 sm:text-slate-600">Observation status</figcaption>
           <div className="pl-8 sm:pl-12 pr-2">
             <div
-              className="flex h-3 overflow-hidden rounded-full border border-slate-300 bg-slate-100"
+              className="flex h-3 overflow-hidden rounded-full border border-white/20 bg-white/10 sm:border-slate-300 sm:bg-slate-100"
               role="img"
               aria-label={`${statusCounts.detected} detected, ${statusCounts.undetect} undetect, ${statusCounts.nodata} nodata, ${statusCounts.missing} missing frames`}
             >
@@ -169,10 +169,10 @@ export const PixelAnalysisChart = React.memo(({ data, product, isLoading, window
               ))}
             </div>
           </div>
-          <ul className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-600" role="list">
+          <ul className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-300 sm:text-slate-600" role="list">
             {(Object.keys(STATUS_META) as TimelineStatus[]).filter((status) => status !== "unknown" || statusCounts.unknown > 0).map((status) => (
               <li key={status} className="flex items-center gap-1.5" title={STATUS_META[status].description}>
-                <span className="h-2.5 w-5 rounded-sm border border-slate-300" style={STATUS_META[status].style} aria-hidden="true" />
+                <span className="h-2.5 w-5 rounded-sm border border-white/20 sm:border-slate-300" style={STATUS_META[status].style} aria-hidden="true" />
                 {STATUS_META[status].label}
               </li>
             ))}
@@ -180,10 +180,10 @@ export const PixelAnalysisChart = React.memo(({ data, product, isLoading, window
         </figure>
       )}
       {isLoading && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-slate-50/70 backdrop-blur-[1px]">
+        <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-slate-900/70 sm:bg-slate-50/70 backdrop-blur-[1px]">
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="h-8 w-8 animate-spin text-blue-600" aria-hidden="true" />
-            <p className="text-xs font-bold text-slate-600">Loading pixel series…</p>
+            <p className="text-xs font-bold text-slate-300 sm:text-slate-600">Loading pixel series…</p>
           </div>
         </div>
       )}

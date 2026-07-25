@@ -406,23 +406,23 @@ export default function OperaRadarPage() {
         <div className="relative h-full w-full overflow-hidden">
           <div className="absolute left-1/2 top-3 z-30 flex -translate-x-1/2 flex-col sm:flex-row items-center gap-2">
             <div className="flex items-center gap-2">
-              <button type="button" onClick={() => setIsOpen(!isOpen)} aria-label={isOpen ? "Close radar controls" : "Open radar controls"} className="min-h-12 min-w-12 rounded-xl border border-slate-200 bg-white/95 p-2 text-slate-700 shadow-lg backdrop-blur-md lg:hidden">
+              <button type="button" onClick={() => setIsOpen(!isOpen)} aria-label={isOpen ? "Close radar controls" : "Open radar controls"} className="min-h-12 min-w-12 rounded-xl border border-white/20 bg-slate-900/50 text-white shadow-lg backdrop-blur-md lg:hidden">
                 {isOpen ? <X size={20} aria-hidden="true" /> : <Menu size={20} aria-hidden="true" />}
               </button>
 
               <Tooltip content="Reset Map View" position="bottom" className="sm:hidden">
-                <button type="button" onClick={() => setResetMapView(v => v + 1)} aria-label="Fit map to OPERA radar coverage" className="flex min-h-12 min-w-12 items-center justify-center rounded-xl border border-slate-200 bg-white/95 text-slate-700 shadow-lg backdrop-blur-md transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+                <button type="button" onClick={() => setResetMapView(v => v + 1)} aria-label="Fit map to OPERA radar coverage" className="flex min-h-12 min-w-12 items-center justify-center rounded-xl border border-white/20 bg-slate-900/50 text-white shadow-lg backdrop-blur-md transition-colors hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
                   <Home size={20} aria-hidden="true" />
                 </button>
               </Tooltip>
 
-              <nav aria-label="Visualization views" className="flex space-x-2 rounded-xl border border-slate-200 bg-white/95 p-1 shadow-lg backdrop-blur-md">
+              <nav aria-label="Visualization views" className="flex space-x-1 sm:space-x-2 rounded-xl border border-white/20 bg-slate-900/50 sm:border-slate-200 sm:bg-white/95 p-1 shadow-lg backdrop-blur-md">
               {([
                 ["map", "Map", MapIcon],
                 ["analysis", "Pixel analysis", BarChart3],
               ] as const).map(([id, label, Icon]) => (
-                <button key={id} type="button" onClick={() => { setActiveTab(id); setMapStylesOpen(false); }} aria-label={label} aria-pressed={activeTab === id} className={`flex min-h-12 items-center rounded-lg px-3 text-sm font-semibold ${activeTab === id ? "bg-white text-blue-700 shadow-sm" : "text-slate-600"}`}>
-                  <Icon size={16} className="mr-2 shrink-0" aria-hidden="true" />
+                <button key={id} type="button" onClick={() => { setActiveTab(id); setMapStylesOpen(false); }} aria-label={label} aria-pressed={activeTab === id} className={`flex min-h-12 items-center rounded-lg px-2 sm:px-3 text-sm font-semibold transition-colors ${activeTab === id ? "bg-white/20 text-white sm:bg-white sm:text-blue-700 sm:shadow-sm" : "text-slate-200 hover:bg-white/10 sm:text-slate-600 sm:hover:bg-slate-50"}`}>
+                  <Icon size={16} className="sm:mr-2 shrink-0" aria-hidden="true" />
                   <span className="hidden sm:inline">{label}</span>
                 </button>
               ))}
@@ -436,18 +436,18 @@ export default function OperaRadarPage() {
           </div>
 
           {activeTab === "map" && currentFrame && (
-            <div className="pointer-events-none absolute bottom-1.5 sm:bottom-4 left-1/2 -translate-x-1/2 z-30 flex min-h-10 items-center gap-1.5 sm:gap-2 rounded-full border border-white/20 bg-slate-900/50 p-1 pl-3 pr-3 text-xs sm:text-sm font-medium tracking-wide text-white shadow-lg backdrop-blur-md whitespace-nowrap">
+            <div className="pointer-events-none absolute bottom-1.5 sm:bottom-4 left-1/2 -translate-x-1/2 z-30 flex min-h-10 items-center gap-1.5 sm:gap-2 rounded-full border border-white/20 bg-slate-900/50 sm:border-slate-200 sm:bg-white/95 sm:text-slate-700 p-1 pl-3 pr-3 text-xs sm:text-sm font-medium tracking-wide text-white shadow-lg backdrop-blur-md whitespace-nowrap">
               <button 
                 type="button" 
                 onClick={() => { animation.stepBackward(); animation.setIsPlaying(false); }}
-                className="pointer-events-auto flex items-center justify-center p-1.5 hover:bg-white/10 rounded-full transition-colors active:scale-95"
+                className="pointer-events-auto flex items-center justify-center p-1.5 hover:bg-white/10 sm:hover:bg-slate-100 rounded-full transition-colors active:scale-95"
                 aria-label="Previous frame"
               >
-                <SkipBack size={14} className="text-white/80 shrink-0" aria-hidden="true" />
+                <SkipBack size={14} className="text-white/80 sm:text-slate-600 shrink-0" aria-hidden="true" />
               </button>
               
               <div className="flex items-center gap-2 px-1">
-                <Clock size={16} className="text-white/80 shrink-0 hidden sm:block" aria-hidden="true" />
+                <Clock size={16} className="text-white/80 sm:text-slate-500 shrink-0 hidden sm:block" aria-hidden="true" />
                 <span>
                 {(() => {
                   const date = new Date(currentFrame.nominal_time);
@@ -459,10 +459,10 @@ export default function OperaRadarPage() {
               <button 
                 type="button" 
                 onClick={() => { animation.stepForward(); animation.setIsPlaying(false); }}
-                className="pointer-events-auto flex items-center justify-center p-1.5 hover:bg-white/10 rounded-full transition-colors active:scale-95"
+                className="pointer-events-auto flex items-center justify-center p-1.5 hover:bg-white/10 sm:hover:bg-slate-100 rounded-full transition-colors active:scale-95"
                 aria-label="Next frame"
               >
-                <SkipForward size={14} className="text-white/80 shrink-0" aria-hidden="true" />
+                <SkipForward size={14} className="text-white/80 sm:text-slate-600 shrink-0" aria-hidden="true" />
               </button>
             </div>
           )}
@@ -567,23 +567,23 @@ export default function OperaRadarPage() {
 
           {activeTab === "analysis" && (
             <section className="pointer-events-none absolute inset-x-0 bottom-0 top-[66px] z-20 flex items-start justify-center p-2 sm:p-4" aria-labelledby="pixel-heading">
-              <div className="pointer-events-auto max-h-full w-full max-w-4xl overflow-y-auto overscroll-contain rounded-2xl border border-slate-200 bg-white p-4 sm:p-6 shadow-2xl">
+              <div className="pointer-events-auto max-h-full w-full max-w-4xl overflow-y-auto overscroll-contain rounded-2xl border border-white/20 bg-slate-900/50 backdrop-blur-md sm:border-slate-200 sm:bg-white sm:backdrop-blur-none p-3 sm:p-6 shadow-2xl">
                 <header className="mb-2 flex items-start justify-between gap-4">
-                  <h2 id="pixel-heading" className="flex items-center text-lg sm:text-xl font-bold text-slate-800"><BarChart3 className="mr-2 text-blue-600" aria-hidden="true" /> Pixel analysis</h2>
-                  <button type="button" onClick={closePixelAnalysis} aria-label="Close pixel analysis and clear selected point" className="flex min-h-12 min-w-12 shrink-0 items-center justify-center rounded-xl text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+                  <h2 id="pixel-heading" className="flex items-center text-lg sm:text-xl font-bold text-white sm:text-slate-800"><BarChart3 className="mr-2 text-white/80 sm:text-blue-600" aria-hidden="true" /> Pixel analysis</h2>
+                  <button type="button" onClick={closePixelAnalysis} aria-label="Close pixel analysis and clear selected point" className="flex min-h-12 min-w-12 shrink-0 items-center justify-center rounded-xl text-slate-300 sm:text-slate-500 transition-colors hover:bg-white/10 sm:hover:bg-slate-100 hover:text-white sm:hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
                     <X size={20} aria-hidden="true" />
                   </button>
                 </header>
                 {selectedPixel ? (
-                  <div className="mb-4 space-y-1 text-sm font-medium text-slate-600">
+                  <div className="mb-4 space-y-1 text-sm font-medium text-slate-300 sm:text-slate-600">
                     <p className="flex items-center gap-1.5">
-                      <MapPin size={14} className="text-blue-600" aria-hidden="true" />
-                      Selected location: <strong>{selectedPixel.lat}°, {selectedPixel.lon}°</strong>
+                      <MapPin size={14} className="text-white/80 sm:text-blue-600" aria-hidden="true" />
+                      Selected location: <strong className="text-white sm:text-slate-900">{selectedPixel.lat}°, {selectedPixel.lon}°</strong>
                     </p>
-                    <p className="hidden sm:block text-xs text-slate-500">Showing the 24 hours ending at the selected radar frame. Generation of the plot will take approx 1 minute.</p>
+                    <p className="hidden sm:block text-xs text-slate-400 sm:text-slate-500">Showing the 24 hours ending at the selected radar frame. Generation of the plot will take approx 1 minute.</p>
                   </div>
                 ) : (
-                  <p className="mb-6 text-slate-600">Return to the map and double-click a location to retrieve its cataloged GeoZarr series.</p>
+                  <p className="mb-6 text-slate-300 sm:text-slate-600">Return to the map and double-click a location to retrieve its cataloged GeoZarr series.</p>
                 )}
                 {pixelError && <p role="alert" className="mb-4 rounded-lg bg-rose-50 p-3 text-sm font-medium text-rose-800">{pixelError}</p>}
                 <PixelAnalysisChart data={pixelSeries} product={product} isLoading={pixelLoading} windowStart={pixelWindow?.start} windowEnd={pixelWindow?.end} />

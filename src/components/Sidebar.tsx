@@ -43,10 +43,10 @@ interface SidebarProps {
 
 const FilterLabel = ({ label, help, htmlFor }: { label: string; help: string; htmlFor?: string }) => (
   <div className="mb-1.5 flex flex-col gap-0.5">
-    <label htmlFor={htmlFor} className="text-xs font-bold uppercase tracking-wider text-slate-700">
+    <label htmlFor={htmlFor} className="text-xs font-bold uppercase tracking-wider text-white lg:text-slate-700">
       {label}
     </label>
-    <p className="text-[0.65rem] leading-tight text-slate-500">{help}</p>
+    <p className="text-[0.65rem] leading-tight text-slate-400 lg:text-slate-500">{help}</p>
   </div>
 );
 
@@ -102,9 +102,9 @@ export function Sidebar({
   }, [cadenceMs, frames]);
 
   return (
-    <aside className="relative z-50 flex h-full flex-col bg-white/90 text-slate-800" aria-label="Radar controls">
-      <div className="border-b border-slate-200 p-6">
-        <h1 className="flex items-center text-xl font-bold tracking-tight text-slate-800">
+    <aside className="relative z-50 flex h-full flex-col bg-slate-900/50 text-white backdrop-blur-md lg:bg-white/90 lg:text-slate-800 lg:backdrop-blur-none" aria-label="Radar controls">
+      <div className="border-b border-white/20 lg:border-slate-200 p-6">
+        <h1 className="flex items-center text-xl font-bold tracking-tight text-white lg:text-slate-800">
           <Activity className="mr-2 h-6 w-6 text-blue-500" aria-hidden="true" /> OPERA Radar
         </h1>
       </div>
@@ -130,8 +130,8 @@ export function Sidebar({
                 }}
                 className={`flex min-h-12 w-full items-center gap-3 rounded-xl border px-3.5 py-3 text-left text-sm font-medium transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${
                   product === id
-                    ? "border-blue-200 bg-blue-50 text-blue-700 ring-2 ring-blue-500/10"
-                    : "border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                    ? "border-blue-400 bg-blue-500/20 text-white ring-2 ring-blue-500/30 lg:border-blue-200 lg:bg-blue-50 lg:text-blue-700 lg:ring-blue-500/10"
+                    : "border-white/20 text-slate-300 hover:border-white/40 hover:bg-white/10 lg:border-slate-200 lg:text-slate-600 lg:hover:border-slate-300 lg:hover:bg-slate-50"
                 }`}
               >
                 <ProductIcon size={18} aria-hidden="true" />
@@ -145,12 +145,12 @@ export function Sidebar({
           <div id="view-mode-heading">
             <FilterLabel label="View mode" help="Latest provides a rolling 24-hour catalog; historical selects one UTC day." />
           </div>
-          <div className="flex rounded-xl border border-slate-200 bg-slate-50/50 p-1 shadow-sm">
+          <div className="flex rounded-xl border border-white/20 bg-white/5 p-1 shadow-sm lg:border-slate-200 lg:bg-slate-50/50">
             <button
               type="button"
               aria-pressed={!selectedDate}
               onClick={() => setSelectedDate("")}
-              className={`min-h-12 flex-1 rounded-lg px-3 py-2 text-sm font-medium ${!selectedDate ? "border border-slate-200 bg-white text-blue-700 shadow" : "text-slate-600"}`}
+              className={`min-h-12 flex-1 rounded-lg px-3 py-2 text-sm font-medium ${!selectedDate ? "border border-white/20 bg-white/20 text-white shadow lg:border-slate-200 lg:bg-white lg:text-blue-700" : "text-slate-300 hover:text-white hover:bg-white/10 lg:text-slate-600 lg:hover:text-slate-800 lg:hover:bg-transparent"}`}
             >
               Latest
             </button>
@@ -158,7 +158,7 @@ export function Sidebar({
               type="button"
               aria-pressed={Boolean(selectedDate)}
               onClick={() => setSelectedDate(new Date().toISOString().slice(0, 10))}
-              className={`min-h-12 flex-1 rounded-lg px-3 py-2 text-sm font-medium ${selectedDate ? "border border-slate-200 bg-white text-blue-700 shadow" : "text-slate-600"}`}
+              className={`min-h-12 flex-1 rounded-lg px-3 py-2 text-sm font-medium ${selectedDate ? "border border-white/20 bg-white/20 text-white shadow lg:border-slate-200 lg:bg-white lg:text-blue-700" : "text-slate-300 hover:text-white hover:bg-white/10 lg:text-slate-600 lg:hover:text-slate-800 lg:hover:bg-transparent"}`}
             >
               Historical
             </button>
@@ -179,29 +179,29 @@ export function Sidebar({
                   setSelectedDate(event.target.value);
                   onCloseMobile?.();
                 }}
-                className="min-h-12 w-full rounded-xl border border-slate-300 bg-white py-2.5 pl-9 pr-3.5 text-sm font-medium text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                className="min-h-12 w-full rounded-xl border border-white/20 bg-white/10 py-2.5 pl-9 pr-3.5 text-sm font-medium text-white placeholder:text-slate-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-400/20 lg:border-slate-300 lg:bg-white lg:text-slate-700 lg:focus:border-blue-500 lg:focus:ring-blue-500/20"
               />
-              <Calendar className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" size={15} aria-hidden="true" />
+              <Calendar className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 lg:text-slate-400 lg:text-slate-500" size={15} aria-hidden="true" />
             </div>
           </div>
         )}
 
         {frames.length > 0 && currentFrame && (
-          <section className={`border-t border-slate-100 pt-4 ${isLoading ? "pointer-events-none opacity-40 transition-opacity" : "transition-opacity"}`} aria-labelledby="timeline-heading">
+          <section className={`border-t border-white/20 lg:border-slate-100 pt-4 ${isLoading ? "pointer-events-none opacity-40 transition-opacity" : "transition-opacity"}`} aria-labelledby="timeline-heading">
             <div id="timeline-heading">
               <FilterLabel label="Timeline" help="Only catalog-committed frames are available for playback." />
             </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div className="rounded-xl border border-white/20 bg-white/5 lg:border-slate-200 lg:bg-slate-50 p-4">
               <div className="mb-3 flex items-center justify-between gap-2">
-                <span className="flex items-center text-xs font-bold uppercase tracking-wider text-slate-600">
+                <span className="flex items-center text-xs font-bold uppercase tracking-wider text-slate-300 lg:text-slate-600">
                   <Clock size={12} className="mr-1" aria-hidden="true" /> Frame {currentTimeIndex + 1}/{frames.length}
                 </span>
                 <span className="rounded-md bg-blue-100 px-2 py-0.5 text-xs font-bold text-blue-700">
                   {formatUtc(currentFrame.nominal_time)} UTC
                 </span>
               </div>
-              <p className="mb-2 text-[0.65rem] font-medium text-slate-500">
-                {product} native step: <span className="font-bold text-slate-700">{cadenceLabel}</span>
+              <p className="mb-2 text-[0.65rem] font-medium text-slate-400 lg:text-slate-500">
+                {product} native step: <span className="font-bold text-white lg:text-slate-700">{cadenceLabel}</span>
               </p>
               <label htmlFor="timeline-slider" className="sr-only">Selected radar frame</label>
               <input
@@ -226,24 +226,24 @@ export function Sidebar({
               {gapPercentages.length > 0 && (
                 <p className="mt-2 text-[0.65rem] font-medium text-rose-700">{gapPercentages.length} catalog gap(s) in this range</p>
               )}
-              <div className="mt-4 border-t border-slate-200 pt-4">
+              <div className="mt-4 border-t border-white/20 lg:border-slate-200 pt-4">
                 <div className="grid grid-cols-4 gap-1.5">
-                  <button type="button" onClick={stepBackward} aria-label="Previous frame" className="min-h-12 min-w-12 rounded-lg border border-slate-300 bg-white p-2 text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600">
+                  <button type="button" onClick={stepBackward} aria-label="Previous frame" className="min-h-12 min-w-12 rounded-lg border border-white/20 bg-white/10 p-2 text-white hover:bg-white/20 lg:border-slate-300 lg:bg-white lg:text-slate-700 lg:hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600">
                     <SkipBack size={16} aria-hidden="true" />
                   </button>
                   <button type="button" onClick={() => setIsPlaying(!isPlaying)} aria-label={isPlaying ? "Pause animation" : "Play animation"} className="min-h-12 min-w-12 rounded-lg bg-blue-600 p-2 text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
                     {isPlaying ? <Pause size={18} aria-hidden="true" /> : <Play size={18} aria-hidden="true" />}
                   </button>
-                  <button type="button" onClick={stepForward} aria-label="Next frame" className="min-h-12 min-w-12 rounded-lg border border-slate-300 bg-white p-2 text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600">
+                  <button type="button" onClick={stepForward} aria-label="Next frame" className="min-h-12 min-w-12 rounded-lg border border-white/20 bg-white/10 p-2 text-white hover:bg-white/20 lg:border-slate-300 lg:bg-white lg:text-slate-700 lg:hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600">
                     <SkipForward size={16} aria-hidden="true" />
                   </button>
-                  <button type="button" onClick={() => setLoop(!loop)} aria-label={loop ? "Disable animation loop" : "Enable animation loop"} aria-pressed={loop} className={`min-h-12 min-w-12 rounded-lg border p-2 ${loop ? "border-blue-300 bg-blue-50 text-blue-700" : "border-slate-300 bg-white text-slate-600"}`}>
+                  <button type="button" onClick={() => setLoop(!loop)} aria-label={loop ? "Disable animation loop" : "Enable animation loop"} aria-pressed={loop} className={`min-h-12 min-w-12 rounded-lg border p-2 ${loop ? "border-blue-400 bg-blue-500/20 text-white lg:border-blue-300 lg:bg-blue-50 lg:text-blue-700" : "border-white/20 bg-white/10 text-white hover:bg-white/20 lg:border-slate-300 lg:bg-white lg:text-slate-600 lg:hover:bg-slate-50"}`}>
                     <RotateCw size={16} aria-hidden="true" />
                   </button>
                 </div>
-                <label className="mt-3 flex min-h-12 items-center justify-between gap-3 text-[0.65rem] font-bold uppercase text-slate-600">
+                <label className="mt-3 flex min-h-12 items-center justify-between gap-3 text-[0.65rem] font-bold uppercase text-slate-300 lg:text-slate-600">
                   Animation speed
-                  <select aria-label="Animation speed" value={speed} onChange={(event) => setSpeed(Number(event.target.value))} className="w-24 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800">
+                  <select aria-label="Animation speed" value={speed} onChange={(event) => setSpeed(Number(event.target.value))} className="w-24 rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-xs font-semibold text-white lg:border-slate-300 lg:bg-white lg:text-slate-800">
                     <option value="0.5">0.5×</option>
                     <option value="1">1×</option>
                     <option value="2">2×</option>
@@ -255,7 +255,7 @@ export function Sidebar({
           </section>
         )}
 
-        <section className="border-t border-slate-100 pt-4">
+        <section className="border-t border-white/20 lg:border-slate-100 pt-4">
           <FilterLabel htmlFor="radar-opacity" label="Radar opacity" help="Adjust the map overlay without modifying source data." />
           <div className="flex items-center gap-3">
             <input
@@ -268,21 +268,21 @@ export function Sidebar({
               onChange={(event) => setOpacity(Number(event.target.value))}
               className="h-2 flex-1 cursor-pointer accent-blue-600"
             />
-            <output htmlFor="radar-opacity" className="w-10 text-right text-xs font-bold text-slate-700">
+            <output htmlFor="radar-opacity" className="w-10 text-right text-xs font-bold text-white lg:text-slate-700">
               {Math.round(opacity * 100)}%
             </output>
           </div>
         </section>
 
-        <section className="border-t border-slate-100 pt-4">
+        <section className="border-t border-white/20 lg:border-slate-100 pt-4">
           <FilterLabel label="Current frame" help="Published storage and rendering state for the selected frame." />
-          <dl className="space-y-2 rounded-xl border border-slate-200 bg-white p-3 text-xs">
-            <div className="flex justify-between gap-3"><dt className="text-slate-500">Product</dt><dd className="font-bold">{product}</dd></div>
-            <div className="flex justify-between gap-3"><dt className="text-slate-500">Backend</dt><dd className="font-bold uppercase">{renderState.backend ?? currentFrame?.backend ?? "—"}</dd></div>
-            <div className="flex justify-between gap-3"><dt className="text-slate-500">Map state</dt><dd className="font-bold capitalize">{renderState.status}</dd></div>
-            {currentFrame?.start_time && <div><dt className="text-slate-500">Interval start</dt><dd className="font-semibold">{formatUtc(currentFrame.start_time)} UTC</dd></div>}
-            {currentFrame?.end_time && <div><dt className="text-slate-500">Interval end</dt><dd className="font-semibold">{formatUtc(currentFrame.end_time)} UTC</dd></div>}
-            {currentFrame && <div><dt className="text-slate-500">Revision</dt><dd className="break-all font-mono text-[0.6rem]">{currentFrame.revision}</dd></div>}
+          <dl className="space-y-2 rounded-xl border border-white/20 bg-white/5 p-3 text-xs lg:border-slate-200 lg:bg-white">
+            <div className="flex justify-between gap-3"><dt className="text-slate-400 lg:text-slate-500">Product</dt><dd className="font-bold">{product}</dd></div>
+            <div className="flex justify-between gap-3"><dt className="text-slate-400 lg:text-slate-500">Backend</dt><dd className="font-bold uppercase">{renderState.backend ?? currentFrame?.backend ?? "—"}</dd></div>
+            <div className="flex justify-between gap-3"><dt className="text-slate-400 lg:text-slate-500">Map state</dt><dd className="font-bold capitalize">{renderState.status}</dd></div>
+            {currentFrame?.start_time && <div><dt className="text-slate-400 lg:text-slate-500">Interval start</dt><dd className="font-semibold">{formatUtc(currentFrame.start_time)} UTC</dd></div>}
+            {currentFrame?.end_time && <div><dt className="text-slate-400 lg:text-slate-500">Interval end</dt><dd className="font-semibold">{formatUtc(currentFrame.end_time)} UTC</dd></div>}
+            {currentFrame && <div><dt className="text-slate-400 lg:text-slate-500">Revision</dt><dd className="break-all font-mono text-[0.6rem]">{currentFrame.revision}</dd></div>}
           </dl>
         </section>
 
