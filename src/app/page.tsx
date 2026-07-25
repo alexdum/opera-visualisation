@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BarChart3, Download, Layers, Loader2, Map as MapIcon, MapPin, Maximize, Menu, Minimize, X } from "lucide-react";
+import { BarChart3, Clock, Download, Layers, Loader2, Map as MapIcon, MapPin, Maximize, Menu, Minimize, X } from "lucide-react";
 import dynamic from "next/dynamic";
 
 import type { PixelSeriesEntry } from "@/components/Charts";
@@ -36,6 +36,18 @@ const PixelAnalysisChart = dynamic(
 );
 
 const apiBase = () => (process.env.NODE_ENV === "development" ? "http://localhost:7860" : "");
+
+const formatUtc = (value?: string | null) => {
+  if (!value) return "";
+  return new Intl.DateTimeFormat(undefined, {
+    timeZone: "UTC",
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date(value));
+};
 
 export default function OperaRadarPage() {
   const [isOpen, setIsOpen] = useState(false);
@@ -368,7 +380,7 @@ export default function OperaRadarPage() {
 
       <div className="relative min-w-0 flex-1 overflow-hidden">
         <div className="relative h-full w-full overflow-hidden">
-          <div className="absolute left-1/2 top-3 z-30 flex -translate-x-1/2 items-center gap-2">
+          <div className="absolute left-1/2 top-3 z-30 flex w-[calc(100%-16px)] max-w-fit -translate-x-1/2 flex-wrap items-center justify-center gap-2">
             <button type="button" onClick={() => setIsOpen(!isOpen)} aria-label={isOpen ? "Close radar controls" : "Open radar controls"} className="min-h-12 min-w-12 rounded-xl border border-slate-200 bg-white/95 p-2 text-slate-700 shadow-lg backdrop-blur-md lg:hidden">
               {isOpen ? <X size={20} aria-hidden="true" /> : <Menu size={20} aria-hidden="true" />}
             </button>
@@ -383,6 +395,14 @@ export default function OperaRadarPage() {
               </button>
             ))}
             </nav>
+
+            {activeTab === "map" && currentFrame && (
+              <div className="pointer-events-none flex min-h-12 items-center gap-2 rounded-xl border border-slate-200 bg-white/95 px-4 text-xs font-bold tracking-wide text-slate-700 shadow-lg backdrop-blur-md sm:text-sm">
+                <Clock size={16} className="text-blue-600" aria-hidden="true" />
+                {formatUtc(currentFrame.nominal_time)} UTC
+              </div>
+            )}
+
             <Tooltip content="Toggle Fullscreen" position="bottom">
               <button type="button" onClick={toggleFullscreen} aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"} className="flex min-h-12 min-w-12 items-center justify-center rounded-xl border border-slate-200 bg-white/95 text-slate-700 shadow-lg backdrop-blur-md transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
                 {isFullscreen ? <Minimize size={20} aria-hidden="true" /> : <Maximize size={20} aria-hidden="true" />}
