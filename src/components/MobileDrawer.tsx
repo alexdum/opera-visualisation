@@ -18,17 +18,18 @@ export function MobileDrawer({ isOpen, onClose, children }: MobileDrawerProps) {
   useEffect(() => {
     const popover = popoverRef.current;
     const scroller = scrollerRef.current;
-    if (!popover || !scroller) return;
+    const sheet = sheetRef.current;
+    if (!popover || !scroller || !sheet) return;
 
     if (isOpen) {
       if (!popover.matches(':popover-open')) {
+        isTransitioningRef.current = true;
         // Show popover
         popover.showPopover();
-        // Snap instantly to the closed position (right side)
-        scroller.scrollTo({ left: scroller.offsetWidth, behavior: 'instant' });
+        // Snap instantly to the closed position (scrolled so sheet is hidden)
+        scroller.scrollTo({ left: sheet.offsetWidth, behavior: 'instant' });
         
         // Wait a frame for the jump to commit, then smooth scroll to the open position
-        isTransitioningRef.current = true;
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
             scroller.scrollTo({ left: 0, behavior: 'smooth' });
@@ -43,7 +44,7 @@ export function MobileDrawer({ isOpen, onClose, children }: MobileDrawerProps) {
       if (popover.matches(':popover-open')) {
         // Smooth scroll to the closed position
         isTransitioningRef.current = true;
-        scroller.scrollTo({ left: scroller.offsetWidth, behavior: 'smooth' });
+        scroller.scrollTo({ left: sheet.offsetWidth, behavior: 'smooth' });
         // The IntersectionObserver will fire hidePopover once the scroll completes
       }
     }
@@ -61,6 +62,9 @@ export function MobileDrawer({ isOpen, onClose, children }: MobileDrawerProps) {
       if (!entry) return;
       
       if (entry.intersectionRatio < visibleThreshold) {
+        // If React says we should be open, and we are setting up the open animation, ignore this temporary hide event.
+        if (isOpen && isTransitioningRef.current) return;
+
         if (popover.matches(':popover-open')) {
           popover.hidePopover();
         }
