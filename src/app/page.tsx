@@ -73,8 +73,25 @@ export default function OperaRadarPage() {
   const [pixelLoading, setPixelLoading] = useState(false);
   const [pixelError, setPixelError] = useState<string | null>(null);
   const [globalLatestTime, setGlobalLatestTime] = useState<string | null>(null);
+  const globalLatestTimeRef = useRef<string | null>(null); // Replaced state with ref if not used in render, but it is passed to Sidebar. Wait, I should just keep the state.
   const initialTimeRef = useRef("");
   const lastPixelRequestKeyRef = useRef<string | null>(null);
+  const touchStartX = useRef<number | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if ((e.target as HTMLElement).tagName.toLowerCase() === 'input') return;
+    touchStartX.current = e.touches[0].clientX;
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartX.current === null) return;
+    const touchEndX = e.changedTouches[0].clientX;
+    const distance = touchStartX.current - touchEndX;
+    if (distance > 50) {
+      setIsOpen(false);
+    }
+    touchStartX.current = null;
+  };
 
   const currentFrame = frames[currentTimeIndex];
   const animation = useRadarAnimation({
@@ -351,7 +368,11 @@ export default function OperaRadarPage() {
         />
       )}
 
-      <div className={`glass-sidebar fixed z-50 flex h-full w-[280px] flex-shrink-0 flex-col border-r border-slate-200 transition-transform duration-300 lg:relative lg:translate-x-0 ${isOpen ? "translate-x-0" : "-translate-x-full"}`}>
+      <div 
+        className={`glass-sidebar fixed z-50 flex h-full w-[280px] flex-shrink-0 flex-col border-r border-slate-200 transition-transform duration-300 lg:relative lg:translate-x-0 ${isOpen ? "translate-x-0" : "-translate-x-full"}`}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      >
         <div className="flex-1 overflow-hidden">
           <Sidebar
             product={product}
@@ -374,31 +395,39 @@ export default function OperaRadarPage() {
             stepForward={animation.stepForward}
             stepBackward={animation.stepBackward}
             isLoading={catalogLoading}
+            onCloseMobile={() => setIsOpen(false)}
           />
         </div>
       </div>
 
       <div className="relative min-w-0 flex-1 overflow-hidden">
         <div className="relative h-full w-full overflow-hidden">
-          <div className="absolute left-1/2 top-3 z-30 flex w-[calc(100%-16px)] max-w-fit -translate-x-1/2 flex-wrap items-center justify-center gap-2">
-            <button type="button" onClick={() => setIsOpen(!isOpen)} aria-label={isOpen ? "Close radar controls" : "Open radar controls"} className="min-h-12 min-w-12 rounded-xl border border-slate-200 bg-white/95 p-2 text-slate-700 shadow-lg backdrop-blur-md lg:hidden">
-              {isOpen ? <X size={20} aria-hidden="true" /> : <Menu size={20} aria-hidden="true" />}
-            </button>
-            <nav aria-label="Visualization views" className="flex space-x-2 rounded-xl border border-slate-200 bg-white/95 p-1 shadow-lg backdrop-blur-md">
-            {([
-              ["map", "Map", MapIcon],
-              ["analysis", "Pixel analysis", BarChart3],
-            ] as const).map(([id, label, Icon]) => (
-              <button key={id} type="button" onClick={() => { setActiveTab(id); setMapStylesOpen(false); }} aria-label={label} aria-pressed={activeTab === id} className={`flex min-h-12 items-center rounded-lg px-3 text-sm font-semibold ${activeTab === id ? "bg-white text-blue-700 shadow-sm" : "text-slate-600"}`}>
-                <Icon size={16} className="mr-2" aria-hidden="true" />
-                <span className="hidden sm:inline">{label}</span>
+          <div className="absolute left-1/2 top-3 z-30 flex -translate-x-1/2 flex-col sm:flex-row items-center gap-2">
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={() => setIsOpen(!isOpen)} aria-label={isOpen ? "Close radar controls" : "Open radar controls"} className="min-h-12 min-w-12 rounded-xl border border-slate-200 bg-white/95 p-2 text-slate-700 shadow-lg backdrop-blur-md lg:hidden">
+                {isOpen ? <X size={20} aria-hidden="true" /> : <Menu size={20} aria-hidden="true" />}
               </button>
-            ))}
-            </nav>
+              <nav aria-label="Visualization views" className="flex space-x-2 rounded-xl border border-slate-200 bg-white/95 p-1 shadow-lg backdrop-blur-md">
+              {([
+                ["map", "Map", MapIcon],
+                ["analysis", "Pixel analysis", BarChart3],
+              ] as const).map(([id, label, Icon]) => (
+                <button key={id} type="button" onClick={() => { setActiveTab(id); setMapStylesOpen(false); }} aria-label={label} aria-pressed={activeTab === id} className={`flex min-h-12 items-center rounded-lg px-3 text-sm font-semibold ${activeTab === id ? "bg-white text-blue-700 shadow-sm" : "text-slate-600"}`}>
+                  <Icon size={16} className="mr-2 shrink-0" aria-hidden="true" />
+                  <span className="hidden sm:inline">{label}</span>
+                </button>
+              ))}
+              </nav>
+              <Tooltip content="Toggle Fullscreen" position="bottom">
+                <button type="button" onClick={toggleFullscreen} aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"} className="flex min-h-12 min-w-12 items-center justify-center rounded-xl border border-slate-200 bg-white/95 text-slate-700 shadow-lg backdrop-blur-md transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+                  {isFullscreen ? <Minimize size={20} aria-hidden="true" /> : <Maximize size={20} aria-hidden="true" />}
+                </button>
+              </Tooltip>
+            </div>
 
             {activeTab === "map" && currentFrame && (
-              <div className="pointer-events-none flex min-h-12 items-center gap-2 rounded-xl border border-slate-200 bg-white/95 px-4 text-xs font-bold tracking-wide text-slate-700 shadow-lg backdrop-blur-md sm:text-sm">
-                <Clock size={16} className="text-blue-600" aria-hidden="true" />
+              <div className="pointer-events-none flex min-h-12 items-center gap-1.5 rounded-xl border border-slate-200 bg-white/95 px-3 sm:px-4 text-[11px] sm:text-sm font-bold tracking-wide text-slate-700 shadow-lg backdrop-blur-md whitespace-nowrap">
+                <Clock size={14} className="text-blue-600 shrink-0" aria-hidden="true" />
                 {(() => {
                   if (currentFrame.start_time && currentFrame.end_time) {
                     const startFull = formatUtc(currentFrame.start_time);
@@ -409,12 +438,6 @@ export default function OperaRadarPage() {
                 })()}
               </div>
             )}
-
-            <Tooltip content="Toggle Fullscreen" position="bottom">
-              <button type="button" onClick={toggleFullscreen} aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"} className="flex min-h-12 min-w-12 items-center justify-center rounded-xl border border-slate-200 bg-white/95 text-slate-700 shadow-lg backdrop-blur-md transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
-                {isFullscreen ? <Minimize size={20} aria-hidden="true" /> : <Maximize size={20} aria-hidden="true" />}
-              </button>
-            </Tooltip>
           </div>
 
           {activeTab === "map" && <div className="absolute left-2.5 top-[130px] z-30">

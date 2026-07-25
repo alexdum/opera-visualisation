@@ -38,6 +38,7 @@ interface SidebarProps {
   stepForward: () => void;
   stepBackward: () => void;
   isLoading?: boolean;
+  onCloseMobile?: () => void;
 }
 
 const FilterLabel = ({ label, help, htmlFor }: { label: string; help: string; htmlFor?: string }) => (
@@ -82,6 +83,7 @@ export function Sidebar({
   stepForward,
   stepBackward,
   isLoading,
+  onCloseMobile,
 }: SidebarProps) {
   const currentFrame = frames[currentTimeIndex];
   const cadenceMs = useMemo(() => inferRadarCadenceMs(frames, product), [frames, product]);
@@ -122,7 +124,10 @@ export function Sidebar({
                 key={id}
                 type="button"
                 aria-pressed={product === id}
-                onClick={() => setProduct(id)}
+                onClick={() => {
+                  setProduct(id);
+                  onCloseMobile?.();
+                }}
                 className={`flex min-h-12 w-full items-center gap-3 rounded-xl border px-3.5 py-3 text-left text-sm font-medium transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${
                   product === id
                     ? "border-blue-200 bg-blue-50 text-blue-700 ring-2 ring-blue-500/10"
@@ -170,7 +175,10 @@ export function Sidebar({
                 value={selectedDate}
                 min="2026-07-21"
                 max={globalLatestTime ? globalLatestTime.slice(0, 10) : new Date().toISOString().slice(0, 10)}
-                onChange={(event) => setSelectedDate(event.target.value)}
+                onChange={(event) => {
+                  setSelectedDate(event.target.value);
+                  onCloseMobile?.();
+                }}
                 className="min-h-12 w-full rounded-xl border border-slate-300 bg-white py-2.5 pl-9 pr-3.5 text-sm font-medium text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
               />
               <Calendar className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" size={15} aria-hidden="true" />
