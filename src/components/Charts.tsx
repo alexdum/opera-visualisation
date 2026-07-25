@@ -99,10 +99,10 @@ export const PixelAnalysisChart = React.memo(({ data, product, isLoading, window
   const chartContent = (
     <ResponsiveContainer width="100%" height="100%">
       {isInterval ? (
-        <BarChart data={chartData}>
+        <BarChart data={chartData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
           <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
-          <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} domain={[0, 'auto']} />
+          <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} domain={[0, 'auto']} width={40} />
           <Tooltip
             filterNull={false}
             content={tooltipContent}
@@ -110,10 +110,10 @@ export const PixelAnalysisChart = React.memo(({ data, product, isLoading, window
           <Bar dataKey="value" fill={config.color} radius={[4, 4, 0, 0]} />
         </BarChart>
       ) : (
-        <LineChart data={chartData}>
+        <LineChart data={chartData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
           <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
-          <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} domain={["auto", "auto"]} />
+          <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} domain={["auto", "auto"]} width={40} />
           <Tooltip
             filterNull={false}
             content={tooltipContent}
