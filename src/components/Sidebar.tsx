@@ -114,12 +114,12 @@ export function Sidebar({
           <div id="product-heading">
             <FilterLabel label="Radar product" help="Choose reflectivity, precipitation rate, or hourly accumulation." />
           </div>
-          <div className="flex flex-col gap-1.5">
+          <div className="flex flex-col gap-2">
             {([
-              ["DBZH", "DBZH (Reflectivity)", Radar],
-              ["RATE", "RATE (Precipitation)", CloudRain],
-              ["ACRR", "ACRR (Accumulation)", TimerReset],
-            ] as const).map(([id, label, ProductIcon]) => (
+              ["DBZH", "DBZH (Reflectivity)", "Raw radar echo intensity (dBZ)", Radar],
+              ["RATE", "RATE (Precipitation)", "How hard it is raining right now (mm/h)", CloudRain],
+              ["ACRR", "ACRR (Accumulation)", "Total rain fallen over the past hour (mm)", TimerReset],
+            ] as const).map(([id, label, description, ProductIcon]) => (
               <button
                 key={id}
                 type="button"
@@ -128,14 +128,21 @@ export function Sidebar({
                   setProduct(id);
                   onCloseMobile?.();
                 }}
-                className={`flex min-h-12 w-full items-center gap-3 rounded-xl border px-3.5 py-3 text-left text-sm font-medium transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${
+                className={`flex w-full items-start gap-3 rounded-xl border px-3.5 py-3 text-left transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${
                   product === id
                     ? "border-blue-400 bg-blue-500/20 text-white ring-2 ring-blue-500/30 lg:border-blue-200 lg:bg-blue-50 lg:text-blue-700 lg:ring-blue-500/10"
                     : "border-white/20 text-slate-300 hover:border-white/40 hover:bg-white/10 lg:border-slate-200 lg:text-slate-600 lg:hover:border-slate-300 lg:hover:bg-slate-50"
                 }`}
               >
-                <ProductIcon size={18} aria-hidden="true" />
-                {label}
+                <div className="mt-0.5 shrink-0">
+                  <ProductIcon size={18} aria-hidden="true" />
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-sm font-medium">{label}</span>
+                  <span className={`text-xs ${product === id ? "text-blue-200 lg:text-blue-600/80" : "text-slate-400 lg:text-slate-500"}`}>
+                    {description}
+                  </span>
+                </div>
               </button>
             ))}
           </div>
