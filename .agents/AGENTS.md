@@ -557,3 +557,17 @@ When implementing or modifying charts (e.g., Recharts) for mobile views:
 2. **Minimize Sticky Hover Tooltips**: Mobile browsers treat a "tap" as a "hover". Do not render large, verbose tooltip boxes that obscure the entire chart when a user taps a data point. 
 3. **Responsive Tooltip Content**: Use responsive CSS classes (e.g., `hidden sm:block`) inside custom tooltips to hide verbose descriptions, secondary metrics, or long intervals on mobile. The mobile tooltip MUST be reduced to a minimal "pill" showing only the essential timestamp and primary value.
 <!-- END:ui-ux-mobile-charts-rule -->
+
+<!-- BEGIN:geotiff-export-strategy-rule -->
+## GeoTIFF Export Strategy
+
+When implementing raw data (GeoTIFF) export functionality for power users/researchers:
+1. **Do not generate GeoTIFFs dynamically for hot COGs**: For recent frames (Latest mode), the data is already stored as a Cloud Optimized GeoTIFF on Hugging Face. Provide a direct download link to the upstream COG file rather than burning server CPU/RAM to generate an identical `.tif` on the fly. This provides zero-cost export for the backend.
+2. **Historical GeoZarr Generation**: Historical data is stored as multi-dimensional GeoZarr arrays, which cannot be downloaded as a single `.tif`. If GeoTIFF export is required for historical frames, it MUST be generated on the fly via a dedicated backend endpoint (e.g., `/api/export/geotiff`).
+3. **Protect the Backend**: Any endpoint generating GeoTIFFs on the fly from GeoZarr MUST implement strict rate-limiting and bounded concurrency to prevent server memory/CPU exhaustion from malicious or automated bulk download requests.
+4. **Target Audience**: Remember that GeoTIFF exports are for power users (GIS software, Python analysis). Do not surface this prominently as a general "Save Image" button for the public, as standard devices cannot open or preview `.tif` files natively.
+5. **High-Performance Zarr/Rasterio Stack**: When generating the historical GeoTIFF, bypass `xarray` and use the direct `zarr` and `rasterio` libraries already present in the backend to minimize overhead. The implementation flow MUST be:
+   - Fetch the 2D array directly from the Zarr group: `data = group["measurement"][time_index]`
+   - Write to memory using Rasterio: `with rasterio.MemoryFile() as memfile: ...`
+   - Send the resulting byte stream to the user.
+<!-- END:geotiff-export-strategy-rule -->
