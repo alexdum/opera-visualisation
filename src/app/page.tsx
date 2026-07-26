@@ -55,7 +55,7 @@ export default function OperaRadarPage() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [activeTab, setActiveTab] = useState<"map" | "analysis" | "about">("map");
   const [urlHydrated, setUrlHydrated] = useState(false);
-  const [product, setProduct] = useState<RadarProduct>("DBZH");
+  const [product, setProduct] = useState<RadarProduct>("RATE");
   const [selectedDate, setSelectedDate] = useState("");
   const [basemap, setBasemap] = useState("positron");
   const [showLabels, setShowLabels] = useState(true);
