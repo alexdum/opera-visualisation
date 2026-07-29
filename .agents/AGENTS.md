@@ -236,6 +236,16 @@ When generating or downsampling meteorological radar data (like DBZH reflectivit
 - A catalog may retain `hot_cog_ready: true` after rolling retention removes
   the object. `hot_window_start` therefore determines current Latest-mode COG
   eligibility; `hot_cog_ready` alone is insufficient.
+- `hot_window_start` is a **single global timestamp** shared across all products
+  (DBZH, RATE, ACRR), not a per-product or per-file boundary. It is set by the
+  harvester after each cleanup pass to reflect the oldest COG it guarantees
+  still exists in the bucket. COG files may physically exist below this
+  watermark but will still be routed to GeoZarr — this is intentional. The
+  alternative (per-frame HEAD requests to verify existence) would add latency
+  and bucket API calls on every catalog load. The conservative watermark trades
+  a small amount of unnecessary GeoZarr usage for zero 404 failures on deleted
+  COGs. Do not treat GeoZarr rendering of a frame near the watermark boundary
+  as a bug.
 - When an eligible COG cannot be opened and `archive_ready: true`, fall back to
   the catalog-referenced GeoZarr store.
 - Return or display the selected backend (`cog` or `geozarr`) so archive

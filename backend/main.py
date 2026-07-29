@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from api.catalog import router as catalog_router
 from api.tiles import router as tiles_router
 from api.pixel import router as pixel_router
+from api.export import router as export_router
 from api.bucket import BUCKET_MOUNT, USE_LOCAL_MOUNT, storage_description
 from api.raster_runtime import log_raster_runtime
 
@@ -78,6 +79,7 @@ async def health():
 app.include_router(catalog_router, prefix="/api/catalog")
 app.include_router(tiles_router, prefix="/tiles")
 app.include_router(pixel_router, prefix="/api/pixel")
+app.include_router(export_router, prefix="/api/export")
 
 # Serve Next.js frontend
 frontend_dir = os.path.join(os.path.dirname(__file__), "..", "out")

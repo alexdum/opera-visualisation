@@ -1,9 +1,11 @@
-import React, { useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
   Calendar,
   Clock,
   CloudRain,
+  Download,
+  Loader2,
   Pause,
   Play,
   Radar,
@@ -86,8 +88,60 @@ export function Sidebar({
   onCloseMobile,
 }: SidebarProps) {
   const currentFrame = frames[currentTimeIndex];
+
   const cadenceMs = useMemo(() => inferRadarCadenceMs(frames, product), [frames, product]);
   const cadenceLabel = formatRadarCadence(cadenceMs);
+
+  /* ── GeoTIFF export ── */
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  // Clear stale export errors when the frame changes.
+  useEffect(() => setExportError(null), [currentFrame?.timestamp]);
+
+  const exportUrl = useMemo(() => {
+    if (!currentFrame) return null;
+    const params = new URLSearchParams({
+      product,
+      timestamp: currentFrame.timestamp,
+      revision: currentFrame.revision,
+    });
+    return `/api/export/geotiff?${params.toString()}`;
+  }, [product, currentFrame]);
+
+  const handleExportGeotiff = useCallback(async () => {
+    if (!exportUrl || isExporting) return;
+    setIsExporting(true);
+    setExportError(null);
+    try {
+      const response = await fetch(exportUrl);
+      if (response.status === 503) {
+        setExportError("Server busy, try again shortly.");
+        return;
+      }
+      if (!response.ok) {
+        setExportError(`Export failed (${response.status})`);
+        return;
+      }
+      const blob = await response.blob();
+      const ts = currentFrame!.timestamp;
+      const filename = `OPERA_${product}_${ts.slice(0, 8)}T${ts.slice(8)}Z_rev${currentFrame!.revision}.tif`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      link.hidden = true;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 100);
+    } catch {
+      setExportError("Export failed");
+    } finally {
+      setIsExporting(false);
+    }
+  }, [exportUrl, isExporting, product, currentFrame]);
+
   const gapPercentages = useMemo(() => {
     if (frames.length < 2) return [];
     const gaps: number[] = [];
@@ -291,6 +345,37 @@ export function Sidebar({
             {currentFrame?.end_time && <div><dt className="text-slate-400 lg:text-slate-500">Interval end</dt><dd className="font-semibold">{formatUtc(currentFrame.end_time)} UTC</dd></div>}
             {currentFrame && <div><dt className="text-slate-400 lg:text-slate-500">Revision</dt><dd className="break-all font-mono text-[0.6rem]">{currentFrame.revision}</dd></div>}
           </dl>
+          {currentFrame && exportUrl && (
+            <div className="mt-3">
+              {currentFrame.backend === "cog" ? (
+                <a
+                  href={exportUrl}
+                  download
+                  className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-white/20 lg:border-slate-200 lg:bg-slate-100 lg:text-slate-700 lg:hover:bg-slate-200"
+                >
+                  <Download className="h-4 w-4" aria-hidden="true" />
+                  Download GeoTIFF
+                </a>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleExportGeotiff}
+                  disabled={isExporting}
+                  className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-white/20 disabled:opacity-50 lg:border-slate-200 lg:bg-slate-100 lg:text-slate-700 lg:hover:bg-slate-200"
+                >
+                  {isExporting ? (
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  ) : (
+                    <Download className="h-4 w-4" aria-hidden="true" />
+                  )}
+                  {isExporting ? "Generating…" : "Download GeoTIFF"}
+                </button>
+              )}
+              {exportError && (
+                <p className="mt-1.5 text-[0.65rem] text-red-400 lg:text-red-500">{exportError}</p>
+              )}
+            </div>
+          )}
         </section>
 
       </div>
