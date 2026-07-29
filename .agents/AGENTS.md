@@ -144,7 +144,7 @@ When implementing or refactoring dashboards, data loaders, and chart visualisati
 <!-- END:react-dashboard-loading-rules -->
 
 <!-- BEGIN:opera-dbzh-quality-filter-rule -->
-## OPERA DBZH Quality Filtering
+## OPERA Quality Filtering & Band Structure
 
 The rectangular or tail-like echoes visible around Romania in some OPERA DBZH
 frames are present in the upstream EUMETNET COG. They are not introduced by the
@@ -152,7 +152,8 @@ harvester, Hugging Face upload, MapLibre, Web Mercator reprojection, or tile
 boundaries. Do not attempt to correct them with geographic masks, Romania-only
 rules, image morphology, or modifications to the archived source data.
 
-The DBZH COG uses band 1 for reflectivity and band 2 for its quality indicator.
+**Band Structure:** All upstream OPERA COGs (DBZH, RATE, and ACRR) contain exactly two bands: Band 1 is the physical measurement and Band 2 is the quality indicator.
+
 Apply the following visualization policy:
 
 1. **Default DBZH threshold:** The map MUST default to `min_quality=off` (null/unchecked) to display the authoritative raw composite. Do NOT display a UI option in the sidebar to toggle the quality mask. The quality filtering capability remains at the API/URL level but should not be exposed in the UI.
@@ -580,4 +581,15 @@ When implementing raw data (GeoTIFF) export functionality for power users/resear
    - Fetch the 2D array directly from the Zarr group: `data = group["measurement"][time_index]`
    - Write to memory using Rasterio: `with rasterio.MemoryFile() as memfile: ...`
    - Send the resulting byte stream to the user.
+6. **Verify raster schema against actual files**: Before claiming file or raster schema properties (band counts, array dimensions, data types, nodata conventions), verify against an actual file or store rather than inferring from code paths. Code may read only a subset of bands, giving a false impression that unused bands do not exist.
 <!-- END:geotiff-export-strategy-rule -->
+
+<!-- BEGIN:export-output-parity-rule -->
+## Export Output Parity Across Data Backends
+
+When implementing download or export features that can serve data from multiple storage backends (e.g., hot COG redirect vs. on-the-fly GeoZarr generation):
+1. **Match output schema across paths**: All code paths producing the same nominal output format (e.g., GeoTIFF) MUST produce structurally identical files — same band count, same band semantics, same data types, same nodata conventions, and same CRS. Users must not observe format differences based on whether the frame fell inside or outside the hot window.
+2. **Include auxiliary bands when available**: If the upstream source (COG or GeoZarr) contains auxiliary bands (e.g., quality indicators), include them in the generated export to match what the redirect path delivers. When an auxiliary band is unavailable in a particular store, fill it with the appropriate unknown/nodata value rather than silently dropping it.
+3. **Document band semantics**: Set GeoTIFF band descriptions (e.g., `dataset.set_band_description(1, "measurement")`, `dataset.set_band_description(2, "quality")`) so downstream tools can identify bands without external documentation.
+<!-- END:export-output-parity-rule -->
+

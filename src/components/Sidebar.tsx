@@ -346,7 +346,7 @@ export function Sidebar({
             {currentFrame && <div><dt className="text-slate-400 lg:text-slate-500">Revision</dt><dd className="break-all font-mono text-[0.6rem]">{currentFrame.revision}</dd></div>}
           </dl>
           {currentFrame && exportUrl && (
-            <div className="mt-3">
+            <div className="mt-3 hidden lg:block">
               {currentFrame.backend === "cog" ? (
                 <a
                   href={exportUrl}
