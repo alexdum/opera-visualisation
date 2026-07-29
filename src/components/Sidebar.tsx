@@ -343,7 +343,6 @@ export function Sidebar({
             <div className="flex justify-between gap-3"><dt className="text-slate-400 lg:text-slate-500">Map state</dt><dd className="font-bold capitalize">{renderState.status}</dd></div>
             {currentFrame?.start_time && <div><dt className="text-slate-400 lg:text-slate-500">Interval start</dt><dd className="font-semibold">{formatUtc(currentFrame.start_time)} UTC</dd></div>}
             {currentFrame?.end_time && <div><dt className="text-slate-400 lg:text-slate-500">Interval end</dt><dd className="font-semibold">{formatUtc(currentFrame.end_time)} UTC</dd></div>}
-            {currentFrame && <div><dt className="text-slate-400 lg:text-slate-500">Revision</dt><dd className="break-all font-mono text-[0.6rem]">{currentFrame.revision}</dd></div>}
           </dl>
           {currentFrame && exportUrl && (
             <div className="mt-3 hidden lg:block">
@@ -375,6 +374,11 @@ export function Sidebar({
                 <p className="mt-1.5 text-[0.65rem] text-red-400 lg:text-red-500">{exportError}</p>
               )}
             </div>
+          )}
+          {currentFrame && (
+            <p className="mt-3 break-all text-center font-mono text-[0.55rem] text-white/40 lg:text-slate-400" aria-label="Data Revision">
+              rev: {currentFrame.revision}
+            </p>
           )}
         </section>
 
