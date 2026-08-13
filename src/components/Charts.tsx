@@ -47,6 +47,21 @@ const formatDate = (isoString: string) => {
   }
 };
 
+const formatAxisDate = (isoString: string) => {
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      timeZone: "UTC",
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(new Date(isoString));
+  } catch {
+    return isoString;
+  }
+};
+
 export const PixelAnalysisChart = React.memo(({ data, product, isLoading, windowStart, windowEnd }: ChartsProps) => {
   const chartRef = useRef<HTMLDivElement>(null);
 
@@ -114,7 +129,7 @@ export const PixelAnalysisChart = React.memo(({ data, product, isLoading, window
       {isInterval ? (
         <BarChart data={chartData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-          <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
+          <XAxis dataKey="rawTime" tickFormatter={formatAxisDate} interval="preserveStartEnd" minTickGap={56} height={34} tickMargin={8} stroke="#94a3b8" fontSize={11} tickLine={false} />
           <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} domain={[0, 'auto']} width={40} />
           <Tooltip
             filterNull={false}
@@ -125,7 +140,7 @@ export const PixelAnalysisChart = React.memo(({ data, product, isLoading, window
       ) : (
         <LineChart data={chartData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-          <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} />
+          <XAxis dataKey="rawTime" tickFormatter={formatAxisDate} interval="preserveStartEnd" minTickGap={56} height={34} tickMargin={8} stroke="#94a3b8" fontSize={11} tickLine={false} />
           <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} domain={["auto", "auto"]} width={40} />
           <Tooltip
             filterNull={false}
@@ -146,7 +161,7 @@ export const PixelAnalysisChart = React.memo(({ data, product, isLoading, window
   );
 
   return (
-    <div ref={chartRef} className="relative flex h-[300px] sm:h-[450px] w-full flex-col gap-3 rounded-2xl border border-white/20 bg-slate-900/50 backdrop-blur-md sm:border-slate-200 sm:bg-white sm:backdrop-blur-none p-3 sm:p-5 shadow-sm text-white sm:text-slate-800">
+    <div ref={chartRef} className="relative flex h-[360px] sm:h-[450px] w-full flex-col gap-3 rounded-2xl border border-white/20 bg-slate-900/50 backdrop-blur-md sm:border-slate-200 sm:bg-white sm:backdrop-blur-none p-3 sm:p-5 shadow-sm text-white sm:text-slate-800">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-bold text-white sm:text-slate-700 uppercase tracking-wider">{config.title} ({config.unit})</h3>
         {chartData.length > 0 && (
@@ -165,7 +180,7 @@ export const PixelAnalysisChart = React.memo(({ data, product, isLoading, window
       </div>
       {chartData.length > 0 && (
         <figure className="space-y-1 sm:space-y-2 mt-2" aria-labelledby="status-timeline-caption">
-          <figcaption id="status-timeline-caption" className="hidden sm:block text-[11px] font-bold uppercase tracking-wider text-slate-300 sm:text-slate-600">Observation status</figcaption>
+          <figcaption id="status-timeline-caption" className="text-[11px] font-bold uppercase tracking-wider text-slate-300 sm:text-slate-600">Observation status</figcaption>
           <div className="pl-8 sm:pl-12 pr-2">
             <div
               className="flex h-3 overflow-hidden rounded-full border border-white/20 bg-white/10 sm:border-slate-300 sm:bg-slate-100"
@@ -176,17 +191,19 @@ export const PixelAnalysisChart = React.memo(({ data, product, isLoading, window
                 <span
                   key={`${segment.startTime}-${segment.status}-${index}`}
                   aria-hidden="true"
-                  title={`${STATUS_META[segment.status].label}: ${formatDate(segment.startTime)} – ${formatDate(segment.endTime)}`}
                   style={{ flexGrow: segment.count, flexBasis: 0, ...STATUS_META[segment.status].style }}
                 />
               ))}
             </div>
           </div>
-          <ul className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-300 sm:text-slate-600" role="list">
+          <ul className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px] text-slate-300 sm:flex sm:flex-wrap sm:gap-x-4 sm:gap-y-1 sm:text-slate-600" role="list">
             {(Object.keys(STATUS_META) as TimelineStatus[]).filter((status) => status !== "unknown" || statusCounts.unknown > 0).map((status) => (
-              <li key={status} className="flex items-center gap-1.5" title={STATUS_META[status].description}>
-                <span className="h-2.5 w-5 rounded-sm border border-white/20 sm:border-slate-300" style={STATUS_META[status].style} aria-hidden="true" />
-                {STATUS_META[status].label}
+              <li key={status} className="flex items-start gap-1.5">
+                <span className="mt-0.5 h-2.5 w-5 shrink-0 rounded-sm border border-white/20 sm:border-slate-300" style={STATUS_META[status].style} aria-hidden="true" />
+                <span className="leading-tight">
+                  <strong className="block font-semibold text-white sm:text-slate-700">{STATUS_META[status].label}</strong>
+                  <span className="block text-[10px] text-slate-400 sm:text-slate-500">{STATUS_META[status].description}</span>
+                </span>
               </li>
             ))}
           </ul>

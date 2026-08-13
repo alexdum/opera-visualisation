@@ -341,6 +341,18 @@ export default function OperaRadarPage() {
     downloadPixelCsv(pixelSeries, product, `opera-${product.toLowerCase()}-pixel-${timestamp}`);
   };
 
+  const closeMobileDrawer = useCallback(() => setIsOpen(false), []);
+
+  useEffect(() => {
+    const desktopQuery = window.matchMedia("(min-width: 1024px)");
+    const closeOnDesktop = (event: MediaQueryListEvent | MediaQueryList) => {
+      if (event.matches) closeMobileDrawer();
+    };
+    closeOnDesktop(desktopQuery);
+    desktopQuery.addEventListener("change", closeOnDesktop);
+    return () => desktopQuery.removeEventListener("change", closeOnDesktop);
+  }, [closeMobileDrawer]);
+
   const showLoader = catalogLoading || renderState.status === "loading";
 
   return (
@@ -348,7 +360,7 @@ export default function OperaRadarPage() {
       
       {/* Mobile Sidebar (Drawer) */}
       <div className="lg:hidden">
-        <MobileDrawer isOpen={isOpen} onClose={() => setIsOpen(false)}>
+        <MobileDrawer isOpen={isOpen} onClose={closeMobileDrawer}>
           <Sidebar
             product={product}
             setProduct={setProduct}
@@ -360,6 +372,10 @@ export default function OperaRadarPage() {
             setCurrentTimeIndex={setCurrentTimeIndex}
             opacity={opacity}
             setOpacity={setOpacity}
+            basemap={basemap}
+            setBasemap={setBasemap}
+            showLabels={showLabels}
+            setShowLabels={setShowLabels}
             renderState={renderState}
             isPlaying={animation.isPlaying}
             setIsPlaying={animation.setIsPlaying}
@@ -370,13 +386,13 @@ export default function OperaRadarPage() {
             stepForward={animation.stepForward}
             stepBackward={animation.stepBackward}
             isLoading={catalogLoading}
-            onCloseMobile={() => setIsOpen(false)}
+            onCloseMobile={closeMobileDrawer}
           />
         </MobileDrawer>
       </div>
 
       {/* Desktop Sidebar (Static Grid) */}
-      <div className="glass-sidebar hidden lg:block w-[280px] flex-shrink-0 h-full border-r border-slate-200">
+      <div inert={isOpen ? true : undefined} aria-hidden={isOpen || undefined} className="glass-sidebar hidden lg:block w-[280px] flex-shrink-0 h-full border-r border-slate-200">
         <Sidebar
           product={product}
           setProduct={setProduct}
@@ -388,6 +404,10 @@ export default function OperaRadarPage() {
           setCurrentTimeIndex={setCurrentTimeIndex}
           opacity={opacity}
           setOpacity={setOpacity}
+          basemap={basemap}
+          setBasemap={setBasemap}
+          showLabels={showLabels}
+          setShowLabels={setShowLabels}
           renderState={renderState}
           isPlaying={animation.isPlaying}
           setIsPlaying={animation.setIsPlaying}
@@ -398,15 +418,15 @@ export default function OperaRadarPage() {
           stepForward={animation.stepForward}
           stepBackward={animation.stepBackward}
           isLoading={catalogLoading}
-          onCloseMobile={() => setIsOpen(false)}
+          onCloseMobile={closeMobileDrawer}
         />
       </div>
 
-      <div className="relative min-w-0 flex-1 overflow-hidden">
+      <div inert={isOpen ? true : undefined} aria-hidden={isOpen || undefined} className="relative min-w-0 flex-1 overflow-hidden">
         <div className="relative h-full w-full overflow-hidden">
           <div className="absolute left-1/2 top-3 z-30 flex -translate-x-1/2 flex-col sm:flex-row items-center gap-2">
             <div className="flex items-center gap-2">
-              <button type="button" onClick={() => setIsOpen(!isOpen)} aria-label={isOpen ? "Close radar controls" : "Open radar controls"} className="min-h-12 min-w-12 rounded-xl border border-white/20 bg-slate-900/50 text-white shadow-lg backdrop-blur-md lg:hidden">
+              <button type="button" onClick={() => setIsOpen((open) => !open)} aria-label={isOpen ? "Close radar controls" : "Open radar controls"} className="min-h-12 min-w-12 rounded-xl border border-white/20 bg-slate-900/50 text-white shadow-lg backdrop-blur-md lg:hidden">
                 {isOpen ? <X size={20} aria-hidden="true" /> : <Menu size={20} aria-hidden="true" />}
               </button>
 
@@ -421,14 +441,14 @@ export default function OperaRadarPage() {
                 ["map", "Map", MapIcon],
                 ["analysis", "Pixel analysis", BarChart3],
               ] as const).map(([id, label, Icon]) => (
-                <button key={id} type="button" onClick={() => { setActiveTab(id); setMapStylesOpen(false); }} aria-label={label} aria-pressed={activeTab === id} className={`flex min-h-12 items-center rounded-lg px-2 sm:px-3 text-sm font-semibold transition-colors ${activeTab === id ? "bg-white/20 text-white sm:bg-white sm:text-blue-700 sm:shadow-sm" : "text-slate-200 hover:bg-white/10 sm:text-slate-600 sm:hover:bg-slate-50"}`}>
+                <button key={id} type="button" onClick={() => { setActiveTab(id); setMapStylesOpen(false); }} aria-label={label} aria-pressed={activeTab === id} className={`flex min-h-12 min-w-11 items-center justify-center rounded-lg px-2 sm:px-3 text-sm font-semibold transition-colors ${activeTab === id ? "bg-white/20 text-white sm:bg-white sm:text-blue-700 sm:shadow-sm" : "text-slate-200 hover:bg-white/10 sm:text-slate-600 sm:hover:bg-slate-50"}`}>
                   <Icon size={16} className="sm:mr-2 shrink-0" aria-hidden="true" />
                   <span className="hidden sm:inline">{label}</span>
                 </button>
               ))}
               </nav>
-              <Tooltip content="Toggle Fullscreen" position="bottom" className="hidden sm:inline-flex">
-                <button type="button" onClick={toggleFullscreen} aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"} className="flex min-h-12 min-w-12 items-center justify-center rounded-xl border border-slate-200 bg-white/95 text-slate-700 shadow-lg backdrop-blur-md transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+              <Tooltip content="Toggle Fullscreen" position="bottom" className="inline-flex">
+                <button type="button" onClick={toggleFullscreen} aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"} className="flex min-h-12 min-w-12 items-center justify-center rounded-xl border border-white/20 bg-slate-900/50 text-white shadow-lg backdrop-blur-md transition-colors hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-400 sm:border-slate-200 sm:bg-white/95 sm:text-slate-700 sm:hover:bg-slate-50 sm:focus-visible:outline-blue-600">
                   {isFullscreen ? <Minimize size={20} aria-hidden="true" /> : <Maximize size={20} aria-hidden="true" />}
                 </button>
               </Tooltip>
@@ -436,7 +456,7 @@ export default function OperaRadarPage() {
           </div>
 
           {activeTab === "map" && currentFrame && (
-            <div className="pointer-events-none absolute bottom-1.5 sm:bottom-4 left-1/2 -translate-x-1/2 z-30 flex min-h-10 items-center gap-1.5 sm:gap-2 rounded-full border border-white/20 bg-slate-900/50 sm:border-slate-200 sm:bg-white/95 sm:text-slate-700 p-1 pl-3 pr-3 text-xs sm:text-sm font-medium tracking-wide text-white shadow-lg backdrop-blur-md whitespace-nowrap">
+            <div className="pointer-events-none absolute bottom-16 lg:bottom-4 left-1/2 -translate-x-1/2 z-30 flex min-h-10 items-center gap-1.5 sm:gap-2 rounded-full border border-white/20 bg-slate-900/50 sm:border-slate-200 sm:bg-white/95 sm:text-slate-700 p-1 pl-3 pr-3 text-xs sm:text-sm font-medium tracking-wide text-white shadow-lg backdrop-blur-md whitespace-nowrap">
               <button 
                 type="button" 
                 onClick={() => { animation.stepBackward(); animation.setIsPlaying(false); }}
@@ -560,7 +580,7 @@ export default function OperaRadarPage() {
           )}
 
           {(catalogError || renderState.status === "error" || renderState.status === "degraded") && activeTab === "map" && (
-            <div role="status" className={`absolute bottom-4 left-4 z-30 max-w-sm rounded-xl border px-4 py-3 text-sm shadow-lg ${renderState.status === "error" || catalogError ? "border-rose-300 bg-rose-50 text-rose-900" : "border-amber-300 bg-amber-50 text-amber-900"}`}>
+            <div role="status" className={`absolute left-2 right-2 top-20 z-30 max-w-sm rounded-xl border px-4 py-3 text-sm shadow-lg sm:left-20 sm:right-auto ${renderState.status === "error" || catalogError ? "border-rose-300 bg-rose-50 text-rose-900" : "border-amber-300 bg-amber-50 text-amber-900"}`}>
               {catalogError ?? renderState.message}
             </div>
           )}

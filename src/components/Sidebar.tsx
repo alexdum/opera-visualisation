@@ -30,6 +30,10 @@ interface SidebarProps {
   setCurrentTimeIndex: (index: number | ((previous: number) => number)) => void;
   opacity: number;
   setOpacity: (opacity: number) => void;
+  basemap: string;
+  setBasemap: (basemap: string) => void;
+  showLabels: boolean;
+  setShowLabels: (showLabels: boolean) => void;
   renderState: MapRenderState;
   isPlaying: boolean;
   setIsPlaying: (playing: boolean) => void;
@@ -75,6 +79,10 @@ export function Sidebar({
   setCurrentTimeIndex,
   opacity,
   setOpacity,
+  basemap,
+  setBasemap,
+  showLabels,
+  setShowLabels,
   renderState,
   isPlaying,
   setIsPlaying,
@@ -200,6 +208,40 @@ export function Sidebar({
               </button>
             ))}
           </div>
+        </section>
+
+        <section className="flex flex-col gap-2 border-t border-white/20 pt-4 lg:hidden" aria-labelledby="mobile-map-style-heading">
+          <div id="mobile-map-style-heading">
+            <FilterLabel label="Map style" help="Choose the basemap and whether place labels are shown." />
+          </div>
+          <fieldset className="space-y-1.5">
+            <legend className="sr-only">Basemap</legend>
+            {[
+              ["positron", "Positron"],
+              ["bright", "Bright"],
+              ["satellite", "Satellite"],
+            ].map(([id, label]) => (
+              <label key={id} className="flex min-h-11 cursor-pointer items-center gap-3 rounded-lg px-2 text-sm font-medium text-slate-200 hover:bg-white/10">
+                <input
+                  type="radio"
+                  name="mobile-basemap"
+                  checked={basemap === id}
+                  onChange={() => setBasemap(id)}
+                  className="h-5 w-5 accent-blue-500"
+                />
+                {label}
+              </label>
+            ))}
+          </fieldset>
+          <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-lg px-2 text-sm font-medium text-slate-200 hover:bg-white/10">
+            <input
+              type="checkbox"
+              checked={showLabels}
+              onChange={(event) => setShowLabels(event.target.checked)}
+              className="h-5 w-5 rounded accent-blue-500"
+            />
+            Show place labels
+          </label>
         </section>
 
         <section className="flex flex-col gap-2" aria-labelledby="view-mode-heading">

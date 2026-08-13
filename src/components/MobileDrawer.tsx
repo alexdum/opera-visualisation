@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef } from "react";
+import { X } from "lucide-react";
 
 interface MobileDrawerProps {
   isOpen: boolean;
@@ -13,6 +14,61 @@ export function MobileDrawer({ isOpen, onClose, children }: MobileDrawerProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
   const isTransitioningRef = useRef(false);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const sheet = sheetRef.current;
+    returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+    const focusableSelector = [
+      "button:not([disabled])",
+      "a[href]",
+      "input:not([disabled])",
+      "select:not([disabled])",
+      "textarea:not([disabled])",
+      "[tabindex]:not([tabindex='-1'])",
+    ].join(",");
+
+    const focusFirstControl = window.requestAnimationFrame(() => {
+      sheet?.querySelector<HTMLElement>(focusableSelector)?.focus({ preventScroll: true });
+    });
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+
+      if (event.key !== "Tab" || !sheet) return;
+      const controls = Array.from(sheet.querySelectorAll<HTMLElement>(focusableSelector))
+        .filter((control) => control.getClientRects().length > 0 && !control.hasAttribute("hidden") && control.getAttribute("aria-hidden") !== "true");
+      if (controls.length === 0) {
+        event.preventDefault();
+        sheet.focus({ preventScroll: true });
+        return;
+      }
+
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.cancelAnimationFrame(focusFirstControl);
+      document.removeEventListener("keydown", handleKeyDown);
+      window.requestAnimationFrame(() => returnFocusRef.current?.focus({ preventScroll: true }));
+    };
+  }, [isOpen, onClose]);
 
   // Sync React state to Popover open state
   useEffect(() => {
@@ -83,6 +139,9 @@ export function MobileDrawer({ isOpen, onClose, children }: MobileDrawerProps) {
     <div 
       popover="manual" 
       ref={popoverRef}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Radar controls"
       className="mobile-drawer fixed inset-0 z-[60] h-[100dvh] w-full border-0 bg-transparent p-0 m-0"
     >
       <div 
@@ -106,7 +165,15 @@ export function MobileDrawer({ isOpen, onClose, children }: MobileDrawerProps) {
         ` }} />
         
         {/* The Drawer Sheet (Content) */}
-        <div ref={sheetRef} className="glass-sidebar h-full w-[280px] shrink-0 snap-start shadow-2xl">
+        <div ref={sheetRef} tabIndex={-1} className="glass-sidebar relative h-full w-[min(280px,calc(100vw-2.5rem))] shrink-0 snap-start shadow-2xl">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close radar controls"
+            className="absolute right-3 top-3 z-[60] flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-white/20 bg-slate-900/60 text-white shadow-lg backdrop-blur-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-400"
+          >
+            <X size={20} aria-hidden="true" />
+          </button>
           {children}
         </div>
         
