@@ -163,6 +163,10 @@ dialog.chart-modal[open] {
 .maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-button {
   display: block !important;
 }
+/* When expanded, the attribution text must overlap the time-badge pill (z-30). */
+.maplibregl-ctrl-attrib.maplibregl-compact.maplibregl-compact-show {
+  z-index: 40;
+}
 
 .mobile-drawer::backdrop {
   background-color: rgba(15, 23, 42, var(--drawer-backdrop, 0));
