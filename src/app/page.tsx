@@ -38,6 +38,26 @@ const PixelAnalysisChart = dynamic(
 
 const apiBase = () => (process.env.NODE_ENV === "development" ? "http://localhost:7860" : "");
 
+const getParentTargetOrigin = () => {
+  if (typeof document !== "undefined" && document.referrer) {
+    try {
+      return new URL(document.referrer).origin;
+    } catch {
+      // Fall through to the canonical Climate Explorer origin.
+    }
+  }
+  return "https://climateexplorer.app";
+};
+
+const isTrustedParentMessage = (event: MessageEvent) =>
+  event.source === window.parent && event.origin === getParentTargetOrigin();
+
+const openStandaloneExplorer = () => {
+  const directUrl = new URL(window.location.href);
+  directUrl.searchParams.delete("embed");
+  window.open(directUrl.toString(), "_blank", "noopener,noreferrer");
+};
+
 const formatUtc = (value?: string | null) => {
   if (!value) return "";
   return new Intl.DateTimeFormat(undefined, {
@@ -53,6 +73,7 @@ const formatUtc = (value?: string | null) => {
 export default function OperaRadarPage() {
   const [isOpen, setIsOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [parentFullscreenSupported, setParentFullscreenSupported] = useState<boolean | null>(null);
   const [activeTab, setActiveTab] = useState<"map" | "analysis" | "about">("map");
   const [urlHydrated, setUrlHydrated] = useState(false);
   const [product, setProduct] = useState<RadarProduct>("RATE");
@@ -93,8 +114,14 @@ export default function OperaRadarPage() {
       setIsFullscreen(!!(doc.fullscreenElement || doc.webkitFullscreenElement || doc.mozFullScreenElement || doc.msFullscreenElement));
     };
     const handleMessage = (event: MessageEvent) => {
-      if (event.data?.type === "radar-fullscreen-changed") {
+      if (!isTrustedParentMessage(event)) return;
+      if (event.data?.type === "radar-fullscreen-capability") {
+        setParentFullscreenSupported(!!event.data.supported);
+      } else if (event.data?.type === "radar-fullscreen-changed") {
         setIsFullscreen(!!event.data.isFullscreen);
+      } else if (event.data?.type === "radar-fullscreen-unavailable") {
+        setParentFullscreenSupported(false);
+        openStandaloneExplorer();
       }
     };
 
@@ -103,6 +130,12 @@ export default function OperaRadarPage() {
     document.addEventListener("mozfullscreenchange", handleFullscreenChange);
     document.addEventListener("MSFullscreenChange", handleFullscreenChange);
     window.addEventListener("message", handleMessage);
+    if (window.parent !== window) {
+      window.parent.postMessage(
+        { type: "radar-fullscreen-capability-request" },
+        getParentTargetOrigin(),
+      );
+    }
     return () => {
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
       document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
@@ -114,7 +147,14 @@ export default function OperaRadarPage() {
 
   const toggleFullscreen = () => {
     if (window.parent !== window) {
-      window.parent.postMessage({ type: "radar-toggle-fullscreen" }, "*");
+      if (parentFullscreenSupported === false) {
+        openStandaloneExplorer();
+      } else {
+        window.parent.postMessage(
+          { type: "radar-toggle-fullscreen" },
+          getParentTargetOrigin(),
+        );
+      }
       return;
     }
 
@@ -134,6 +174,8 @@ export default function OperaRadarPage() {
             console.warn(`Fullscreen error: ${message}`);
           });
         }
+      } else {
+        openStandaloneExplorer();
       }
     } else {
       if (exitFullScreen) {
@@ -195,7 +237,7 @@ export default function OperaRadarPage() {
         min_quality: product === "DBZH" ? (minQuality === null ? "off" : minQuality.toFixed(2)) : "off",
         lon: selectedPixel?.lon.toString() || null,
         lat: selectedPixel?.lat.toString() || null,
-      }, "*");
+      }, getParentTargetOrigin());
     }
   }, [basemap, currentFrame, minQuality, product, selectedDate, selectedPixel, urlHydrated]);
 
@@ -447,8 +489,8 @@ export default function OperaRadarPage() {
                 </button>
               ))}
               </nav>
-              <Tooltip content="Toggle Fullscreen" position="bottom" className="inline-flex">
-                <button type="button" onClick={toggleFullscreen} aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"} className="flex min-h-12 min-w-12 items-center justify-center rounded-xl border border-white/20 bg-slate-900/50 text-white shadow-lg backdrop-blur-md transition-colors hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-400 sm:border-slate-200 sm:bg-white/95 sm:text-slate-700 sm:hover:bg-slate-50 sm:focus-visible:outline-blue-600">
+              <Tooltip content={isFullscreen ? "Exit fullscreen" : "View full screen or open in a new tab"} position="bottom" className="inline-flex">
+                <button type="button" onClick={toggleFullscreen} aria-label={isFullscreen ? "Exit fullscreen" : "View full screen or open in a new tab"} className="flex min-h-12 min-w-12 items-center justify-center rounded-xl border border-white/20 bg-slate-900/50 text-white shadow-lg backdrop-blur-md transition-colors hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-400 sm:border-slate-200 sm:bg-white/95 sm:text-slate-700 sm:hover:bg-slate-50 sm:focus-visible:outline-blue-600">
                   {isFullscreen ? <Minimize size={20} aria-hidden="true" /> : <Maximize size={20} aria-hidden="true" />}
                 </button>
               </Tooltip>
