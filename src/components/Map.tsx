@@ -190,6 +190,13 @@ export function WeatherMap({
     });
     map.current = instance;
     instance.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-right");
+    // Force the compact attribution to start collapsed ("i" icon only).
+    // MapLibre auto-expands it on wider containers via .maplibregl-compact-show;
+    // remove that class after the control renders so only the icon is visible.
+    instance.once("load", () => {
+      const attrib = instance.getContainer().querySelector(".maplibregl-ctrl-attrib.maplibregl-compact");
+      if (attrib) attrib.classList.remove("maplibregl-compact-show");
+    });
     // Match EuroMeteo: zoom-only navigation stack in the upper-left.
     instance.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-left");
     instance.on("dblclick", (event) => {

@@ -153,17 +153,15 @@ dialog.chart-modal[open] {
 }
 
 /* Force the compact attribution to stay collapsed ("i" icon) by default.
-   MapLibre auto-expands it on wider viewports via .maplibregl-compact-show;
-   override that so the button is always visible and the text is hidden until
-   the user clicks/taps the icon. */
-.maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-inner {
-  display: none;
+   The JS in Map.tsx removes .maplibregl-compact-show on load; these rules
+   ensure the button is always visible and the inner text hides when the
+   expand-class is absent. MapLibre's own stylesheet reveals the inner text
+   when .maplibregl-compact-show is re-added by a user click/tap. */
+.maplibregl-ctrl-attrib.maplibregl-compact:not(.maplibregl-compact-show) .maplibregl-ctrl-attrib-inner {
+  display: none !important;
 }
 .maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-button {
-  display: block;
-}
-.maplibregl-ctrl-attrib.maplibregl-compact.maplibregl-compact-show .maplibregl-ctrl-attrib-inner {
-  display: block;
+  display: block !important;
 }
 
 .mobile-drawer::backdrop {
