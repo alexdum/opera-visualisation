@@ -498,7 +498,7 @@ export default function OperaRadarPage() {
           </div>
 
           {activeTab === "map" && currentFrame && (
-            <div className="pointer-events-none absolute bottom-16 lg:bottom-4 left-1/2 -translate-x-1/2 z-30 flex min-h-10 items-center gap-1.5 sm:gap-2 rounded-full border border-white/20 bg-slate-900/50 sm:border-slate-200 sm:bg-white/95 sm:text-slate-700 p-1 pl-3 pr-3 text-xs sm:text-sm font-medium tracking-wide text-white shadow-lg backdrop-blur-md whitespace-nowrap">
+            <div className="pointer-events-none absolute bottom-16 lg:bottom-[10px] left-1/2 -translate-x-1/2 z-30 flex min-h-10 items-center gap-1.5 sm:gap-2 rounded-full border border-white/20 bg-slate-900/50 sm:border-slate-200 sm:bg-white/95 sm:text-slate-700 p-1 pl-3 pr-3 text-xs sm:text-sm font-medium tracking-wide text-white shadow-lg backdrop-blur-md whitespace-nowrap">
               <button 
                 type="button" 
                 onClick={() => { animation.stepBackward(); animation.setIsPlaying(false); }}

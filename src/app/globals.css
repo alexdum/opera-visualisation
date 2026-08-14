@@ -152,6 +152,20 @@ dialog.chart-modal[open] {
   }
 }
 
+/* Force the compact attribution to stay collapsed ("i" icon) by default.
+   MapLibre auto-expands it on wider viewports via .maplibregl-compact-show;
+   override that so the button is always visible and the text is hidden until
+   the user clicks/taps the icon. */
+.maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-inner {
+  display: none;
+}
+.maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-button {
+  display: block;
+}
+.maplibregl-ctrl-attrib.maplibregl-compact.maplibregl-compact-show .maplibregl-ctrl-attrib-inner {
+  display: block;
+}
+
 .mobile-drawer::backdrop {
   background-color: rgba(15, 23, 42, var(--drawer-backdrop, 0));
 }
