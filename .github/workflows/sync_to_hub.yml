@@ -21,10 +21,11 @@ jobs:
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
 
       - name: Sync to Hugging Face
-        uses: huggingface/hub-sync@6fbce0a787a7146710e588abe7a4fd5eca07f47c
+        uses: huggingface/hub-sync@fdffea8e04104d0bd4e3181c5feb3025f0433ff5 # v0.3.0
         with:
           github_repo_id: ${{ github.repository }}
           huggingface_repo_id: alexdum/opera-visualisation
           repo_type: space
           space_sdk: docker
+          hf_version: "2.2.0"
           hf_token: ${{ secrets.HF_SPACE_DEPLOY_TOKEN }}
