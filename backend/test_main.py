@@ -1142,6 +1142,64 @@ def test_cached_geozarr_backend_preservation(monkeypatch):
     resp2 = client.get("/tiles/raw/DBZH/202607200000/rev1.bin?source=cog", headers={"accept-encoding": "gzip"})
     assert resp2.headers.get("x-opera-backend") == "geozarr"
 
+
+@pytest.fixture
+def preload_frame(monkeypatch):
+    published = CatalogFrame(
+        product="RATE", timestamp="202607200000", nominal_time="2026-07-20T00:00:00Z",
+        revision="preload", archive_ready=True, hot_cog_ready=True,
+        hot_cog="hot-cog/RATE.tif", geozarr="geozarr/RATE.zarr",
+        quality_variables=[], backend="cog",
+    )
+    monkeypatch.setattr("api.tiles.resolve_catalog_frame", lambda *_args: published)
+    return published
+
+
+def test_busy_preload_is_skipped_without_using_reserved_capacity(monkeypatch, preload_frame):
+    from api.render_slots import RenderSlots
+    slots = RenderSlots(2)
+    monkeypatch.setattr("api.tiles.RENDER_SLOTS", slots)
+    assert slots.acquire(timeout=0)
+    reads = []
+    monkeypatch.setattr("api.tiles._get_raw_cog_frame", lambda *a: reads.append(True) or b"raw")
+    path = "/tiles/raw/RATE/202607200000/preload.bin?source=cog"
+    try:
+        skipped = client.get(path + "&prefetch=true")
+        assert skipped.status_code == 503
+        assert skipped.headers["retry-after"] == "2"
+        assert "cache-control" not in skipped.headers
+        assert reads == []
+        # The same frame can still render as a foreground request.
+        visible = client.get(path)
+        assert visible.status_code == 200
+        assert reads == [True]
+    finally:
+        slots.release()
+
+
+def test_preload_and_visible_request_share_rendered_cache(monkeypatch, preload_frame):
+    from api.render_slots import RenderSlots
+    monkeypatch.setattr("api.tiles.RENDER_SLOTS", RenderSlots(2))
+    reads = []
+    monkeypatch.setattr("api.tiles._get_raw_cog_frame", lambda *a: reads.append(True) or b"raw")
+    path = "/tiles/raw/RATE/202607200000/preload.bin?source=cog"
+    assert client.get(path + "&prefetch=true").status_code == 200
+    assert client.get(path).status_code == 200
+    assert reads == [True]
+
+
+def test_failed_preload_never_starts_an_archive_render(monkeypatch, preload_frame):
+    from api.render_slots import RenderSlots
+    monkeypatch.setattr("api.tiles.RENDER_SLOTS", RenderSlots(2))
+    monkeypatch.setattr("api.tiles._get_raw_cog_frame", lambda *a: (_ for _ in ()).throw(OSError("missing")))
+    archive_reads = []
+    monkeypatch.setattr("api.tiles._get_raw_geozarr_frame", lambda *a: archive_reads.append(True) or b"archive")
+    path = "/tiles/raw/RATE/202607200000/preload.bin?source=cog"
+    assert client.get(path + "&prefetch=true").status_code == 503
+    assert archive_reads == []
+    assert client.get(path).status_code == 200
+    assert archive_reads == [True]
+
 def test_gzip_identity_wildcard_precedence():
     from api.tiles import _wants_gzip
     Req = lambda headers: type("Request", (), {"headers": headers})

@@ -35,4 +35,6 @@ export interface MapRenderState {
   message?: string;
   frameKey?: string;
   backend?: "cog" | "geozarr";
+  /** True only when the selected frame has a usable texture/source on screen. */
+  hasUsableFrame?: boolean;
 }

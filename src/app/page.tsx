@@ -12,7 +12,8 @@ import { Tooltip } from "@/components/Tooltip";
 import { useRadarAnimation } from "@/hooks/useRadarAnimation";
 import type { CatalogResponse, MapRenderState, RadarFrame, RadarProduct } from "@/types/radar";
 import { downloadPixelCsv } from "@/utils/pixelCsv";
-import { parseQualityUrlValue } from "@/utils/radar";
+import { frameIdentity, parseQualityUrlValue, tileLoadTimeoutMs } from "@/utils/radar";
+import { canAdvanceRadarFrame } from "@/utils/radarRequests";
 
 interface FullscreenDocument extends Document {
   webkitFullscreenElement?: Element;
@@ -105,7 +106,7 @@ export default function OperaRadarPage() {
     frameCount: frames.length,
     currentTimeIndex,
     setCurrentTimeIndex,
-    canAdvance: renderState.status === "ready" || renderState.status === "degraded",
+    canAdvance: canAdvanceRadarFrame(renderState, currentFrame && frameIdentity(currentFrame, minQuality)),
   });
 
   useEffect(() => {
@@ -368,14 +369,15 @@ export default function OperaRadarPage() {
         }
         return {
           status: "degraded",
+          hasUsableFrame: false,
           frameKey: expectedFrameKey,
-          message: "Radar tiles are still loading; the visible map may be incomplete.",
+          message: "Radar is still loading. Playback will resume when the frame is ready.",
           backend: current.backend,
         };
       });
-    }, 15_000);
+    }, (currentFrame ? tileLoadTimeoutMs(currentFrame) : 35_000) + 5_000);
     return () => window.clearTimeout(watchdog);
-  }, [renderState.frameKey, renderState.status]);
+  }, [currentFrame, renderState.frameKey, renderState.status]);
 
   const handleExportCsv = () => {
     if (pixelSeries.length === 0) return;

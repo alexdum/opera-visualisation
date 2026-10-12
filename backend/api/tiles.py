@@ -8,7 +8,7 @@ import logging
 import math
 import os
 from collections import OrderedDict
-from threading import BoundedSemaphore, Event, Lock
+from threading import Event, Lock
 from typing import Any
 
 from affine import Affine
@@ -34,6 +34,7 @@ from api.bucket import (
 from api.catalog import CatalogFrame, normalize_product, resolve_catalog_frame
 from api.cog_cache import BucketRateLimitError, local_cog
 from api.raster_runtime import cog_reader
+from api.render_slots import RenderSlots
 
 
 router = APIRouter()
@@ -93,7 +94,7 @@ ACRR_CMAP = [
     ((300.0, 1000.0), (170, 0, 0, 255)),
 ]
 COLORMAPS = {"DBZH": DBZH_CMAP, "RATE": RATE_CMAP, "ACRR": ACRR_CMAP}
-RENDER_SLOTS = BoundedSemaphore(max(1, int(os.getenv("TILE_RENDER_CONCURRENCY", "2"))))
+RENDER_SLOTS = RenderSlots(int(os.getenv("TILE_RENDER_CONCURRENCY", "2")))
 RENDER_QUEUE_TIMEOUT_SECONDS = max(
     1.0, float(os.getenv("TILE_RENDER_QUEUE_TIMEOUT_SECONDS", "30"))
 )
@@ -1062,6 +1063,7 @@ def _get_cache(key: str) -> _CacheEntry | None:
 def _render_and_compress(
     product: str, timestamp: str, revision: str, source: str,
     max_size: int, bbox_key: str, allow_archive_fallback: bool,
+    prefetch: bool = False,
 ) -> _CacheEntry:
     """Render a raw frame and return (gzip-level-1 compressed bytes, backend)."""
     frame = resolve_catalog_frame(product, timestamp, revision)
@@ -1077,12 +1079,15 @@ def _render_and_compress(
     use_cog = (source != "geozarr" and frame.hot_cog and frame.hot_cog_ready)
     raw: bytes | None = None
     backend: str = "cog"
+    if prefetch and not use_cog:
+        raise HTTPException(status_code=503, detail="Archive preloading is disabled", headers={"Retry-After": "30"})
     try:
-        acquired = RENDER_SLOTS.acquire(timeout=RENDER_QUEUE_TIMEOUT_SECONDS)
+        acquired = RENDER_SLOTS.acquire(timeout=RENDER_QUEUE_TIMEOUT_SECONDS, background=prefetch)
         if not acquired:
             raise HTTPException(
                 status_code=503,
                 detail="Server is busy rendering other frames. Please retry.",
+                headers={"Retry-After": "2"},
             )
         try:
             if use_cog:
@@ -1096,7 +1101,7 @@ def _render_and_compress(
     except HTTPException:
         raise
     except Exception as exc:
-        if allow_archive_fallback and frame.archive_ready and frame.geozarr:
+        if not prefetch and allow_archive_fallback and frame.archive_ready and frame.geozarr:
             logger.warning(
                 "Hot COG frame render failed for %s %s revision %s (%s); "
                 "falling back to GeoZarr",
@@ -1108,6 +1113,7 @@ def _render_and_compress(
                 raise HTTPException(
                     status_code=503,
                     detail="Server is busy rendering other frames. Please retry.",
+                    headers={"Retry-After": "2"},
                 )
             try:
                 raw = _get_raw_geozarr_frame(frame, max_size, bounds)
@@ -1193,6 +1199,7 @@ def get_raw_frame(
     bbox: str = Query(""),
     allow_archive_fallback: bool = Query(True),
     render_version: int = Query(RAW_RENDER_VERSION, ge=RAW_RENDER_VERSION, le=RAW_RENDER_VERSION),
+    prefetch: bool = Query(False),
 ) -> Response:
     key = _cache_key(
         product,
@@ -1225,21 +1232,23 @@ def get_raw_frame(
             is_renderer = True
 
     if not is_renderer:
+        if prefetch:
+            raise HTTPException(status_code=503, detail="Frame is already rendering", headers={"Retry-After": "2"})
         waited = event.wait(timeout=60)
         if not waited:
-            raise HTTPException(status_code=503, detail="Server is busy rendering this frame. Please retry.")
+            raise HTTPException(status_code=503, detail="Server is busy rendering this frame. Please retry.", headers={"Retry-After": "2"})
 
         cached = _get_cache(key)
         if cached is not None:
             return _make_response(cached, revision, use_gzip)
         else:
-            raise HTTPException(status_code=503, detail="Raw frame rendering failed in another thread.")
+            raise HTTPException(status_code=503, detail="Raw frame rendering failed in another thread.", headers={"Retry-After": "2"})
 
     # 3. Render, compress, cache, then signal waiters
     try:
-        entry = _render_and_compress(
-            product, timestamp, revision, source, max_size, bbox, allow_archive_fallback,
-        )
+        render_args = (product, timestamp, revision, source, max_size, bbox, allow_archive_fallback)
+        entry = (_render_and_compress(*render_args, prefetch=True) if prefetch
+                 else _render_and_compress(*render_args))
         _put_cache(key, entry)
     except HTTPException:
         raise

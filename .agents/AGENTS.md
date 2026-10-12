@@ -79,6 +79,15 @@ When combining Tailwind CSS with MapLibre GL JS, Tailwind's base preflight for `
 Preserve the tested MapLibre control overrides in `src/app/globals.css`, including the explicit zoom-control SVG backgrounds required on mobile WebKit. The stylesheet is the canonical implementation; do not replace it with only `background-color`, `display`, and `opacity` declarations, because those declarations alone do not restore a stripped `background-image`. When MapLibre or Tailwind is upgraded, verify the zoom controls on mobile WebKit before altering or removing the workaround.
 <!-- END:tailwind-maplibre-conflict-rule -->
 
+<!-- BEGIN:maplibre-attribution-overlay-rule -->
+## MapLibre Attribution Control & Overlay Z-Index
+
+When configuring MapLibre's compact `AttributionControl` and layering custom overlays on the map:
+1. **`compact: true` does not guarantee collapsed state**: MapLibre automatically adds `.maplibregl-compact-show` on initialization for containers wider than ~640px, expanding the attribution text. To force a collapsed default, you MUST also remove `.maplibregl-compact-show` from the attribution element after the map loads (e.g., `instance.once("load", () => { ... classList.remove("maplibregl-compact-show") })`).
+2. **CSS alone is insufficient**: A CSS rule hiding `.maplibregl-ctrl-attrib-inner` will be negated if a companion rule re-shows it for `.maplibregl-compact-show`, which MapLibre adds via JS on init. Use `:not(.maplibregl-compact-show)` selectors with `!important` to hide the inner text only when the expand-class is absent, and let MapLibre's native stylesheet handle the expanded state.
+3. **Z-index layering with custom overlays**: Custom floating map overlays (time badges, control pills) with explicit `z-index` values (e.g., Tailwind `z-30`) will obscure MapLibre's native controls when they expand, because MapLibre controls have no explicit high z-index. Add a z-index rule for the expanded state (`.maplibregl-compact-show`) that exceeds the highest custom overlay z-index.
+<!-- END:maplibre-attribution-overlay-rule -->
+
 <!-- BEGIN:ui-ux-summary-cards-rule -->
 ## UI/UX: Dashboard Summary Cards
 

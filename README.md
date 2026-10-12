@@ -137,10 +137,10 @@ A public bucket can be read anonymously, but a server-side read-only
 anonymous resolver rate limit. Add it as a backend/Space secret and never
 expose it through `NEXT_PUBLIC_*` variables or frontend responses.
 
-The production image defaults to four concurrent renders with one GDAL worker
+The production image defaults to two concurrent renders with one GDAL worker
 per render. Increase `GDAL_NUM_THREADS` only together with a reduction in
 `TILE_RENDER_CONCURRENCY`, and benchmark both cold and warm reads. For example,
-`2 × 2` keeps the same upper bound of four active GDAL workers. Set
+swapping `2 × 1` for `1 × 2` keeps the same upper bound of two active GDAL workers. Set
 `COG_IO_DIAGNOSTICS=true` temporarily to compare first-read versus repeated-read
 latency. COG readers are deliberately opened and closed within the same worker
 thread because Rasterio's GDAL environment is thread-local. Rendered frame and
@@ -148,6 +148,16 @@ tile results remain cached by revision. The logs identify the filesystem driver
 behind `/data/opera-radar`, but object-store GET/cache-hit counts must be obtained
 from the mount daemon or storage provider because POSIX reads do not expose that
 information to this application.
+
+Radar requests prioritize the selected frame. Hidden COG preloads start only
+after that frame is usable, carry `prefetch=true`, never queue, and leave at
+least one render slot available for foreground requests. A one-slot deployment
+skips uncached preloads. Preloads share the foreground response cache and never
+trigger an expensive GeoZarr fallback. A busy preload suppresses further browser
+preloads for 30 seconds. Visible raw-frame requests retry `429`/`503` up to twice
+with backoff and jitter, honoring short `Retry-After` windows; longer windows
+are surfaced without premature retries. Playback waits for the selected frame
+to render, including after a loading-timeout warning.
 
 ## API contract
 

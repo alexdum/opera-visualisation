@@ -69,6 +69,13 @@ describe("radar tile identity", () => {
     expect(buildRawFrameUrl(frame, "", undefined, 1024, false)).toContain("allow_archive_fallback=false");
   });
 
+  it("marks hidden requests for server admission without changing render options", () => {
+    const frame = makeFrame("RATE", "202607210000", "revision");
+    expect(buildRawFrameUrl(frame, "", undefined, 4096, true, true)).toBe(
+      `${buildRawFrameUrl(frame, "", undefined, 4096)}&prefetch=true`,
+    );
+  });
+
   it("versions immutable raw renders so renderer changes bypass browser caches", () => {
     const frame = makeFrame("DBZH", "202607210000", "revision");
     expect(buildRawFrameUrl(frame)).toContain("render_version=3");
