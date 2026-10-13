@@ -294,10 +294,13 @@ When generating or downsampling meteorological radar data (like DBZH reflectivit
   reads and renderer pressure without improving the visible frame.
 - Include product, timestamp, revision, rendering options, and quality
   threshold in MapLibre source and tile-cache identities.
-- Advance playback only after the current frame reaches MapLibre `idle` or an
-  explicitly reported degraded state. For OPERA raster sources, "reaches
-  idle" means the **active source** is loaded; it does not require the entire
-  style or hidden preloaded source to become idle.
+- Advance playback only when the render state's `frameKey` matches the
+  selected frame and that frame has usable radar data. A `ready` state permits
+  playback; `degraded` permits it only with `hasUsableFrame: true` (for example,
+  a rendered GeoZarr frame or a valid same-frame cached texture). A timeout
+  warning alone MUST NOT permit playback to advance and abort the pending
+  request. For raster sources, readiness depends on the **active source**, not
+  the entire style or hidden preloads; for WebGL it follows texture upload.
 - Stop playback when the document is hidden and honor
   `prefers-reduced-motion`.
 - On every product or date transition, abort the superseded catalog request,
@@ -308,6 +311,55 @@ When generating or downsampling meteorological radar data (like DBZH reflectivit
 - A stale async response or MapLibre event must not overwrite the state of a
   newer transition. Guard render callbacks by a generation/identity and ignore
   callbacks after their effect has been cleaned up.
+
+### Renderer congestion and loading recovery
+
+- A loading warning or `503` does not establish missing data or excessive
+  visitor numbers. One browser can generate foreground, preload, zoom and
+  playback requests. Verify the exact cataloged product/time/revision URL,
+  response status, backend header and repeated-request timing before changing
+  storage routing or recommending more hardware. Renderer saturation can be
+  transient even when the health endpoint reports `ok`.
+- Start hidden COG texture warming only after the selected view is usable.
+  Send `prefetch=true` and low fetch priority for hidden work; foreground raw
+  requests use high fetch priority. Browser priority is a progressive
+  enhancement; server admission MUST enforce the capacity policy independently.
+- `backend/api/render_slots.py` owns shared bounded render capacity. Background
+  requests MUST never queue, overtake waiting foreground requests, or take the
+  last available slot. A one-slot configuration skips uncached preloads.
+  The Docker/default renderer concurrency is two; verify effective deployment
+  variables rather than assuming defaults or raising concurrency blindly.
+- Hidden requests MUST NOT trigger GeoZarr rendering/fallback or wait for an
+  identical in-flight render. Successful preloads and foreground requests share
+  the server response cache for identical rendering options; priority alone
+  MUST NOT introduce a different render identity. Busy failures remain retryable
+  responses, never immutable successful cache entries.
+- A busy preload suppresses further browser preloads for 30 seconds. Do not
+  retry hidden work. Selected raw frames retry `429`/`503` at most twice with
+  backoff and jitter. Honor short `Retry-After` windows; surface windows longer
+  than the bounded retry allowance without retrying prematurely. Cancellation
+  MUST terminate retry waits when the selected frame or viewport changes.
+- The current warning allowances are 10 seconds for COG and 35 seconds for
+  GeoZarr. A warning MUST keep pending fetches and source-completion listeners
+  alive, set `hasUsableFrame: false`, and hold playback until rendering finishes.
+  Preserve a usable cached texture during loading, without presenting an old
+  timestamp as successful rendering of the selected frame.
+- Do not abort/restart a pending WebGL fetch when pan/zoom still requires the
+  same crop and resolution identity. Opacity changes update layer paint and
+  repaint only; they MUST NOT restart network loads. CPU texture caches must
+  retain the actual rendered backend, including a COG-to-GeoZarr fallback,
+  when restoring GPU textures after a basemap change.
+- Preserve native resolution, measurement/quality/status semantics, colormaps
+  and map geometry when fixing scheduling. Do not trade scientific fidelity
+  for a shorter loading warning.
+- Implementations: `src/utils/radarRequests.ts`, `src/components/Map.tsx`,
+  `src/app/page.tsx`, `src/types/radar.ts`, `backend/api/render_slots.py`, and
+  the raw-frame route in `backend/api/tiles.py`.
+- Regression checks should cover bounded busy retries, cancellation, no hidden
+  retries, long `Retry-After` handling, reserved foreground capacity, preload
+  cache reuse, no archive fallback from a preload, and playback holding through
+  a timeout then resuming after a deliberately slow render. Verify desktop and
+  mobile product/date switches and that closed Pixel Analysis issues no reads.
 
 ### Coordinate contracts
 
@@ -450,6 +502,47 @@ When a responsive sidebar, drawer, or control panel is translated off-screen:
 2. **Hugging Face Spaces Secrets**: When deploying an application to Hugging Face Spaces that fetches data from the Hugging Face Hub (like COG map tiles), always explicitly remind the user to configure a read-only `HF_TOKEN` in the Space's Settings > Variables and secrets. The Space container does not automatically inherit the user's credentials, and failure to provide the token will result in anonymous rate limits.
 <!-- END:docker-deployment-rule -->
 
+<!-- BEGIN:opera-huggingface-sync-rule -->
+## Hugging Face Sync Compatibility and Deployment Verification
+
+- `.github/workflows/sync_to_hub.yml` deploys `main` to the Docker Space
+  `alexdum/opera-visualisation`. Pin both the sync action by commit SHA and its
+  `hf_version` input. Pinning an action alone does not pin a CLI that the action
+  installs at runtime.
+- On 2026-10-12, the old action revision
+  `6fbce0a787a7146710e588abe7a4fd5eca07f47c` failed before upload because it ran
+  `hf repo create`, which the installed CLI no longer supports. The causal
+  error was `No such command 'repo'. Did you mean 'repos'?`, not the missing
+  GitHub Actions cache message or normal credential-cleanup output.
+- The verified fix uses `huggingface/hub-sync` v0.3.0 at
+  `fdffea8e04104d0bd4e3181c5feb3025f0433ff5` and `hf_version: "2.2.0"`.
+  This action uses `hf repos create` and supported upload flags. Treat these as
+  verified versions at that date, not permanent restrictions on future updates.
+  Before upgrading, inspect the exact pinned action and validate CLI create and
+  upload options with help-only checks in an isolated temporary environment.
+- Preserve existing Space target, Docker SDK and mirror/deletion behavior when
+  repairing CLI compatibility. Use the GitHub secret `HF_SPACE_DEPLOY_TOKEN`
+  for deployment; it needs write access to the Space. It is separate from the
+  server-side read-only `HF_TOKEN` used for radar storage. Never print tokens
+  or put them into frontend settings, URLs, command-line arguments or commits.
+- Read the actual workflow conclusion and failed-step logs. A partial log ending
+  at repository setup does not prove upload succeeded. Re-running a failed run
+  uses its original commit/workflow; the user must commit and push a workflow
+  fix to `main` (or run the updated workflow) to deploy that fix. Preserve the
+  manual commit/push rule below.
+- GitHub sync success is separate from the subsequent Space image build and
+  startup. Confirm live `/api/health` and verify both frontend and backend
+  changes: the served page chunk contains the new playback gate, and
+  `/openapi.json` advertises `prefetch` on the raw-frame endpoint. A protected
+  Space can reject anonymous repository/API reads with `401` while its app is
+  publicly reachable; this alone does not indicate an app outage.
+- Verified incident evidence: rendering commit `d8d6b22`, failed
+  [run #160](https://github.com/alexdum/opera-visualisation/actions/runs/38227615794),
+  workflow-fix commit `50c86ff`, and successful
+  [run #161](https://github.com/alexdum/opera-visualisation/actions/runs/38231552439).
+  Live frontend/backend markers and mounted-storage health were confirmed.
+<!-- END:opera-huggingface-sync-rule -->
+
 <!-- BEGIN:verification-rules -->
 ## Verification Requirements
 
@@ -458,15 +551,18 @@ Match verification effort to the affected rule and report commands that could no
 1. For code changes, run `npm test`, `npm run typecheck`, `npm run lint`, and
    `npm run build` unless the user explicitly limits verification or the
    environment prevents it. For backend changes, also run
-   `backend/venv/bin/python -m pytest -q backend` from the repository root.
+   `PYTHONPATH=backend backend/venv/bin/python -m pytest -q --import-mode=importlib backend`
+   from the repository root. The explicit import path/mode avoids the duplicate
+   `test_export.py` module-name collision across `backend/` and `backend/tests/`.
 2. For meteorological QC changes, add or update focused tests covering the affected parameter and filtering path. Relevant regression cases include high-altitude station pressure, Antarctic winter temperatures, geographically diverse stations at one timestamp, raw MeteoGate parameter names such as `wind_speed`, negative values for non-negative parameters, and spikes separated by both short and long time gaps.
 3. Tests added to the repository MUST be executable through a documented package script or the project's configured test runner; a test file that cannot be resolved or run is not considered verification.
 4. For country or station normalization changes, test canonical display labels, SEO slugs, URL parameters, and iframe messages. Cold-load at least one non-default parameterized URL and confirm that React reports no hydration error. Test station IDs and station slugs selected before station metadata finishes loading, and confirm that the country filter, generated URL, and iframe state message use the station's canonical country.
 5. For tooltip, scroll-snapping, chart-loading, or MapLibre-control changes, verify the affected interaction at desktop and mobile widths. Include keyboard/touch behavior where relevant, and verify MapLibre control icons on mobile WebKit when the control CSS changes.
 6. For OPERA product/date transition changes, verify at minimum latest DBZH →
-   historical RATE → historical DBZH. Confirm the final visible source reaches
-   `ready`, the rendering overlay clears, no old-product frame is displayed,
-   and Pixel Analysis does not issue GeoZarr requests while its view is closed.
+   historical RATE → historical DBZH. Confirm the selected frame becomes usable
+   (`ready`, or `degraded` with `hasUsableFrame: true` for archive/fallback data),
+   the loading overlay clears, no old-product frame is reported as the selected
+   frame, and Pixel Analysis issues no GeoZarr requests while its view is closed.
    Also request a map tile outside the OPERA footprint and confirm it returns a
    transparent `200` response.
 7. For OPERA storage-routing changes, verify Latest and Historical catalog
@@ -488,6 +584,14 @@ Match verification effort to the affected rule and report commands that could no
 12. Before handoff, run `git diff --check`. For deployment changes, resolve the
    Python 3.12 requirements and run the Docker build and health smoke test when
    a Docker daemon is available; explicitly report when it is not.
+The Next.js build currently fetches Inter through `next/font` from Google
+Fonts. An `ENOTFOUND fonts.googleapis.com` failure in a restricted/offline
+execution environment is a build-network limitation; retry with available,
+authorized network access before diagnosing a source-code failure. The
+2026-10-12 rendering verification passed 38 frontend and 75 backend tests,
+typecheck and production build, with only existing lint warnings. These counts
+are historical evidence, not fixed expectations for future test suites.
+
 <!-- END:verification-rules -->
 
 <!-- BEGIN:no-git-commit-rule -->

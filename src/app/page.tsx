@@ -351,7 +351,11 @@ export default function OperaRadarPage() {
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
         setPixelSeries([]);
-        setPixelError(error instanceof Error ? error.message : "Pixel request failed");
+        // Browsers report blocked requests and other network failures alike.
+        // Suggest the blocker without claiming we can detect an extension.
+        setPixelError(error instanceof TypeError
+          ? "The graph could not load. An ad or privacy blocker may be blocking the graph data request. Allow this explorer in your blocker, then reload and try again. If you do not use a blocker, check your internet connection and try again."
+          : error instanceof Error ? error.message : "The graph could not load. Please try again.");
       })
       .finally(() => {
         if (!controller.signal.aborted) setPixelLoading(false);
@@ -650,7 +654,7 @@ export default function OperaRadarPage() {
                   <p className="mb-6 text-slate-300 sm:text-slate-600">Return to the map and double-click a location to retrieve its cataloged GeoZarr series.</p>
                 )}
                 {pixelError && <p role="alert" className="mb-4 rounded-lg bg-rose-50 p-3 text-sm font-medium text-rose-800">{pixelError}</p>}
-                <PixelAnalysisChart data={pixelSeries} product={product} isLoading={pixelLoading} windowStart={pixelWindow?.start} windowEnd={pixelWindow?.end} />
+                {!pixelError && <PixelAnalysisChart data={pixelSeries} product={product} isLoading={pixelLoading} windowStart={pixelWindow?.start} windowEnd={pixelWindow?.end} />}
                 {selectedPixel && pixelSeries.length > 0 && (
                   <button type="button" onClick={handleExportCsv} className="mt-4 flex min-h-12 items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 font-bold text-white hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
                     <Download size={16} aria-hidden="true" /> Export cataloged CSV
