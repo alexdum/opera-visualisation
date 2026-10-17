@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import functools
+import asyncio
+from contextlib import suppress
+from dataclasses import dataclass, field
 import gzip
 import logging
 import math
 import os
+import time
 from collections import OrderedDict
 from threading import Event, Lock
 from typing import Any
@@ -22,6 +26,7 @@ from rasterio.warp import reproject, transform_bounds
 from rio_tiler.io import Reader
 from rio_tiler.errors import TileOutsideBounds
 from rio_tiler.models import ImageData
+from starlette.concurrency import run_in_threadpool
 import zarr
 
 from api.bucket import (
@@ -34,7 +39,10 @@ from api.bucket import (
 from api.catalog import CatalogFrame, normalize_product, resolve_catalog_frame
 from api.cog_cache import BucketRateLimitError, local_cog
 from api.raster_runtime import cog_reader
-from api.render_slots import RenderSlots
+from api.render_slots import (
+    RenderSlots, RenderCancelled, render_cancellation, check_render_cancelled,
+    render_is_cancelled,
+)
 
 
 router = APIRouter()
@@ -164,8 +172,15 @@ def web_mercator_tile_bounds(z: int, x: int, y: int) -> tuple[float, float, floa
     return left, bottom, right, top
 
 
+RASTER_METADATA_CACHE_SECONDS = max(1.0, float(os.getenv("RASTER_METADATA_CACHE_SECONDS", "30")))
+
+
+def _metadata_cache_bucket() -> int:
+    return int(time.monotonic() // RASTER_METADATA_CACHE_SECONDS)
+
+
 @functools.lru_cache(maxsize=8)
-def _open_group(store_path: str) -> Any:
+def _open_group_cached(store_path: str, _bucket: int) -> Any:
     if USE_LOCAL_MOUNT:
         store = zarr.storage.LocalStore(resolve_path(store_path))
     else:
@@ -178,13 +193,13 @@ def _open_group(store_path: str) -> Any:
         return zarr.open_group(store=store, mode="r")
 
 
+def _open_group(store_path: str) -> Any:
+    return _open_group_cached(store_path, _metadata_cache_bucket())
+
+
+_open_group.cache_clear = _open_group_cached.cache_clear
+_open_group.cache_info = _open_group_cached.cache_info
 _open_geozarr = _open_group
-
-
-@functools.lru_cache(maxsize=16)
-def _read_time_coords(path: str) -> np.ndarray:
-    group = _open_geozarr(path)
-    return np.asarray(group["time"][:], dtype=np.int64)
 
 
 @functools.lru_cache(maxsize=16)
@@ -192,25 +207,61 @@ def _geozarr_metadata(path: str, product: str) -> dict[str, Any]:
     group = _open_geozarr(path)
     x_coords = np.asarray(group["x"][:], dtype=np.float64)
     y_coords = np.asarray(group["y"][:], dtype=np.float64)
-    times = _read_time_coords(path)
     crs_attrs = dict(group["crs"].attrs)
     crs = CRS.from_string(crs_attrs["proj4_params"])
     transform_values = [float(value) for value in crs_attrs["GeoTransform"].split()]
     return {
         "x": x_coords,
         "y": y_coords,
-        "times": times,
         "crs": crs,
         "transform": Affine.from_gdal(*transform_values),
     }
 
 
-def _frame_time_index(times: np.ndarray, frame: CatalogFrame) -> int:
-    epoch = int(datetime_from_iso(frame.nominal_time).timestamp())
-    matches = np.flatnonzero(times == epoch)
-    if len(matches) != 1:
+def _frame_time_index(times: Any, frame: CatalogFrame) -> int:
+    return _exact_epoch_index(times, int(datetime_from_iso(frame.nominal_time).timestamp()))
+
+
+def _exact_epoch_index(times: Any, epoch: int) -> int:
+    """Find one exact epoch in the archive's sorted, append-only coordinate.
+
+    Scalar reads avoid materializing thousands of one-element Zarr chunks.
+    The adjacent cell check still rejects duplicate catalog timestamps.
+    """
+    low, high = 0, int(times.shape[0])
+    size = high
+    while low < high:
+        check_render_cancelled()
+        middle = (low + high) // 2
+        if int(times[middle]) < epoch:
+            low = middle + 1
+        else:
+            high = middle
+    if (low >= size or int(times[low]) != epoch or
+            (low + 1 < size and int(times[low + 1]) == epoch)):
         raise HTTPException(status_code=503, detail="Cataloged frame is not uniquely present in GeoZarr")
-    return int(matches[0])
+    return low
+
+
+@functools.lru_cache(maxsize=4096)
+def _cached_frame_time_index(
+    path: str, nominal_time: str, revision: str, _bucket: int,
+) -> int:
+    # Match group/index lifetimes so new cataloged timestamps become visible
+    # as a monthly store grows. Failed lookups are never cached by lru_cache.
+    epoch = int(datetime_from_iso(nominal_time).timestamp())
+    return _exact_epoch_index(_open_geozarr(path)["time"], epoch)
+
+
+def _geozarr_frame_time_index(frame: CatalogFrame) -> int:
+    key = (frame.geozarr, frame.nominal_time, frame.revision, _metadata_cache_bucket())
+    try:
+        return _cached_frame_time_index(*key)
+    except HTTPException:
+        # A catalog can publish an append before this worker's metadata TTL
+        # expires. Refresh once, then require the same exact, unique match.
+        _open_group.cache_clear()
+        return _cached_frame_time_index(*key)
 
 
 def datetime_from_iso(value: str):
@@ -239,12 +290,11 @@ def _render_geozarr_image(
     y: int,
     min_quality: float | None,
 ) -> ImageData:
+    time_index = _geozarr_frame_time_index(frame)
     group = _open_geozarr(frame.geozarr)
     metadata = _geozarr_metadata(frame.geozarr, frame.product)
     x_coords: np.ndarray = metadata["x"]
     y_coords: np.ndarray = metadata["y"]
-    times = np.asarray(group["time"][:], dtype=np.int64) if "time" in group else metadata.get("times", np.array([], dtype=np.int64))
-    time_index = _frame_time_index(times, frame)
     destination_bounds = web_mercator_tile_bounds(z, x, y)
     source_bounds = transform_bounds(
         "EPSG:3857", metadata["crs"], *destination_bounds, densify_pts=21
@@ -543,11 +593,10 @@ def _render_geozarr_frame(
     max_size: int = 1024, bounds: tuple[float, ...] = OPERA_WGS84_BOUNDS,
 ) -> ImageData:
     """Render a region of the OPERA GeoZarr archive as a single image in Web Mercator."""
+    time_index = _geozarr_frame_time_index(frame)
     group = _open_geozarr(frame.geozarr)
     metadata = _geozarr_metadata(frame.geozarr, frame.product)
 
-    times = np.asarray(group["time"][:], dtype=np.int64) if "time" in group else metadata.get("times", np.array([], dtype=np.int64))
-    time_index = _frame_time_index(times, frame)
 
     x_coords: np.ndarray = metadata["x"]
     y_coords: np.ndarray = metadata["y"]
@@ -830,12 +879,14 @@ def _read_reprojected_cog(
     include_quality: bool = True,
 ) -> tuple[np.ndarray, np.ndarray, tuple[tuple[float, ...], int, int, Affine]]:
     """Read native COG cells, classify them, then reproject like GeoZarr."""
+    check_render_cancelled()
     window = _expanded_dataset_window(dataset, bounds)
     source = _prepare_cog_measurement(
         dataset.read(1, window=window, masked=False),
         dataset.nodata,
     )
     source_transform = dataset.window_transform(window)
+    check_render_cancelled()
     grid = destination_grid or _destination_grid(bounds, max_size, source.shape[1])
     _merc_bounds, out_w, out_h, destination_transform = grid
     destination = np.full((out_h, out_w), np.nan, dtype=np.float32)
@@ -852,6 +903,7 @@ def _read_reprojected_cog(
     )
 
     quality = np.full((out_h, out_w), np.nan, dtype=np.float32)
+    check_render_cancelled()
     if include_quality and product == "DBZH" and dataset.count >= 2:
         source_quality = np.asarray(
             dataset.read(2, window=window, masked=False),
@@ -862,6 +914,7 @@ def _read_reprojected_cog(
                 np.isclose(source_quality, float(dataset.nodata))
             ] = np.nan
         source_quality[~np.isfinite(source_quality)] = np.nan
+        check_render_cancelled()
         reproject(
             source=source_quality,
             destination=quality,
@@ -884,6 +937,7 @@ def _get_raw_cog_frame(
     if not frame.hot_cog:
         raise FileNotFoundError("Catalog does not advertise a hot COG")
     cog_path = local_cog(frame.product, frame.timestamp, frame.revision, frame.hot_cog)
+    check_render_cancelled()
     try:
         with cog_reader(cog_path, Reader) as cog:
             d, q, _grid = _read_reprojected_cog(
@@ -914,11 +968,12 @@ def _get_raw_geozarr_frame(
     max_size: int = 1024,
     bounds: tuple[float, ...] = OPERA_WGS84_BOUNDS,
 ) -> bytes:
+    check_render_cancelled()
+    time_index = _geozarr_frame_time_index(frame)
     group = _open_geozarr(frame.geozarr)
     metadata = _geozarr_metadata(frame.geozarr, frame.product)
 
-    times = np.asarray(group["time"][:], dtype=np.int64) if "time" in group else metadata.get("times", np.array([], dtype=np.int64))
-    time_index = _frame_time_index(times, frame)
+    check_render_cancelled()
 
     x_coords: np.ndarray = metadata["x"]
     y_coords: np.ndarray = metadata["y"]
@@ -939,6 +994,7 @@ def _get_raw_geozarr_frame(
     slice_w = x_end - x_start
 
     slab = np.asarray(group[frame.product][time_index, y_start:y_end, x_start:x_end], dtype=np.float32)
+    check_render_cancelled()
 
     undetect = group[frame.product].attrs.get("undetect_value", None)
     if undetect is not None:
@@ -947,6 +1003,7 @@ def _get_raw_geozarr_frame(
     if status_name in group:
         status_slab = np.asarray(group[status_name][time_index, y_start:y_end, x_start:x_end])
         slab = _apply_geozarr_status(slab, status_slab)
+    check_render_cancelled()
     slab[~np.isfinite(slab)] = np.nan
 
     src_transform = metadata["transform"] * Affine.translation(x_start, y_start)
@@ -970,6 +1027,7 @@ def _get_raw_geozarr_frame(
     )
 
     dst_quality = np.full((1, out_h, out_w), np.nan, dtype=np.float32)
+    check_render_cancelled()
     if frame.product == "DBZH":
         quality_vars = frame.quality_variables or []
         if quality_vars:
@@ -977,6 +1035,7 @@ def _get_raw_geozarr_frame(
             if q_var in group:
                 q_slab = np.asarray(group[q_var][time_index, y_start:y_end, x_start:x_end], dtype=np.float32)
                 q_slab[~np.isfinite(q_slab)] = np.nan
+                check_render_cancelled()
                 reproject(
                     q_slab.reshape(1, src_h, src_w),
                     dst_quality,
@@ -1006,8 +1065,19 @@ _raw_cache: OrderedDict[str, _CacheEntry] = OrderedDict()
 _raw_cache_bytes = 0
 _raw_cache_lock = Lock()
 
-# Single-flight coalescing: prevent duplicate renders for the same key
-_inflight: dict[str, Event] = {}
+# Coalesced renders track every interested request. Disconnecting the leader
+# must not cancel useful work for another viewer of the same immutable frame.
+@dataclass
+class _RawFlight:
+    done: Event = field(default_factory=Event)
+    consumers: set[Event] = field(default_factory=set)
+
+    def cancelled(self) -> bool:
+        with _inflight_lock:
+            return all(consumer.is_set() for consumer in self.consumers)
+
+
+_inflight: dict[str, _RawFlight] = {}
 _inflight_lock = Lock()
 
 
@@ -1066,7 +1136,9 @@ def _render_and_compress(
     prefetch: bool = False,
 ) -> _CacheEntry:
     """Render a raw frame and return (gzip-level-1 compressed bytes, backend)."""
+    check_render_cancelled()
     frame = resolve_catalog_frame(product, timestamp, revision)
+    check_render_cancelled()
     bounds = OPERA_WGS84_BOUNDS
     if bbox_key:
         try:
@@ -1082,7 +1154,10 @@ def _render_and_compress(
     if prefetch and not use_cog:
         raise HTTPException(status_code=503, detail="Archive preloading is disabled", headers={"Retry-After": "30"})
     try:
-        acquired = RENDER_SLOTS.acquire(timeout=RENDER_QUEUE_TIMEOUT_SECONDS, background=prefetch)
+        acquired = RENDER_SLOTS.acquire(
+            timeout=RENDER_QUEUE_TIMEOUT_SECONDS, background=prefetch,
+            cancelled=render_is_cancelled,
+        )
         if not acquired:
             raise HTTPException(
                 status_code=503,
@@ -1090,6 +1165,7 @@ def _render_and_compress(
                 headers={"Retry-After": "2"},
             )
         try:
+            check_render_cancelled()
             if use_cog:
                 raw = _get_raw_cog_frame(frame, max_size, bounds)
                 backend = "cog"
@@ -1098,17 +1174,19 @@ def _render_and_compress(
                 backend = "geozarr"
         finally:
             RENDER_SLOTS.release()
-    except HTTPException:
+    except (HTTPException, RenderCancelled):
         raise
     except Exception as exc:
-        if not prefetch and allow_archive_fallback and frame.archive_ready and frame.geozarr:
+        if use_cog and not prefetch and allow_archive_fallback and frame.archive_ready and frame.geozarr:
             logger.warning(
                 "Hot COG frame render failed for %s %s revision %s (%s); "
                 "falling back to GeoZarr",
                 product, timestamp, revision, type(exc).__name__,
                 exc_info=True,
             )
-            acquired = RENDER_SLOTS.acquire(timeout=RENDER_QUEUE_TIMEOUT_SECONDS)
+            acquired = RENDER_SLOTS.acquire(
+                timeout=RENDER_QUEUE_TIMEOUT_SECONDS, cancelled=render_is_cancelled,
+            )
             if not acquired:
                 raise HTTPException(
                     status_code=503,
@@ -1116,6 +1194,7 @@ def _render_and_compress(
                     headers={"Retry-After": "2"},
                 )
             try:
+                check_render_cancelled()
                 raw = _get_raw_geozarr_frame(frame, max_size, bounds)
                 backend = "geozarr"
             finally:
@@ -1123,6 +1202,7 @@ def _render_and_compress(
         else:
             raise
 
+    check_render_cancelled()
     compressed = gzip.compress(raw, compresslevel=1)
     return compressed, backend
 
@@ -1189,7 +1269,7 @@ def _make_response(entry: _CacheEntry, revision: str, use_gzip: bool) -> Respons
 
 
 @router.get("/raw/{product}/{timestamp}/{revision}.bin")
-def get_raw_frame(
+async def get_raw_frame(
     request: Request,
     product: str,
     timestamp: str,
@@ -1201,6 +1281,38 @@ def get_raw_frame(
     render_version: int = Query(RAW_RENDER_VERSION, ge=RAW_RENDER_VERSION, le=RAW_RENDER_VERSION),
     prefetch: bool = Query(False),
 ) -> Response:
+    disconnected = Event()
+
+    async def watch_disconnect() -> None:
+        # This GET endpoint consumes no request body. Keep receive on the
+        # event-loop thread; storage and raster work stay in the worker pool.
+        while not disconnected.is_set():
+            if await request.is_disconnected():
+                disconnected.set()
+                return
+            await asyncio.sleep(0.05)
+
+    watcher = asyncio.create_task(watch_disconnect())
+    try:
+        return await run_in_threadpool(
+            _serve_raw_frame, request, product, timestamp, revision, source,
+            max_size, bbox, allow_archive_fallback, render_version, prefetch,
+            disconnected,
+        )
+    finally:
+        disconnected.set()
+        watcher.cancel()
+        with suppress(asyncio.CancelledError):
+            await watcher
+
+
+def _serve_raw_frame(
+    request: Request, product: str, timestamp: str, revision: str, source: str,
+    max_size: int, bbox: str, allow_archive_fallback: bool, render_version: int,
+    prefetch: bool, disconnected: Event,
+) -> Response:
+    if disconnected.is_set():
+        return Response(status_code=499)
     key = _cache_key(
         product,
         timestamp,
@@ -1225,39 +1337,51 @@ def get_raw_frame(
     # 2. Single-flight coalescing: only one thread renders a given key
     is_renderer = False
     with _inflight_lock:
-        event = _inflight.get(key)
-        if event is None:
-            event = Event()
-            _inflight[key] = event
+        flight = _inflight.get(key)
+        if flight is None:
+            flight = _RawFlight()
+            _inflight[key] = flight
             is_renderer = True
+        elif prefetch:
+            raise HTTPException(status_code=503, detail="Frame is already rendering", headers={"Retry-After": "2"})
+        flight.consumers.add(disconnected)
 
     if not is_renderer:
-        if prefetch:
-            raise HTTPException(status_code=503, detail="Frame is already rendering", headers={"Retry-After": "2"})
-        waited = event.wait(timeout=60)
-        if not waited:
-            raise HTTPException(status_code=503, detail="Server is busy rendering this frame. Please retry.", headers={"Retry-After": "2"})
-
-        cached = _get_cache(key)
-        if cached is not None:
-            return _make_response(cached, revision, use_gzip)
-        else:
+        try:
+            deadline = time.monotonic() + 60
+            while not flight.done.wait(timeout=0.05):
+                if disconnected.is_set():
+                    return Response(status_code=499)
+                if time.monotonic() >= deadline:
+                    raise HTTPException(status_code=503, detail="Server is busy rendering this frame. Please retry.", headers={"Retry-After": "2"})
+            cached = _get_cache(key)
+            if cached is not None:
+                return _make_response(cached, revision, use_gzip)
             raise HTTPException(status_code=503, detail="Raw frame rendering failed in another thread.", headers={"Retry-After": "2"})
+        finally:
+            with _inflight_lock:
+                flight.consumers.discard(disconnected)
 
     # 3. Render, compress, cache, then signal waiters
+    cancellation_token = render_cancellation.set(flight.cancelled)
     try:
+        check_render_cancelled()
         render_args = (product, timestamp, revision, source, max_size, bbox, allow_archive_fallback)
         entry = (_render_and_compress(*render_args, prefetch=True) if prefetch
                  else _render_and_compress(*render_args))
         _put_cache(key, entry)
+    except RenderCancelled:
+        return Response(status_code=499)
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Raw frame rendering failed") from exc
     finally:
+        render_cancellation.reset(cancellation_token)
         with _inflight_lock:
             _inflight.pop(key, None)
-        event.set()  # Wake up waiting threads AFTER cache is populated (or failed)
+            flight.consumers.discard(disconnected)
+        flight.done.set()  # Wake waiters after cache population (or failure).
 
     compressed, backend = entry
     logger.info(

@@ -11,6 +11,7 @@ import threading
 import httpx
 
 from api.bucket import auth_headers, object_url, USE_LOCAL_MOUNT, resolve_path
+from api.render_slots import check_render_cancelled
 
 
 class BucketRateLimitError(RuntimeError):
@@ -59,6 +60,7 @@ def _evict(keep: Path) -> None:
 
 def local_cog(product: str, timestamp: str, revision: str, hot_cog: str) -> Path:
     """Return a local immutable COG, downloading it once per revision."""
+    check_render_cancelled()
     if USE_LOCAL_MOUNT:
         return Path(resolve_path(hot_cog))
 
@@ -69,7 +71,12 @@ def local_cog(product: str, timestamp: str, revision: str, hot_cog: str) -> Path
         return target
 
     lock = _lock_for(target.name)
-    with lock:
+    # A superseded crop must not hold a render slot while waiting for another
+    # request to finish downloading this COG.
+    while not lock.acquire(timeout=0.05):
+        check_render_cancelled()
+    try:
+        check_render_cancelled()
         if target.is_file() and target.stat().st_size > 0:
             target.touch()
             return target
@@ -93,6 +100,7 @@ def local_cog(product: str, timestamp: str, revision: str, hot_cog: str) -> Path
                 response.raise_for_status()
                 with temporary.open("wb") as destination:
                     for chunk in response.iter_bytes(chunk_size=1024 * 1024):
+                        check_render_cancelled()
                         destination.write(chunk)
             if temporary.stat().st_size == 0:
                 raise RuntimeError("Downloaded COG is empty")
@@ -101,3 +109,5 @@ def local_cog(product: str, timestamp: str, revision: str, hot_cog: str) -> Path
             return target
         finally:
             temporary.unlink(missing_ok=True)
+    finally:
+        lock.release()

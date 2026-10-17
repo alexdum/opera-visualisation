@@ -128,6 +128,7 @@ from one origin on port 7860.
 | `GDAL_NUM_THREADS` | `1` | GDAL workers per render; total potential workers are this value × render concurrency |
 | `COG_IO_DIAGNOSTICS` | `false` | Log COG path, render time, file size, and Linux mount type |
 | `PIXEL_METADATA_CACHE_SECONDS` | `30` | Refresh interval for growing GeoZarr group and time metadata |
+| `RASTER_METADATA_CACHE_SECONDS` | `30` | Refresh interval for raster GeoZarr groups and bounded exact timestamp lookups |
 | `PIXEL_RESPONSE_CACHE_SECONDS` | `300` | Lifetime of server-side pixel-series results |
 | `PIXEL_RESPONSE_CACHE_ENTRIES` | `128` | Maximum cached pixel-series results per backend process |
 | `NEXT_PUBLIC_API_BASE_URL` | Port 7860 in development; same-origin in production | Optional public API origin override |
@@ -158,6 +159,24 @@ preloads for 30 seconds. Visible raw-frame requests retry `429`/`503` up to twic
 with backoff and jitter, honoring short `Retry-After` windows; longer windows
 are surfaced without premature retries. Playback waits for the selected frame
 to render, including after a loading-timeout warning.
+
+Archive rendering locates a frame with scalar binary-search reads of the sorted
+time coordinate, then caches its exact index by store, timestamp, revision and
+metadata lifetime. A missing match refreshes group metadata once so a newly
+published append can be read before the normal refresh interval ends. Spatial
+grid metadata is cached separately and never loads the monthly time coordinate.
+
+Raw-frame requests monitor browser disconnects. Queued work with no connected
+consumers leaves the queue within a short polling interval; active work checks
+for cancellation between storage reads, reprojection and compression. An
+ongoing native GDAL or filesystem call must return before cancellation can be
+observed. Shared renders continue while any connected request still needs them.
+Cancelled work never starts an archive fallback or publishes a partial result.
+
+Hidden COG warming targets the next playback frame first, including the first
+frame when looping from the latest. It skips archive destinations and a disabled
+loop's end, and only then warms a secondary continental texture. Toggling loop
+behavior does not restart the visible frame's pending request.
 
 ## API contract
 

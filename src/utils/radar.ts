@@ -91,11 +91,11 @@ export const isFrameIdentityVariant = (
 export const tileLoadTimeoutMs = (frame: RadarFrame) =>
   frame.backend === "geozarr" ? 35_000 : 10_000;
 
-export const selectAnimationFrames = (frames: RadarFrame[], currentIndex: number) => {
+export const selectAnimationFrames = (frames: RadarFrame[], currentIndex: number, loop = false) => {
   const current = frames[currentIndex];
   if (!current) return [];
 
-  const next = frames[currentIndex + 1];
+  const next = frames[currentIndex + 1] ?? (loop && frames.length > 1 ? frames[0] : undefined);
   // COGs are cheap to preload and make recent animation smoother. Historical
   // GeoZarr tiles require remote chunk reads and reprojection per tile, so
   // preloading a hidden archive frame doubles renderer pressure and can starve

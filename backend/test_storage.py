@@ -110,3 +110,38 @@ def test_rate_limit_does_not_publish_partial_cache_file(monkeypatch, tmp_path: P
         assert exc.retry_after == "42"
 
     assert list(tmp_path.iterdir()) == []
+
+
+def test_cancelled_cog_download_removes_partial_file(monkeypatch, tmp_path: Path):
+    import pytest
+    from api.render_slots import RenderCancelled, render_cancellation
+
+    cancelled = threading.Event()
+    monkeypatch.setattr(cog_cache, "_CACHE_DIR", tmp_path)
+    monkeypatch.setattr(cog_cache, "USE_LOCAL_MOUNT", False)
+
+    class PartialResponse:
+        status_code = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def raise_for_status(self):
+            pass
+
+        def iter_bytes(self, chunk_size):
+            yield b"partial"
+            cancelled.set()
+            yield b"discard"
+
+    monkeypatch.setattr(cog_cache.httpx, "stream", lambda *_args, **_kwargs: PartialResponse())
+    token = render_cancellation.set(cancelled.is_set)
+    try:
+        with pytest.raises(RenderCancelled):
+            cog_cache.local_cog("RATE", "202607210630", "cancelled", "hot-cog/RATE/frame.tif")
+    finally:
+        render_cancellation.reset(token)
+    assert list(tmp_path.iterdir()) == []

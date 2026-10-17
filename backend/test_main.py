@@ -497,6 +497,7 @@ def test_geozarr_fallback_renders_cataloged_frame(monkeypatch):
         "crs": CRS.from_epsg(3857),
         "transform": Affine.translation(-limit, limit) * Affine.scale(limit / 2, -limit / 2),
     }
+    group["time"] = metadata["times"]
     monkeypatch.setattr("api.tiles._open_geozarr", lambda _path: group)
     monkeypatch.setattr("api.tiles._geozarr_metadata", lambda _path, _product: metadata)
     published = CatalogFrame(
@@ -629,6 +630,7 @@ def test_geozarr_frame_rendering_timestamp_alignment(monkeypatch):
         "transform": Affine.translation(-limit, limit) * Affine.scale(limit / 2, -limit / 2),
     }
 
+    group["time"] = metadata["times"]
     monkeypatch.setattr("api.tiles._open_geozarr", lambda _path: group)
     monkeypatch.setattr("api.tiles._geozarr_metadata", lambda _path, _product: metadata)
 
@@ -709,6 +711,7 @@ def test_frame_parity_cog_vs_geozarr(monkeypatch):
         "transform": Affine.translation(-limit, limit) * Affine.scale(limit / 2, -limit / 2),
     }
 
+    group["time"] = metadata["times"]
     monkeypatch.setattr("api.tiles._open_geozarr", lambda _path: group)
     monkeypatch.setattr("api.tiles._geozarr_metadata", lambda _path, _product: metadata)
 
@@ -747,10 +750,10 @@ def test_tiles_open_group_consolidated_metadata_fallback(tmp_path, monkeypatch):
 
 def test_time_coords_caching():
     from api.pixel import _read_time_coords as pixel_read_time
-    from api.tiles import _read_time_coords as tiles_read_time
+    from api.tiles import _cached_frame_time_index
 
     assert hasattr(pixel_read_time, "cache_info")
-    assert hasattr(tiles_read_time, "cache_info")
+    assert hasattr(_cached_frame_time_index, "cache_info")
 
 
 def test_frame_rendering_cog_and_geozarr_alignment(monkeypatch):
@@ -825,6 +828,7 @@ def test_frame_rendering_cog_and_geozarr_alignment(monkeypatch):
         "transform": from_bounds(*merc_bounds, 4, 3),
     }
 
+    group["time"] = metadata["times"]
     monkeypatch.setattr("api.tiles._open_geozarr", lambda _path: group)
     monkeypatch.setattr("api.tiles._geozarr_metadata", lambda _path, _product: metadata)
 
@@ -1061,12 +1065,14 @@ from concurrent.futures import ThreadPoolExecutor
 @pytest.fixture(autouse=True)
 def reset_cache_state():
     import api.tiles
+    api.tiles._cached_frame_time_index.cache_clear()
     with api.tiles._raw_cache_lock:
         api.tiles._raw_cache.clear()
         api.tiles._raw_cache_bytes = 0
     with api.tiles._inflight_lock:
         api.tiles._inflight.clear()
     yield
+    api.tiles._cached_frame_time_index.cache_clear()
     with api.tiles._raw_cache_lock:
         api.tiles._raw_cache.clear()
         api.tiles._raw_cache_bytes = 0

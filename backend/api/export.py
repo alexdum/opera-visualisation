@@ -52,7 +52,7 @@ async def export_geotiff(product: str, timestamp: str, revision: str):
                 group = _open_geozarr(frame.geozarr)
                 metadata = _geozarr_metadata(frame.geozarr, frame.product)
                 
-                times = np.asarray(group["time"][:], dtype=np.int64) if "time" in group else metadata.get("times", np.array([], dtype=np.int64))
+                times = group["time"] if "time" in group else metadata.get("times", np.array([], dtype=np.int64))
                 time_index = _frame_time_index(times, frame)
                 
                 # read full extent

@@ -612,6 +612,7 @@ export default function OperaRadarPage() {
             opacity={opacity}
             minQuality={minQuality}
             resetViewTrigger={resetMapView}
+            loopAnimation={animation.loop}
             onRenderState={setRenderState}
             onMapClick={handleMapClick}
             selectedPixel={selectedPixel}

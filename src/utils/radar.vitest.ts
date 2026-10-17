@@ -146,6 +146,26 @@ describe("bounded animation window", () => {
     expect(selectAnimationFrames(frames, 0)).toEqual([frames[0]]);
   });
 
+  it("preloads the actual first frame when playback loops from the latest", () => {
+    const frames = [
+      makeFrame("RATE", "202607210000", "a"),
+      makeFrame("RATE", "202607210015", "b"),
+    ];
+    expect(selectAnimationFrames(frames, 1, true)).toEqual([frames[1], frames[0]]);
+    expect(selectAnimationFrames(frames, 1, false)).toEqual([frames[1]]);
+    expect(selectAnimationFrames([frames[0]], 0, true)).toEqual([frames[0]]);
+  });
+
+  it("never warms an archive frame at the loop boundary", () => {
+    const frames = [
+      { ...makeFrame("RATE", "202607200000", "a"), backend: "geozarr" as const },
+      makeFrame("RATE", "202607210000", "b"),
+    ];
+    expect(selectAnimationFrames(frames, 1, true)).toEqual([frames[1]]);
+    expect(selectAnimationFrames(frames, 0, true)).toEqual([frames[0]]);
+    expect(selectAnimationFrames([], 0, true)).toEqual([]);
+  });
+
   it("allows archive rendering more time than hot COG rendering", () => {
     const cog = makeFrame("DBZH", "202607200000", "a");
     const geozarr = { ...cog, backend: "geozarr" as const };

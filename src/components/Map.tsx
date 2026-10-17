@@ -120,6 +120,7 @@ export interface MapProps {
   onMapClick?: (info: { lon: number; lat: number; name: string }) => void;
   selectedPixel?: { lon: number; lat: number } | null;
   resetViewTrigger?: number;
+  loopAnimation?: boolean;
 }
 
 export function WeatherMap({
@@ -134,6 +135,7 @@ export function WeatherMap({
   onMapClick,
   selectedPixel,
   resetViewTrigger,
+  loopAnimation = true,
 }: MapProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -146,6 +148,8 @@ export function WeatherMap({
   const appliedBasemapRef = useRef(basemap);
   const rawBufferMapRef = useRef<Map<string, RawRadarBuffer>>(new Map());
   const preloadCooldownRef = useRef(0);
+  const loopAnimationRef = useRef(loopAnimation);
+  const warmCachesRef = useRef<(() => void) | null>(null);
   /** Track actual RadarWebGLLayer instances because getLayer() returns
    *  MapLibre's CustomStyleLayer wrapper, not our class instance. */
   const webglLayersRef = useRef<Map<string, RadarWebGLLayer>>(new Map());
@@ -153,6 +157,13 @@ export function WeatherMap({
   const opacityRef = useRef(opacity);
   const [mapReady, setMapReady] = useState(false);
   const [styleRevision, setStyleRevision] = useState(0);
+
+  useEffect(() => {
+    loopAnimationRef.current = loopAnimation;
+    // Changing loop behavior only updates hidden work; it must not restart
+    // the selected frame's pending request.
+    warmCachesRef.current?.();
+  }, [loopAnimation]);
 
   useEffect(() => {
     clickHandlerRef.current = onMapClick;
@@ -604,31 +615,40 @@ export function WeatherMap({
 
         // Warm hidden textures only after the selected view is usable. The
         // server admits these requests only when foreground capacity is spare.
+        let warming = false;
         const warmCaches = async () => {
           const documentIsHidden = () => document.visibilityState === "hidden";
-          if (!isCurrentRequest() || currentFrame.backend !== "cog" ||
+          if (warming || !isCurrentRequest() ||
+              webglLayer!.frameBackend(currentIdentity) !== "cog" ||
               Date.now() < preloadCooldownRef.current || documentIsHidden()) return;
+          warming = true;
           try {
-            if (pyramid.bboxKey && !webglLayer!.hasFrame(continentalIdentity)) {
-              const backend = await uploadRawFrame(currentFrame, continentalIdentity,
-                OPERA_IMAGE_COORDINATES, undefined, 1024, false, signal, true, true);
-              if (!backend) return;
+            // Playback may wrap from the initially selected latest frame to
+            // the first. Warm that destination before the secondary zoom aid.
+            const adjacent = selectAnimationFrames(frames, currentTimeIndex, loopAnimationRef.current)[1];
+            if (adjacent) {
+              const identity = frameIdentity(adjacent, minQuality, pyramid.bboxKey, pyramid.maxSize);
+              restoreFromCpuCache(identity, false);
+              if (!webglLayer!.hasFrame(identity)) {
+                const backend = await uploadRawFrame(adjacent, identity, pyramid.bboxCoords,
+                  pyramid.bboxKey, pyramid.maxSize, false, signal, true, true);
+                if (!backend) return;
+              }
             }
-            const adjacent = desiredFrames[1];
-            if (!adjacent || !isCurrentRequest() || Date.now() < preloadCooldownRef.current ||
-                documentIsHidden()) return;
-            const identity = frameIdentity(adjacent, minQuality, pyramid.bboxKey, pyramid.maxSize);
-            restoreFromCpuCache(identity, false);
-            if (!webglLayer!.hasFrame(identity)) {
-              await uploadRawFrame(adjacent, identity, pyramid.bboxCoords,
-                pyramid.bboxKey, pyramid.maxSize, false, signal, true, true);
+            if (!isCurrentRequest() || Date.now() < preloadCooldownRef.current || documentIsHidden()) return;
+            if (pyramid.bboxKey && !webglLayer!.hasFrame(continentalIdentity)) {
+              await uploadRawFrame(currentFrame, continentalIdentity,
+                OPERA_IMAGE_COORDINATES, undefined, 1024, false, signal, true, true);
             }
           } catch (error: unknown) {
             if (!(error instanceof DOMException && error.name === "AbortError")) {
               preloadCooldownRef.current = Date.now() + 30_000;
             }
+          } finally {
+            warming = false;
           }
         };
+        warmCachesRef.current = () => { void warmCaches(); };
 
         if (webglLayer.hasFrame(currentIdentity)) {
           webglLayer.showFrame(currentIdentity);
@@ -821,6 +841,7 @@ export function WeatherMap({
     instance.on("moveend", handleMoveEnd);
     return () => {
       cancelled = true;
+      warmCachesRef.current = null;
       loadController.abort();
       continentalController.abort();
       if (fallbackTimer) clearTimeout(fallbackTimer);
