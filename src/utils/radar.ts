@@ -1,5 +1,13 @@
 import type { RadarFrame, RadarProduct } from "@/types/radar";
 
+const utcMonthFormatter = new Intl.DateTimeFormat(undefined, { month: "short", timeZone: "UTC" });
+
+/** Keep the calendar date and clock in the same time zone, including near midnight. */
+export const formatRadarTimestamp = (value: string) => {
+  const date = new Date(value);
+  return `${date.getUTCDate()} ${utcMonthFormatter.format(date)}, ${date.getUTCHours().toString().padStart(2, "0")}:${date.getUTCMinutes().toString().padStart(2, "0")} UTC`;
+};
+
 export const OPERA_WGS84_BOUNDS: [number, number, number, number] = [-39.552438, 31.749398, 57.81137, 73.931257];
 
 export const OPERA_IMAGE_COORDINATES: [[number, number], [number, number], [number, number], [number, number]] = [

@@ -155,10 +155,13 @@ after that frame is usable, carry `prefetch=true`, never queue, and leave at
 least one render slot available for foreground requests. A one-slot deployment
 skips uncached preloads. Preloads share the foreground response cache and never
 trigger an expensive GeoZarr fallback. A busy preload suppresses further browser
-preloads for 30 seconds. Visible raw-frame requests retry `429`/`503` up to twice
-with backoff and jitter, honoring short `Retry-After` windows; longer windows
+preloads for 30 seconds. Visible raw-frame requests retry `429`/`503` and temporary
+network failures (including interrupted response bodies) within a shared limit
+of two retries, with backoff and jitter. They honor short `Retry-After` windows; longer windows
 are surfaced without premature retries. Playback waits for the selected frame
-to render, including after a loading-timeout warning.
+to render, including after a loading-timeout warning. Changing frames or the
+viewport cancels pending retries. The floating timestamp uses UTC for both its
+calendar date and clock.
 
 Archive rendering locates a frame with scalar binary-search reads of the sorted
 time coordinate, then caches its exact index by store, timestamp, revision and

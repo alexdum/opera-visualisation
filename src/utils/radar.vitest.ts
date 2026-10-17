@@ -7,6 +7,7 @@ import {
   continentalFrameIdentity,
   frameIdentity,
   formatRadarCadence,
+  formatRadarTimestamp,
   inferRadarCadenceMs,
   getEuropeanScalePyramid,
   isFrameIdentityVariant,
@@ -31,6 +32,28 @@ const makeFrame = (product: RadarFrame["product"], timestamp: string, revision: 
   geozarr: `geozarr/${product}/2026/2026-07.zarr`,
   quality_variables: [`${product}_quality_qi_total`],
   backend: "cog",
+});
+
+describe("UTC radar timestamp", () => {
+  it.each(["Europe/Bucharest", "America/Los_Angeles", "UTC"])(
+    "keeps the UTC calendar date across midnight and year boundaries in %s",
+    (timeZone) => {
+      const previous = process.env.TZ;
+      process.env.TZ = timeZone;
+      try {
+        const month = (value: string) => new Date(value).toLocaleString(undefined, { month: "short", timeZone: "UTC" });
+        expect(formatRadarTimestamp("2026-10-17T23:55:00Z"))
+          .toBe(`17 ${month("2026-10-17T23:55:00Z")}, 23:55 UTC`);
+        expect(formatRadarTimestamp("2026-12-31T23:55:00Z"))
+          .toBe(`31 ${month("2026-12-31T23:55:00Z")}, 23:55 UTC`);
+        expect(formatRadarTimestamp("2027-01-01T00:05:00Z"))
+          .toBe(`1 ${month("2027-01-01T00:05:00Z")}, 00:05 UTC`);
+      } finally {
+        if (previous === undefined) delete process.env.TZ;
+        else process.env.TZ = previous;
+      }
+    },
+  );
 });
 
 describe("radar tile identity", () => {

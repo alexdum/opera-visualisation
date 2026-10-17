@@ -12,7 +12,7 @@ import { Tooltip } from "@/components/Tooltip";
 import { useRadarAnimation } from "@/hooks/useRadarAnimation";
 import type { CatalogResponse, MapRenderState, RadarFrame, RadarProduct } from "@/types/radar";
 import { downloadPixelCsv } from "@/utils/pixelCsv";
-import { frameIdentity, parseQualityUrlValue, tileLoadTimeoutMs } from "@/utils/radar";
+import { formatRadarTimestamp, frameIdentity, parseQualityUrlValue, tileLoadTimeoutMs } from "@/utils/radar";
 import { canAdvanceRadarFrame } from "@/utils/radarRequests";
 
 interface FullscreenDocument extends Document {
@@ -57,18 +57,6 @@ const openStandaloneExplorer = () => {
   const directUrl = new URL(window.location.href);
   directUrl.searchParams.delete("embed");
   window.open(directUrl.toString(), "_blank", "noopener,noreferrer");
-};
-
-const formatUtc = (value?: string | null) => {
-  if (!value) return "";
-  return new Intl.DateTimeFormat(undefined, {
-    timeZone: "UTC",
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(new Date(value));
 };
 
 export default function OperaRadarPage() {
@@ -517,10 +505,7 @@ export default function OperaRadarPage() {
               <div className="flex items-center gap-2 px-1">
                 <Clock size={16} className="text-white/80 sm:text-slate-500 shrink-0 hidden sm:block" aria-hidden="true" />
                 <span>
-                {(() => {
-                  const date = new Date(currentFrame.nominal_time);
-                  return `${date.getDate()} ${date.toLocaleString('default', { month: 'short' })}, ${date.getUTCHours().toString().padStart(2, '0')}:${date.getUTCMinutes().toString().padStart(2, '0')} UTC`;
-                })()}
+                  {formatRadarTimestamp(currentFrame.nominal_time)}
                 </span>
               </div>
 

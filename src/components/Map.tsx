@@ -542,17 +542,20 @@ export function WeatherMap({
           allowArchiveFallback = true,
           background = false,
         ) => {
-          const response = await fetchRadarFrame(
+          const parsed = await fetchRadarFrame(
             buildRawFrameUrl(frame, TILE_API_BASE, bboxKey, maxSize, allowArchiveFallback, background),
             fetchSignal,
             background,
+            async (response) => {
+              if (background && [429, 503].includes(response.status)) {
+                preloadCooldownRef.current = Date.now() + 30_000;
+                await response.body?.cancel();
+                return;
+              }
+              return parseRawRadarResponse(response);
+            },
           );
-          if (background && [429, 503].includes(response.status)) {
-            preloadCooldownRef.current = Date.now() + 30_000;
-            await response.body?.cancel();
-            return;
-          }
-          const parsed = await parseRawRadarResponse(response);
+          if (!parsed) return;
           // Continental uploads are always accepted (they survive viewport
           // changes); viewport-specific uploads check the viewport generation.
           if (fetchSignal !== continentalController.signal && !isCurrentRequest()) return;
