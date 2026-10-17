@@ -335,10 +335,27 @@ When generating or downsampling meteorological radar data (like DBZH reflectivit
   MUST NOT introduce a different render identity. Busy failures remain retryable
   responses, never immutable successful cache entries.
 - A busy preload suppresses further browser preloads for 30 seconds. Do not
-  retry hidden work. Selected raw frames retry `429`/`503` at most twice with
-  backoff and jitter. Honor short `Retry-After` windows; surface windows longer
-  than the bounded retry allowance without retrying prematurely. Cancellation
-  MUST terminate retry waits when the selected frame or viewport changes.
+  retry hidden work. Selected raw frames share a limit of two retries across
+  `429`/`503`, temporary fetch failures (`TypeError`/`NetworkError`), and
+  interrupted response-body transfers, with backoff and jitter. Honor short
+  `Retry-After` windows; surface windows longer than the bounded retry allowance
+  without retrying prematurely. Cancellation MUST terminate retry waits when
+  the selected frame or viewport changes, even if the abort reason is a
+  `TypeError`.
+- A successful `fetch()` only establishes that response headers arrived; the
+  download can still fail during `arrayBuffer()`. Keep response consumption
+  inside `fetchRadarFrame`'s retry boundary through its response-reader callback.
+  Keep GPU uploads outside that boundary. Malformed radar payloads and permanent
+  HTTP errors MUST fail explicitly rather than being retried as network errors.
+- Browser cancellation must also release unnecessary server work. Watch raw
+  request disconnects on the async event loop and run storage/raster work in
+  the worker pool. Render-slot waits and expensive render stages must check
+  cancellation. A disconnected client MUST NOT cancel a shared in-flight render
+  while another connected client still needs it; always release acquired slots.
+- Warm the next eligible COG frame before the current frame's optional
+  continental texture. When looping is enabled, preload the first frame at the
+  end of the catalog. Do not preload hidden GeoZarr frames or invent timestamps
+  to fill catalog gaps.
 - The current warning allowances are 10 seconds for COG and 35 seconds for
   GeoZarr. A warning MUST keep pending fetches and source-completion listeners
   alive, set `hasUsableFrame: false`, and hold playback until rendering finishes.
@@ -355,11 +372,14 @@ When generating or downsampling meteorological radar data (like DBZH reflectivit
 - Implementations: `src/utils/radarRequests.ts`, `src/components/Map.tsx`,
   `src/app/page.tsx`, `src/types/radar.ts`, `backend/api/render_slots.py`, and
   the raw-frame route in `backend/api/tiles.py`.
-- Regression checks should cover bounded busy retries, cancellation, no hidden
-  retries, long `Retry-After` handling, reserved foreground capacity, preload
-  cache reuse, no archive fallback from a preload, and playback holding through
-  a timeout then resuming after a deliberately slow render. Verify desktop and
-  mobile product/date switches and that closed Pixel Analysis issues no reads.
+- Regression checks should cover failed fetches, interrupted bodies, mixed
+  congestion/network retry budgets, exhausted retries, cancellation during
+  requests/backoff, no hidden retries, malformed payloads, long `Retry-After`
+  handling, reserved foreground capacity, preload cache reuse, shared-render
+  cancellation, loop-boundary warming, no archive fallback from a preload, and
+  playback holding through a timeout then resuming after a deliberately slow
+  render. Verify desktop and mobile product/date switches and that closed Pixel
+  Analysis issues no reads.
 
 ### Coordinate contracts
 
@@ -374,6 +394,23 @@ When generating or downsampling meteorological radar data (like DBZH reflectivit
 
 ### Pixel-analysis semantics
 
+- Skip GeoZarr `time_bnds` reads when catalog interval metadata is complete.
+  If some frames lack start/end fields, read only those rows and fill only the
+  missing fields. Preserve catalog intervals exactly, including zero-length
+  RATE intervals.
+- Coalesce extraction by store, product, revision-safe frame window, and snapped
+  cell. Keep each caller's requested coordinates in its response. Disconnects
+  must stop future read batches once no connected consumer needs the shared
+  work; one departing client must not cancel another client's extraction.
+  Active storage calls cannot be preempted; check cancellation between stages
+  and batches. Failed or cancelled results must not enter the response cache.
+- Reuse exact decoded nearby-cell blocks only with byte, entry, and lifetime
+  limits. Clip blocks to native chunk boundaries and key them by store, product,
+  frame revisions/metadata, array, time indexes, and spatial extent. Never reuse
+  an old revision, approximate a nearby cell, or mix status and quality values.
+  Verify same/nearby cells, shared-client cancellation, failure cleanup, cache
+  eviction/expiry, missing bounds, JSON/CSV parity, and both mounted and
+  object-store adapters (`backend/test_pixel_latency.py`).
 - Pixel queries MUST read only catalog-committed timestamps.
 - Return measurement, observation status, quality variables, and source
   revision separately.
@@ -418,6 +455,13 @@ When generating or downsampling meteorological radar data (like DBZH reflectivit
 - A missing or duplicated catalog timestamp is a storage-consistency error and
   MUST fail explicitly. It must not silently select index 0 or another nearby
   frame.
+- Find the exact index with scalar binary-search reads of the sorted,
+  append-only `time` coordinate. Materializing the entire coordinate can fetch
+  thousands of tiny remote chunks for one frame. Cache successful indexes by
+  store, nominal time, revision, and metadata lifetime; never cache failures.
+  Refresh group metadata once on a missing match so a newly cataloged append
+  can be read before the normal metadata refresh interval expires. Continue to
+  reject missing or duplicate timestamps after refreshing.
 - For every product, treat `{PRODUCT}_status` as the authoritative observation
   state: `0=detected`, `1=undetect`, and `2=nodata`.
 - Render `undetect` as the shared shaded scanning-area sentinel and keep
@@ -435,6 +479,11 @@ When generating or downsampling meteorological radar data (like DBZH reflectivit
 
 ### Product-aware timeline rules
 
+- Render the floating timestamp through `formatRadarTimestamp` in
+  `src/utils/radar.ts`. Its calendar date, localized month name, and clock MUST
+  all use UTC. Never combine local `getDate()`/month formatting with UTC hours.
+  Keep the catalog timestamp unchanged. Test UTC midnight, month/year rollover,
+  and viewers east and west of UTC (Europe/Bucharest and America/Los_Angeles).
 - The timeline range represents indexes into catalog-committed frames, not a
   generated sequence of timestamps. A slider position MUST never select an
   uncommitted or synthetic map frame.
@@ -536,11 +585,28 @@ When a responsive sidebar, drawer, or control panel is translated off-screen:
   `/openapi.json` advertises `prefetch` on the raw-frame endpoint. A protected
   Space can reject anonymous repository/API reads with `401` while its app is
   publicly reachable; this alone does not indicate an app outage.
+- Existing browser tabs or cached HTML can retain old JavaScript after a
+  deployment. Verify a fresh page (a diagnostic `verify=<commit>` query is
+  useful), inspect its actual script URLs, and confirm the served bundle
+  contains the changed behavior. The query value is a cache-busting label,
+  not proof of the deployed revision. Where available, compare the Space's
+  source SHA with its running runtime SHA and compare deployed source files.
 - Verified incident evidence: rendering commit `d8d6b22`, failed
   [run #160](https://github.com/alexdum/opera-visualisation/actions/runs/38227615794),
   workflow-fix commit `50c86ff`, and successful
   [run #161](https://github.com/alexdum/opera-visualisation/actions/runs/38231552439).
   Live frontend/backend markers and mounted-storage health were confirmed.
+- On 2026-10-17, loading optimizations were committed as `791463b`, followed by
+  network recovery and UTC display fixes in `633dc21`. The latter was verified
+  on running Space revision `543df4da90e8bc85155069b6d4744180c261f176`, with
+  matching source files and served page bundle `page-68a74910ed9c4ef7.js`.
+  Live checks confirmed all three products reached Ready, ACRR playback crossed
+  UTC midnight, and DBZH passed the previously failing 03:05 frame. Controlled
+  fetch/body failures, retry limits, and cancellation were tested in an isolated
+  harness executing the deployed module, with successful retries fetching real
+  live API data. These were NOT fault-injection tests inside the live browser.
+  Treat these revisions and observations as historical evidence, not guarantees
+  about a later deployment.
 <!-- END:opera-huggingface-sync-rule -->
 
 <!-- BEGIN:verification-rules -->
@@ -584,6 +650,11 @@ Match verification effort to the affected rule and report commands that could no
 12. Before handoff, run `git diff --check`. For deployment changes, resolve the
    Python 3.12 requirements and run the Docker build and health smoke test when
    a Docker daemon is available; explicitly report when it is not.
+13. For loading/recovery changes, distinguish source/unit tests, local browser
+    fault injection, deployed-bundle harness tests, and live browser playback.
+    Normal playback without an observed failure does not prove automatic
+    recovery. State where failures were injected and which deployed artifact
+    was exercised; do not report harness tests as live-browser fault injection.
 The Next.js build currently fetches Inter through `next/font` from Google
 Fonts. An `ENOTFOUND fonts.googleapis.com` failure in a restricted/offline
 execution environment is a build-network limitation; retry with available,

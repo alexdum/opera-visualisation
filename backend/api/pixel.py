@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Callable
+from contextlib import suppress
 import csv
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
@@ -12,11 +15,11 @@ import io
 import json
 import math
 import os
-from threading import RLock
+from threading import Event, RLock
 import time as clock
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 import numpy as np
 from pyproj import CRS, Transformer
@@ -25,6 +28,7 @@ import zarr
 
 from api.bucket import HF_BUCKET_URL, fsspec_storage_options, USE_LOCAL_MOUNT, resolve_path
 from api.catalog import CatalogFrame, cataloged_frames_between, normalize_product
+from api.pixel_work import PixelBlockCache, PixelCancelled, SharedPixelWork, check_cancelled
 
 
 router = APIRouter()
@@ -43,6 +47,15 @@ _pixel_response_cache: OrderedDict[tuple[Any, ...], tuple[float, list[dict[str, 
     OrderedDict()
 )
 _pixel_response_cache_lock = RLock()
+_pixel_work = SharedPixelWork()
+_pixel_blocks = PixelBlockCache(
+    max(0, int(os.getenv("PIXEL_BLOCK_CACHE_MAX_BYTES", str(64 * 1024 * 1024)))),
+    max(0, int(os.getenv("PIXEL_BLOCK_CACHE_ENTRIES", "1024"))),
+    PIXEL_RESPONSE_CACHE_SECONDS,
+)
+# Limit each uncancellable storage operation without spawning a task per frame.
+_PIXEL_READ_BATCH = 32
+_PIXEL_BLOCK_SIDE = 32
 
 
 def _metadata_cache_bucket() -> int:
@@ -169,12 +182,64 @@ def _safe_scalar(value: Any) -> Any:
     return value
 
 
-def _read_pixel_span(array: Any, time_slice: slice, y_index: int, x_index: int) -> np.ndarray:
-    return np.asarray(array[time_slice, y_index, x_index]).reshape(-1)
+def _read_pixel_span(
+    array: Any, time_slice: slice, y_index: int, x_index: int,
+    cache_key: tuple[Any, ...], cancelled: Callable[[], bool],
+) -> np.ndarray:
+    chunks = getattr(array, "chunks", None)
+    shape = getattr(array, "shape", None)
+    use_blocks = _pixel_blocks.enabled and chunks is not None and shape is not None
+    if use_blocks:
+        # Stay inside one physical chunk, including irregular edge chunks.
+        def extent(index: int, chunk: int, size: int) -> tuple[int, int]:
+            origin = index // chunk * chunk
+            start = origin + (index - origin) // _PIXEL_BLOCK_SIDE * _PIXEL_BLOCK_SIDE
+            return start, min(start + _PIXEL_BLOCK_SIDE, origin + chunk, size)
+        y0, y1 = extent(y_index, chunks[1], shape[1])
+        x0, x1 = extent(x_index, chunks[2], shape[2])
+    values = []
+    for first in range(time_slice.start, time_slice.stop, _PIXEL_READ_BATCH):
+        check_cancelled(cancelled)
+        stop = min(first + _PIXEL_READ_BATCH, time_slice.stop)
+        if use_blocks:
+            key = ("block", cache_key, first, stop, y0, y1, x0, x1)
+            def read_block(shared_cancelled: Callable[[], bool]) -> np.ndarray:
+                check_cancelled(shared_cancelled)
+                cached = _pixel_blocks.get(key)
+                if cached is not None:
+                    return cached
+                data = np.asarray(array[first:stop, y0:y1, x0:x1])
+                check_cancelled(shared_cancelled)
+                _pixel_blocks.put(key, data)
+                return data
+            block = _pixel_blocks.get(key)
+            if block is None:
+                block = _pixel_work.run(key, read_block, cancelled)
+            values.append(block[:, y_index - y0, x_index - x0])
+        else:
+            values.append(np.asarray(array[first:stop, y_index, x_index]).reshape(-1))
+        check_cancelled(cancelled)
+    return np.concatenate(values)
 
 
-def _read_bounds_span(array: Any, time_slice: slice) -> np.ndarray:
-    return np.asarray(array[time_slice], dtype=np.int64)
+def _read_bounds_span(
+    array: Any, indexes: list[int], cancelled: Callable[[], bool],
+) -> dict[int, np.ndarray]:
+    # Read only rows missing catalog bounds, grouping adjacent rows into batches.
+    values: dict[int, np.ndarray] = {}
+    position = 0
+    while position < len(indexes):
+        check_cancelled(cancelled)
+        first = indexes[position]
+        stop = first + 1
+        position += 1
+        while position < len(indexes) and indexes[position] == stop and stop - first < _PIXEL_READ_BATCH:
+            stop += 1
+            position += 1
+        block = np.asarray(array[first:stop], dtype=np.int64)
+        check_cancelled(cancelled)
+        values.update((first + offset, row) for offset, row in enumerate(block))
+    return values
 
 
 def _pixel_cache_get(key: tuple[Any, ...]) -> list[dict[str, Any]] | None:
@@ -215,9 +280,13 @@ def _extract_store_frames(
     frames: list[CatalogFrame],
     lon: float,
     lat: float,
+    cancelled: Callable[[], bool] = lambda: False,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    check_cancelled(cancelled)
     group = _open_group(store_path)
+    check_cancelled(cancelled)
     metadata = _store_metadata(store_path)
+    check_cancelled(cancelled)
     x_coords: np.ndarray = metadata["x"]
     y_coords: np.ndarray = metadata["y"]
     x_native, y_native = metadata["to_native"].transform(lon, lat)
@@ -254,6 +323,29 @@ def _extract_store_frames(
     if not frames:
         return [], location
 
+    def load(shared_cancelled: Callable[[], bool]) -> list[dict[str, Any]]:
+        check_cancelled(shared_cancelled)
+        # Another flight may have populated the cache after the first lookup.
+        cached = _pixel_cache_get(cache_key)
+        if cached is not None:
+            return cached
+        rows = _read_store_frames(
+            product, store_path, frames, group, y_index, x_index,
+            (product, store_path, frame_identity), shared_cancelled,
+        )
+        check_cancelled(shared_cancelled)
+        _pixel_cache_put(cache_key, rows)
+        return rows
+
+    rows = _pixel_work.run(("cell", cache_key), load, cancelled)
+    return copy.deepcopy(rows), location
+
+
+def _read_store_frames(
+    product: str, store_path: str, frames: list[CatalogFrame], group: Any,
+    y_index: int, x_index: int, cache_key: tuple[Any, ...],
+    cancelled: Callable[[], bool],
+) -> list[dict[str, Any]]:
     frame_epochs = [
         int(datetime.fromisoformat(frame.nominal_time.replace("Z", "+00:00")).timestamp())
         for frame in frames
@@ -265,9 +357,13 @@ def _extract_store_frames(
         int(epoch): first_time_index + offset
         for offset, epoch in enumerate(time_values)
     }
+    check_cancelled(cancelled)
+    if len(time_lookup) != len(time_values):
+        raise HTTPException(status_code=503, detail="Duplicate timestamps in GeoZarr time window")
     status_array = group[f"{product}_status"]
     measurement_array = group[product]
-    time_bounds = group["time_bnds"] if "time_bnds" in group else None
+    needs_bounds = any(not frame.start_time or not frame.end_time for frame in frames)
+    time_bounds = group["time_bnds"] if needs_bounds and "time_bnds" in group else None
     quality_names = sorted({name for frame in frames for name in frame.quality_variables if name in group})
 
     indexed_frames: list[tuple[CatalogFrame, int]] = []
@@ -280,11 +376,10 @@ def _extract_store_frames(
         indexed_frames.append((frame, index))
 
     if not indexed_frames:
-        return [], location
+        return []
 
-    # Fetch each time-dependent array once for the requested interval. Zarr's
-    # codec pipeline handles bounded chunk concurrency internally; issuing one
-    # Python task per timestamp adds substantial overhead on HTTP stores.
+    # Parallelize arrays, not individual timestamps. Each reader uses bounded
+    # time batches so obsolete requests can stop between storage operations.
     first_index = min(index for _, index in indexed_frames)
     final_index = max(index for _, index in indexed_frames) + 1
     time_slice = slice(first_index, final_index)
@@ -294,18 +389,24 @@ def _extract_store_frames(
     with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="pixel-zarr") as executor:
         futures = {
             key: executor.submit(
-                _read_pixel_span, array, time_slice, y_index, x_index
+                _read_pixel_span, array, time_slice, y_index, x_index,
+                (cache_key, key), cancelled,
             )
             for key, array in arrays.items()
         }
         bounds_future = (
-            executor.submit(_read_bounds_span, time_bounds, time_slice)
+            executor.submit(
+                _read_bounds_span, time_bounds,
+                sorted({index for frame, index in indexed_frames if not frame.start_time or not frame.end_time}),
+                cancelled,
+            )
             if time_bounds is not None
             else None
         )
         pixel_values = {key: future.result() for key, future in futures.items()}
         bounds_values = bounds_future.result() if bounds_future is not None else None
 
+    check_cancelled(cancelled)
     results: list[dict[str, Any]] = []
     for frame, index in indexed_frames:
         offset = index - first_index
@@ -330,8 +431,8 @@ def _extract_store_frames(
 
         start_time = frame.start_time
         end_time = frame.end_time
-        if bounds_values is not None:
-            bounds = np.asarray(bounds_values[offset], dtype=np.int64).reshape(-1)
+        if bounds_values is not None and index in bounds_values:
+            bounds = np.asarray(bounds_values[index], dtype=np.int64).reshape(-1)
             if len(bounds) >= 2:
                 start_time = start_time or _to_iso(int(bounds[0]))
                 end_time = end_time or _to_iso(int(bounds[1]))
@@ -349,8 +450,7 @@ def _extract_store_frames(
                 "revision": frame.revision,
             }
         )
-    _pixel_cache_put(cache_key, results)
-    return results, location
+    return results
 
 
 def extract_pixel_series(
@@ -359,9 +459,12 @@ def extract_pixel_series(
     lat: float,
     start_dt: datetime,
     end_dt: datetime,
+    cancelled: Callable[[], bool] = lambda: False,
 ) -> dict[str, Any]:
+    check_cancelled(cancelled)
     product = normalize_product(product)
     frames = cataloged_frames_between(product, start_dt, end_dt)
+    check_cancelled(cancelled)
     grouped: dict[str, list[CatalogFrame]] = {}
     for frame in frames:
         grouped.setdefault(frame.geozarr, []).append(frame)
@@ -376,7 +479,8 @@ def extract_pixel_series(
         "pixel_center_lat": None,
     }
     for store_path, store_frames in sorted(grouped.items()):
-        extracted, store_location = _extract_store_frames(product, store_path, store_frames, lon, lat)
+        check_cancelled(cancelled)
+        extracted, store_location = _extract_store_frames(product, store_path, store_frames, lon, lat, cancelled)
         results.extend(extracted)
         location = store_location
     results.sort(key=lambda row: row["time"])
@@ -407,6 +511,7 @@ def _validate_request(product: str, lon: float, lat: float, start: str, end: str
 
 @router.get("")
 async def get_pixel_series(
+    request: Request,
     product: str = Query(...),
     lon: float = Query(...),
     lat: float = Query(...),
@@ -414,18 +519,40 @@ async def get_pixel_series(
     end: str = Query(...),
 ) -> dict[str, Any]:
     normalized, start_dt, end_dt = _validate_request(product, lon, lat, start, end)
-    return await run_in_threadpool(extract_pixel_series, normalized, lon, lat, start_dt, end_dt)
+    disconnected = Event()
+
+    async def watch_disconnect() -> None:
+        while not disconnected.is_set():
+            if await request.is_disconnected():
+                disconnected.set()
+                return
+            await asyncio.sleep(0.05)
+
+    watcher = asyncio.create_task(watch_disconnect())
+    try:
+        return await run_in_threadpool(
+            extract_pixel_series, normalized, lon, lat, start_dt, end_dt,
+            disconnected.is_set,
+        )
+    except PixelCancelled as exc:
+        raise HTTPException(status_code=499, detail="Pixel request cancelled") from exc
+    finally:
+        disconnected.set()
+        watcher.cancel()
+        with suppress(asyncio.CancelledError):
+            await watcher
 
 
 @router.get("/csv")
 async def get_pixel_csv(
+    request: Request,
     product: str = Query(...),
     lon: float = Query(...),
     lat: float = Query(...),
     start: str = Query(...),
     end: str = Query(...),
 ) -> StreamingResponse:
-    data = await get_pixel_series(product=product, lon=lon, lat=lat, start=start, end=end)
+    data = await get_pixel_series(request=request, product=product, lon=lon, lat=lat, start=start, end=end)
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(

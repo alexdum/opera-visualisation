@@ -129,8 +129,10 @@ from one origin on port 7860.
 | `COG_IO_DIAGNOSTICS` | `false` | Log COG path, render time, file size, and Linux mount type |
 | `PIXEL_METADATA_CACHE_SECONDS` | `30` | Refresh interval for growing GeoZarr group and time metadata |
 | `RASTER_METADATA_CACHE_SECONDS` | `30` | Refresh interval for raster GeoZarr groups and bounded exact timestamp lookups |
-| `PIXEL_RESPONSE_CACHE_SECONDS` | `300` | Lifetime of server-side pixel-series results |
+| `PIXEL_RESPONSE_CACHE_SECONDS` | `300` | Lifetime of server-side pixel-series results and decoded point blocks |
 | `PIXEL_RESPONSE_CACHE_ENTRIES` | `128` | Maximum cached pixel-series results per backend process |
+| `PIXEL_BLOCK_CACHE_MAX_BYTES` | `67108864` | Maximum decoded point-block payload bytes per process (64 MiB); `0` disables block reuse |
+| `PIXEL_BLOCK_CACHE_ENTRIES` | `1024` | Maximum decoded point-block entries per process |
 | `NEXT_PUBLIC_API_BASE_URL` | Port 7860 in development; same-origin in production | Optional public API origin override |
 
 A public bucket can be read anonymously, but a server-side read-only
@@ -168,6 +170,22 @@ time coordinate, then caches its exact index by store, timestamp, revision and
 metadata lifetime. A missing match refreshes group metadata once so a newly
 published append can be read before the normal refresh interval ends. Spatial
 grid metadata is cached separately and never loads the monthly time coordinate.
+
+Pixel extraction reads archive interval bounds only for catalog frames missing
+start or end metadata. Concurrent requests for the same product, revision-safe
+frame window, and snapped grid cell share extraction work. Disconnecting one
+client preserves work needed by another; once all consumers leave, extraction
+stops between storage operations and batches of at most 32 timestamps. An
+already-running filesystem or network read must finish before cancellation is
+observed.
+
+Nearby points can reuse exact decoded values from cached spatial blocks of up
+to 32 by 32 cells, clipped to the native Zarr chunk boundary. Block keys include
+the store, product, selected frame revisions/metadata, array, time range, and
+spatial extent. Blocks are bounded by payload bytes, entry count, and lifetime;
+they preserve each cell's values, statuses, and quality independently. No archive
+restructuring or additional stored dataset is required. Cold points still need
+archive reads; repeat and nearby requests benefit most from reuse.
 
 Raw-frame requests monitor browser disconnects. Queued work with no connected
 consumers leaves the queue within a short polling interval; active work checks
