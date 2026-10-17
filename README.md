@@ -133,6 +133,10 @@ from one origin on port 7860.
 | `PIXEL_RESPONSE_CACHE_ENTRIES` | `128` | Maximum cached pixel-series results per backend process |
 | `PIXEL_BLOCK_CACHE_MAX_BYTES` | `67108864` | Maximum decoded point-block payload bytes per process (64 MiB); `0` disables block reuse |
 | `PIXEL_BLOCK_CACHE_ENTRIES` | `1024` | Maximum decoded point-block entries per process |
+| `PIXEL_IO_WORKERS` | `2` | Read workers per timestamp/data stage, clamped to 1–4; Zarr's internal concurrency is separate |
+| `PIXEL_EXTRACTION_CONCURRENCY` | `1` | Maximum active heavy point extractions per backend process, across products and JSON/CSV requests |
+| `PIXEL_EXTRACTION_QUEUE_SIZE` | `8` | Maximum queued distinct heavy extractions per process; `0` rejects immediately when busy |
+| `PIXEL_EXTRACTION_WAIT_SECONDS` | `15` | Maximum extraction admission wait; expiry/full queue returns `503` with `Retry-After: 2` |
 | `NEXT_PUBLIC_API_BASE_URL` | Port 7860 in development; same-origin in production | Optional public API origin override |
 
 A public bucket can be read anonymously, but a server-side read-only
@@ -186,6 +190,49 @@ spatial extent. Blocks are bounded by payload bytes, entry count, and lifetime;
 they preserve each cell's values, statuses, and quality independently. No archive
 restructuring or additional stored dataset is required. Cold points still need
 archive reads; repeat and nearby requests benefit most from reuse.
+
+Cold point queries share timestamp-window lookups. Timestamp search uses a
+bounded interpolation hint followed by binary search when necessary, always
+comparing actual stored epochs. Timestamp reads and array/time batches default
+to two workers per extraction stage (`PIXEL_IO_WORKERS`, allowed range 1–4),
+without changing process-wide Zarr concurrency. Zarr can issue several internal
+chunk reads per worker; this setting does not cap individual network operations
+or reserve CPU cores. Batches align to stable time-index boundaries; their cache keys
+include only the catalog frames in that batch, so advancing the rolling window
+or correcting one frame preserves reusable interior batches.
+
+A shared admission limit permits one heavy point extraction per backend process
+by default, across products and JSON/CSV callers. It covers timestamp lookup and
+measurement/status/quality/bounds reads. Catalog and spatial metadata lookup
+remain outside this limit so identical cells can join shared work and completed
+response-cache hits can return without queueing. Only a shared cell's owner
+takes a slot; a nearby cell waits and then reuses available decoded blocks.
+Up to eight distinct extractions wait FIFO for at most 15 seconds. A full or
+expired queue returns retryable `503` with `Retry-After: 2`; the pixel UI displays
+the error and the user can retry. Disconnected queued work leaves promptly;
+success, failure, and cancellation release capacity. These defaults target a
+2-vCPU Space but require deployed load measurements before claiming a latency
+improvement. Limits are per process: adding Uvicorn workers or replicas multiplies
+capacity and cache memory. Keep the current single-process deployment when
+evaluating them.
+
+Successful pixel JSON and CSV responses expose extraction timings in the
+`Server-Timing` header (`catalog`, `metadata`, `queue`, `time_index`, `data`, `total`, in
+milliseconds). Cached responses and shared-work waiters may omit phases they
+did not execute. These timings exclude network transfer, CSV serialization,
+and browser drawing. Requests taking at least five seconds, and failed or
+cancelled extractions, also log phase timings without coordinates or query
+strings. Use these measurements to distinguish cold storage latency from
+lookup, queueing, and rendering costs before promising production speedups.
+
+After deploying, compare `PIXEL_IO_WORKERS=2` and `4` with extraction concurrency
+kept at `1`. For each setting, restart the process to clear application caches,
+record the deployed revision/configuration, and request a full-day DBZH point
+while playing and panning the map. Record first/repeat extraction wall time,
+`Server-Timing`, map frame readiness/failures, CPU and memory where available.
+Repeat with a second distinct point and cancellation to check queue behavior.
+Process restarts do not guarantee a cold filesystem/FUSE cache; report that
+limitation and compare repeated runs before selecting four workers.
 
 Raw-frame requests monitor browser disconnects. Queued work with no connected
 consumers leaves the queue within a short polling interval; active work checks

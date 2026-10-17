@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from contextlib import suppress
+from contextlib import contextmanager, suppress
+from contextvars import ContextVar
 import csv
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
@@ -13,13 +14,14 @@ from datetime import date, datetime, time, timedelta, timezone
 from functools import lru_cache
 import io
 import json
+import logging
 import math
 import os
 from threading import Event, RLock
 import time as clock
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 import numpy as np
 from pyproj import CRS, Transformer
@@ -28,10 +30,11 @@ import zarr
 
 from api.bucket import HF_BUCKET_URL, fsspec_storage_options, USE_LOCAL_MOUNT, resolve_path
 from api.catalog import CatalogFrame, cataloged_frames_between, normalize_product
-from api.pixel_work import PixelBlockCache, PixelCancelled, SharedPixelWork, check_cancelled
+from api.pixel_work import PixelBlockCache, PixelBusy, PixelCancelled, PixelSlots, SharedPixelWork, check_cancelled
 
 
 router = APIRouter()
+logger = logging.getLogger("uvicorn.error")
 STATUS_NAMES = {0: "detected", 1: "undetect", 2: "nodata"}
 PIXEL_METADATA_CACHE_SECONDS = max(
     1.0, float(os.getenv("PIXEL_METADATA_CACHE_SECONDS", "30"))
@@ -56,6 +59,25 @@ _pixel_blocks = PixelBlockCache(
 # Limit each uncancellable storage operation without spawning a task per frame.
 _PIXEL_READ_BATCH = 32
 _PIXEL_BLOCK_SIDE = 32
+_PIXEL_IO_WORKERS = max(1, min(4, int(os.getenv("PIXEL_IO_WORKERS", "2"))))
+_pixel_slots = PixelSlots(
+    int(os.getenv("PIXEL_EXTRACTION_CONCURRENCY", "1")),
+    int(os.getenv("PIXEL_EXTRACTION_QUEUE_SIZE", "8")),
+    float(os.getenv("PIXEL_EXTRACTION_WAIT_SECONDS", "15")),
+)
+_pixel_cancelled: ContextVar[Callable[[], bool]] = ContextVar("pixel_cancelled", default=lambda: False)
+_pixel_timings: ContextVar[dict[str, float] | None] = ContextVar("pixel_timings", default=None)
+
+
+@contextmanager
+def _phase(name: str):
+    started = clock.perf_counter()
+    try:
+        yield
+    finally:
+        timings = _pixel_timings.get()
+        if timings is not None:
+            timings[name] = timings.get(name, 0.0) + (clock.perf_counter() - started) * 1000
 
 
 def _metadata_cache_bucket() -> int:
@@ -98,32 +120,89 @@ _read_time_coords.cache_clear = _read_time_coords_cached.cache_clear  # type: ig
 _read_time_coords.cache_info = _read_time_coords_cached.cache_info  # type: ignore[attr-defined]
 
 
-def _time_lower_bound(time_array: Any, target_epoch: int) -> int:
-    low = 0
-    high = int(time_array.shape[0])
+def _time_lower_bound(
+    time_array: Any, target_epoch: int, *, read: Callable[[int], int] | None = None,
+    lower: int = 0,
+) -> int:
+    read = read or (lambda index: int(_safe_scalar(time_array[index])))
+    low, high = lower, int(time_array.shape[0])
+    guesses = 0
     while low < high:
-        middle = (low + high) // 2
-        value = int(_safe_scalar(time_array[middle]))
-        if value < target_epoch:
+        # Near-regular timestamps often resolve in a few reads. Interpolation
+        # only chooses a probe: every comparison still reads the exact epoch.
+        # Bound the guesses before reverting to binary search on irregular data.
+        if guesses < 3 and high - low > 1:
+            first, last = read(low), read(high - 1)
+            if target_epoch <= first:
+                return low
+            if target_epoch > last:
+                return high
+            middle = (low + (target_epoch - first) * (high - low - 1) // (last - first)
+                      if last > first else (low + high) // 2)
+            guesses += 1
+        else:
+            middle = (low + high) // 2
+        if read(middle) < target_epoch:
             low = middle + 1
         else:
             high = middle
     return low
 
 
+def _time_batches(first: int, stop: int) -> list[tuple[int, int]]:
+    batches = []
+    while first < stop:
+        end = min(stop, (first // _PIXEL_READ_BATCH + 1) * _PIXEL_READ_BATCH)
+        batches.append((first, end))
+        first = end
+    return batches
+
+
+def _read_time_window_uncached(
+    store_path: str, start_epoch: int, end_epoch: int, cancelled: Callable[[], bool],
+) -> tuple[int, np.ndarray]:
+    check_cancelled(cancelled)
+    time_array = _open_group(store_path)["time"]
+
+    @lru_cache(maxsize=128)
+    def read(index: int) -> int:
+        check_cancelled(cancelled)
+        value = int(_safe_scalar(time_array[index]))
+        check_cancelled(cancelled)
+        return value
+
+    first_index = _time_lower_bound(time_array, start_epoch, read=read)
+    final_index = _time_lower_bound(time_array, end_epoch + 1, read=read, lower=first_index)
+    batches = _time_batches(first_index, final_index)
+    if not batches:
+        return first_index, np.empty(0, dtype=np.int64)
+
+    def read_batch(bounds: tuple[int, int]) -> np.ndarray:
+        check_cancelled(cancelled)
+        first, stop = bounds
+        values = np.asarray(time_array[first:stop], dtype=np.int64)
+        check_cancelled(cancelled)
+        return values
+
+    # Timestamp chunks contain one value each. Bound parallel range reads just
+    # like measurement reads, without changing Zarr's process-wide concurrency.
+    if len(batches) == 1:
+        values = read_batch(batches[0])
+    else:
+        with ThreadPoolExecutor(max_workers=min(_PIXEL_IO_WORKERS, len(batches)), thread_name_prefix="pixel-time") as executor:
+            values = np.concatenate(list(executor.map(read_batch, batches)))
+    return first_index, values
+
+
 @lru_cache(maxsize=64)
 def _read_time_window_cached(
-    store_path: str,
-    start_epoch: int,
-    end_epoch: int,
-    _cache_bucket: int,
+    store_path: str, start_epoch: int, end_epoch: int, _cache_bucket: int,
 ) -> tuple[int, np.ndarray]:
-    group = _open_group(store_path)
-    time_array = group["time"]
-    first_index = _time_lower_bound(time_array, start_epoch)
-    final_index = _time_lower_bound(time_array, end_epoch + 1)
-    values = np.asarray(time_array[first_index:final_index], dtype=np.int64)
-    return first_index, values
+    return _pixel_work.run(
+        ("time", store_path, start_epoch, end_epoch, _cache_bucket),
+        lambda cancelled: _read_time_window_uncached(store_path, start_epoch, end_epoch, cancelled),
+        _pixel_cancelled.get(),
+    )
 
 
 def _read_time_window(
@@ -283,27 +362,28 @@ def _extract_store_frames(
     cancelled: Callable[[], bool] = lambda: False,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     check_cancelled(cancelled)
-    group = _open_group(store_path)
-    check_cancelled(cancelled)
-    metadata = _store_metadata(store_path)
-    check_cancelled(cancelled)
-    x_coords: np.ndarray = metadata["x"]
-    y_coords: np.ndarray = metadata["y"]
-    x_native, y_native = metadata["to_native"].transform(lon, lat)
-    if not (x_coords.min() <= x_native <= x_coords.max() and y_coords.min() <= y_native <= y_coords.max()):
-        raise HTTPException(status_code=400, detail=f"Point ({lon}, {lat}) is outside the OPERA grid")
+    with _phase("metadata"):
+        group = _open_group(store_path)
+        check_cancelled(cancelled)
+        metadata = _store_metadata(store_path)
+        check_cancelled(cancelled)
+        x_coords: np.ndarray = metadata["x"]
+        y_coords: np.ndarray = metadata["y"]
+        x_native, y_native = metadata["to_native"].transform(lon, lat)
+        if not (x_coords.min() <= x_native <= x_coords.max() and y_coords.min() <= y_native <= y_coords.max()):
+            raise HTTPException(status_code=400, detail=f"Point ({lon}, {lat}) is outside the OPERA grid")
 
-    x_index = int(np.abs(x_coords - x_native).argmin())
-    y_index = int(np.abs(y_coords - y_native).argmin())
-    center_lon, center_lat = metadata["to_wgs84"].transform(x_coords[x_index], y_coords[y_index])
-    location = {
-        "x_index": x_index,
-        "y_index": y_index,
-        "native_x": float(x_coords[x_index]),
-        "native_y": float(y_coords[y_index]),
-        "pixel_center_lon": float(center_lon),
-        "pixel_center_lat": float(center_lat),
-    }
+        x_index = int(np.abs(x_coords - x_native).argmin())
+        y_index = int(np.abs(y_coords - y_native).argmin())
+        center_lon, center_lat = metadata["to_wgs84"].transform(x_coords[x_index], y_coords[y_index])
+        location = {
+            "x_index": x_index,
+            "y_index": y_index,
+            "native_x": float(x_coords[x_index]),
+            "native_y": float(y_coords[y_index]),
+            "pixel_center_lon": float(center_lon),
+            "pixel_center_lat": float(center_lat),
+        }
 
     frame_identity = tuple(
         (
@@ -329,10 +409,18 @@ def _extract_store_frames(
         cached = _pixel_cache_get(cache_key)
         if cached is not None:
             return cached
-        rows = _read_store_frames(
-            product, store_path, frames, group, y_index, x_index,
-            (product, store_path, frame_identity), shared_cancelled,
-        )
+        # Admit only the shared cell owner. Waiters and response-cache hits do
+        # not consume extraction slots. Check again after queueing: a nearby
+        # extraction may have warmed the decoded blocks in the meantime.
+        with _phase("queue"):
+            _pixel_slots.acquire(shared_cancelled)
+        try:
+            rows = _read_store_frames(
+                product, store_path, frames, group, y_index, x_index,
+                (product, store_path, frame_identity), shared_cancelled,
+            )
+        finally:
+            _pixel_slots.release()
         check_cancelled(shared_cancelled)
         _pixel_cache_put(cache_key, rows)
         return rows
@@ -350,9 +438,14 @@ def _read_store_frames(
         int(datetime.fromisoformat(frame.nominal_time.replace("Z", "+00:00")).timestamp())
         for frame in frames
     ]
-    first_time_index, time_values = _read_time_window(
-        store_path, min(frame_epochs), max(frame_epochs)
-    )
+    token = _pixel_cancelled.set(cancelled)
+    try:
+        with _phase("time_index"):
+            first_time_index, time_values = _read_time_window(
+                store_path, min(frame_epochs), max(frame_epochs)
+            )
+    finally:
+        _pixel_cancelled.reset(token)
     time_lookup = {
         int(epoch): first_time_index + offset
         for offset, epoch in enumerate(time_values)
@@ -378,32 +471,40 @@ def _read_store_frames(
     if not indexed_frames:
         return []
 
-    # Parallelize arrays, not individual timestamps. Each reader uses bounded
-    # time batches so obsolete requests can stop between storage operations.
     first_index = min(index for _, index in indexed_frames)
     final_index = max(index for _, index in indexed_frames) + 1
-    time_slice = slice(first_index, final_index)
     arrays = {"status": status_array, "measurement": measurement_array}
     arrays.update({f"quality:{name}": group[name] for name in quality_names})
-    worker_count = min(4, len(arrays) + int(time_bounds is not None))
-    with ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="pixel-zarr") as executor:
-        futures = {
-            key: executor.submit(
-                _read_pixel_span, array, time_slice, y_index, x_index,
-                (cache_key, key), cancelled,
-            )
-            for key, array in arrays.items()
-        }
+    batches = _time_batches(first_index, final_index)
+    indexed_identities = [(index, identity) for (_, index), identity in zip(indexed_frames, cache_key[2], strict=True)]
+    # Interior batches retain their identity when the rolling window advances.
+    # A new or corrected frame invalidates only the batches containing it.
+    def batch_key(first: int, stop: int, array_key: str) -> tuple[Any, ...]:
+        identities = tuple(item for item in indexed_identities if first <= item[0] < stop)
+        return ((product, store_path, identities), array_key)
+    worker_count = min(_PIXEL_IO_WORKERS, len(arrays) * len(batches) + int(time_bounds is not None))
+    with _phase("data"), ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix="pixel-zarr") as executor:
+        # A fixed, configurable worker pool schedules array/time batches
+        # together, within the process-wide heavy-extraction admission limit.
+        futures = [
+            (key, executor.submit(
+                _read_pixel_span, array, slice(first, stop),
+                y_index, x_index, batch_key(first, stop, key), cancelled,
+            ))
+            for first, stop in batches for key, array in arrays.items()
+        ]
         bounds_future = (
             executor.submit(
                 _read_bounds_span, time_bounds,
                 sorted({index for frame, index in indexed_frames if not frame.start_time or not frame.end_time}),
                 cancelled,
             )
-            if time_bounds is not None
-            else None
+            if time_bounds is not None else None
         )
-        pixel_values = {key: future.result() for key, future in futures.items()}
+        parts: dict[str, list[np.ndarray]] = {key: [] for key in arrays}
+        for key, future in futures:
+            parts[key].append(future.result())
+        pixel_values = {key: np.concatenate(values) for key, values in parts.items()}
         bounds_values = bounds_future.result() if bounds_future is not None else None
 
     check_cancelled(cancelled)
@@ -463,7 +564,8 @@ def extract_pixel_series(
 ) -> dict[str, Any]:
     check_cancelled(cancelled)
     product = normalize_product(product)
-    frames = cataloged_frames_between(product, start_dt, end_dt)
+    with _phase("catalog"):
+        frames = cataloged_frames_between(product, start_dt, end_dt)
     check_cancelled(cancelled)
     grouped: dict[str, list[CatalogFrame]] = {}
     for frame in frames:
@@ -512,6 +614,7 @@ def _validate_request(product: str, lon: float, lat: float, start: str, end: str
 @router.get("")
 async def get_pixel_series(
     request: Request,
+    response: Response,
     product: str = Query(...),
     lon: float = Query(...),
     lat: float = Query(...),
@@ -529,14 +632,35 @@ async def get_pixel_series(
             await asyncio.sleep(0.05)
 
     watcher = asyncio.create_task(watch_disconnect())
+    timings: dict[str, float] = {}
+    timing_token = _pixel_timings.set(timings)
+    started = clock.perf_counter()
+    outcome = "error"
     try:
-        return await run_in_threadpool(
+        result = await run_in_threadpool(
             extract_pixel_series, normalized, lon, lat, start_dt, end_dt,
             disconnected.is_set,
         )
+        timings["total"] = (clock.perf_counter() - started) * 1000
+        response.headers["Server-Timing"] = ", ".join(f"{name};dur={duration:.1f}" for name, duration in timings.items())
+        outcome = "ready"
+        return result
+    except PixelBusy as exc:
+        outcome = "busy"
+        raise HTTPException(
+            status_code=503, detail="Point extraction is busy. Please retry shortly.",
+            headers={"Retry-After": "2"},
+        ) from exc
     except PixelCancelled as exc:
+        outcome = "cancelled"
         raise HTTPException(status_code=499, detail="Pixel request cancelled") from exc
     finally:
+        timings["total"] = (clock.perf_counter() - started) * 1000
+        if timings["total"] >= 5000 or outcome != "ready":
+            # No coordinates, credentials, or full query strings in diagnostics.
+            logger.info("Pixel extraction product=%s outcome=%s timings_ms=%s",
+                        normalized, outcome, {key: round(value, 1) for key, value in timings.items()})
+        _pixel_timings.reset(timing_token)
         disconnected.set()
         watcher.cancel()
         with suppress(asyncio.CancelledError):
@@ -546,13 +670,14 @@ async def get_pixel_series(
 @router.get("/csv")
 async def get_pixel_csv(
     request: Request,
+    response: Response,
     product: str = Query(...),
     lon: float = Query(...),
     lat: float = Query(...),
     start: str = Query(...),
     end: str = Query(...),
 ) -> StreamingResponse:
-    data = await get_pixel_series(request=request, product=product, lon=lon, lat=lat, start=start, end=end)
+    data = await get_pixel_series(request=request, response=response, product=product, lon=lon, lat=lat, start=start, end=end)
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(
@@ -589,5 +714,8 @@ async def get_pixel_csv(
     return StreamingResponse(
         output,
         media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="pixel-{data["product"].lower()}.csv"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="pixel-{data["product"].lower()}.csv"',
+            "Server-Timing": response.headers.get("Server-Timing", ""),
+        },
     )

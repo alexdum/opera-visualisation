@@ -5,14 +5,14 @@ from datetime import datetime, timedelta, timezone
 from threading import Event
 import time
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Response
 import numpy as np
 import pytest
 import zarr
 
 from api import pixel
 from api.catalog import CatalogFrame
-from api.pixel_work import PixelBlockCache, PixelCancelled, SharedPixelWork
+from api.pixel_work import PixelBlockCache, PixelCancelled, PixelSlots, SharedPixelWork
 
 
 class TrackingArray:
@@ -31,19 +31,24 @@ class TrackingArray:
 
 
 @pytest.fixture(autouse=True)
-def clean_caches():
+def clean_caches(monkeypatch):
+    monkeypatch.setattr(pixel, "_pixel_slots", PixelSlots(1, 8, 2))
+    clear_group = pixel._open_group.cache_clear
+    clear_metadata = pixel._store_metadata.cache_clear
     pixel._clear_pixel_response_cache()
     pixel._pixel_blocks.clear()
     pixel._read_time_window_cached.cache_clear()
-    pixel._open_group.cache_clear()
-    pixel._store_metadata.cache_clear()
+    clear_group()
+    clear_metadata()
     yield
+    assert pixel._pixel_slots.available == pixel._pixel_slots.capacity
+    assert not pixel._pixel_slots.queue
     assert not pixel._pixel_work.flights
     pixel._clear_pixel_response_cache()
     pixel._pixel_blocks.clear()
     pixel._read_time_window_cached.cache_clear()
-    pixel._open_group.cache_clear()
-    pixel._store_metadata.cache_clear()
+    clear_group()
+    clear_metadata()
 
 
 def setup_frames(monkeypatch, product="DBZH", count=4):
@@ -119,6 +124,9 @@ def wait_until(predicate):
 
 @pytest.mark.parametrize("other_x, shared_kind", [(0.1, "cell"), (1, "block")])
 def test_same_or_nearby_cells_share_work_when_owner_disconnects(monkeypatch, other_x, shared_kind):
+    # With two admitted extractions, nearby cells can share an in-flight block.
+    # The conservative one-slot default instead reuses it after admission.
+    monkeypatch.setattr(pixel, "_pixel_slots", PixelSlots(2, 8, 2))
     frames, group = setup_frames(monkeypatch)
     entered, release, disconnected = Event(), Event(), Event()
     def slow_read():
@@ -257,7 +265,7 @@ def test_route_observes_disconnect(monkeypatch):
         raise PixelCancelled()
     monkeypatch.setattr(pixel, "extract_pixel_series", extract)
     with pytest.raises(HTTPException) as error:
-        asyncio.run(pixel.get_pixel_series(DisconnectedRequest(), "DBZH", 0, 0, "2026-10-17", "2026-10-17"))
+        asyncio.run(pixel.get_pixel_series(DisconnectedRequest(), Response(), "DBZH", 0, 0, "2026-10-17", "2026-10-17"))
     assert error.value.status_code == 499
 
 
@@ -272,9 +280,12 @@ def test_api_json_and_csv_keep_the_same_exact_rows(monkeypatch):
     with TestClient(app) as client:
         response = client.get("/api/pixel", params=params)
         assert response.status_code == 200
+        assert all(name + ";dur=" in response.headers["Server-Timing"]
+                   for name in ["catalog", "metadata", "time_index", "data", "total"])
         rows = response.json()["series"]
         exported = client.get("/api/pixel/csv", params=params)
         assert exported.status_code == 200
+        assert "total;dur=" in exported.headers["Server-Timing"]
     csv_rows = list(csv.DictReader(io.StringIO(exported.text)))
     assert len(rows) == len(csv_rows) == 4
     assert [r["status"] for r in rows] == [r["status"] for r in csv_rows]
@@ -342,3 +353,267 @@ def test_bad_archive_times_fail_without_caching_a_response(monkeypatch, kind):
         pixel._extract_store_frames("DBZH", "archive", frames, 0, 0)
     assert error.value.status_code == 503
     assert not pixel._pixel_response_cache
+
+
+@pytest.mark.parametrize('values', [
+    np.arange(5000, dtype=np.int64) * 300,
+    np.sort(np.random.default_rng(21).integers(0, 1_000_000, 5000)),
+    np.concatenate([np.zeros(4990, dtype=np.int64), np.arange(10) * 100000]),
+    np.array([], dtype=np.int64),
+    np.array([100], dtype=np.int64),
+])
+def test_interpolated_time_search_still_returns_exact_lower_bound(values):
+    for target in [-1, 0, 1, 99, 100, 101, 400_000, 999_999, 2_000_000]:
+        reads = []
+        def read(index):
+            reads.append(index)
+            return int(values[index])
+        index = pixel._time_lower_bound(values, target, read=read)
+        assert index == int(np.searchsorted(values, target, side='left'))
+        assert len(reads) <= 24  # bounded interpolation plus logarithmic fallback
+
+
+def test_long_time_window_uses_few_probes_and_bounded_parallel_batches(monkeypatch):
+    from threading import Lock
+    lock = Lock()
+    class SlowTimeArray:
+        values = np.arange(5000, dtype=np.int64) * 300
+        shape = values.shape
+        scalar_reads = 0
+        batches = []
+        active = 0
+        peak = 0
+        def __getitem__(self, item):
+            if not isinstance(item, slice):
+                self.scalar_reads += 1
+                return self.values[item]
+            with lock:
+                self.batches.append(item)
+                self.active += 1
+                self.peak = max(self.peak, self.active)
+            try:
+                time.sleep(.01)
+                return self.values[item]
+            finally:
+                with lock:
+                    self.active -= 1
+    array = SlowTimeArray()
+    monkeypatch.setattr(pixel, '_open_group', lambda path: {'time': array})
+    first, values = pixel._read_time_window_uncached('archive', 4000*300, 4288*300, lambda: False)
+    assert first == 4000 and values.tolist() == array.values[4000:4289].tolist()
+    assert array.scalar_reads <= 8
+    assert len(array.batches) == 10
+    assert 2 <= array.peak <= pixel._PIXEL_IO_WORKERS
+    assert all(item.stop-item.start <= pixel._PIXEL_READ_BATCH for item in array.batches)
+
+
+def test_time_lookup_is_shared_and_one_cancelled_client_does_not_cancel_another(monkeypatch):
+    entered, release, disconnected = Event(), Event(), Event()
+    class TimeArray:
+        values = np.arange(100, dtype=np.int64) * 300
+        shape = values.shape
+        slice_reads = 0
+        def __getitem__(self, item):
+            if isinstance(item, slice):
+                self.slice_reads += 1
+                entered.set()
+                assert release.wait(3)
+            return self.values[item]
+    array = TimeArray()
+    monkeypatch.setattr(pixel, '_open_group', lambda path: {'time': array})
+    def lookup(cancelled):
+        token = pixel._pixel_cancelled.set(cancelled)
+        try:
+            return pixel._read_time_window('shared-time', 300, 3000)
+        finally:
+            pixel._pixel_cancelled.reset(token)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        owner = executor.submit(lookup, disconnected.is_set)
+        assert entered.wait(3)
+        other = executor.submit(lookup, lambda: False)
+        try:
+            wait_until(lambda: any(len(f.consumers) == 2 for k,f in pixel._pixel_work.flights.items() if k[0] == 'time'))
+            disconnected.set()
+        finally:
+            release.set()
+        with pytest.raises(PixelCancelled):
+            owner.result(timeout=3)
+        first, values = other.result(timeout=3)
+    assert first == 1 and values.tolist() == array.values[1:11].tolist()
+    assert array.slice_reads == 1
+
+
+def test_time_lookup_cancellation_stops_before_pixel_data(monkeypatch):
+    frames, group = setup_frames(monkeypatch, count=96)
+    disconnected = Event()
+    class CancelTimeArray:
+        data = group['time']
+        shape = data.shape
+        def __getitem__(self, item):
+            if isinstance(item, slice):
+                disconnected.set()
+            return self.data[item]
+    group['time'] = CancelTimeArray()
+    with pytest.raises(PixelCancelled):
+        pixel._extract_store_frames('DBZH','archive',frames,0,0,disconnected.is_set)
+    assert group['DBZH'].reads == []
+    assert not pixel._pixel_response_cache
+
+
+def test_rolling_window_reuses_unchanged_batches_and_only_refreshes_corrections(monkeypatch):
+    frames, group = setup_frames(monkeypatch, count=97)
+    initial, _ = pixel._extract_store_frames('DBZH','archive',frames[:96],1,0)
+    assert len(group['DBZH'].reads) == 3
+    shifted, _ = pixel._extract_store_frames('DBZH','archive',frames[1:],1,0)
+    assert shifted[:-1] == initial[1:]
+    # Two interior batches are reused; only the partial edge batches are read.
+    assert len(group['DBZH'].reads) == 5
+    assert group['DBZH'].reads[-2:] == [(slice(1,32),slice(0,3),slice(0,5)), (slice(96,97),slice(0,3),slice(0,5))]
+    corrected = list(frames[1:])
+    corrected[63] = corrected[63].model_copy(update={'revision':'corrected'})
+    group['DBZH'].data[64,0,1] = 999
+    updated, _ = pixel._extract_store_frames('DBZH','archive',corrected,1,0)
+    assert updated[63]['value'] == 999 and updated[63]['revision'] == 'corrected'
+    assert len(group['DBZH'].reads) == 6
+    assert updated[:63] == shifted[:63] and updated[64:] == shifted[64:]
+
+
+@pytest.mark.parametrize("workers", [1, 2, 4])
+def test_data_batches_share_the_configured_worker_budget(monkeypatch, workers):
+    monkeypatch.setattr(pixel, "_PIXEL_IO_WORKERS", workers)
+    from threading import Lock
+    frames, _ = setup_frames(monkeypatch, count=96)
+    original = pixel._read_pixel_span
+    lock = Lock()
+    active = 0
+    peak = 0
+    def read(*args, **kwargs):
+        nonlocal active, peak
+        with lock:
+            active += 1
+            peak = max(peak, active)
+        try:
+            time.sleep(.02)
+            return original(*args, **kwargs)
+        finally:
+            with lock:
+                active -= 1
+    monkeypatch.setattr(pixel, '_read_pixel_span', read)
+    rows, _ = pixel._extract_store_frames('DBZH','archive',frames,1,0)
+    assert len(rows) == 96
+    assert peak == workers and active == 0
+
+
+def test_one_slot_serializes_distinct_points_and_reuses_nearby_blocks(monkeypatch):
+    frames, group = setup_frames(monkeypatch)
+    entered, release = Event(), Event()
+    def slow_read():
+        entered.set()
+        assert release.wait(3)
+    group['DBZH'].hook = slow_read
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        owner = executor.submit(pixel._extract_store_frames, 'DBZH', 'archive', frames, 0, 0)
+        assert entered.wait(3)
+        other = executor.submit(pixel._extract_store_frames, 'DBZH', 'archive', frames, 1, 0)
+        try:
+            wait_until(lambda: len(pixel._pixel_slots.queue) == 1)
+            assert pixel._pixel_slots.available == 0
+            assert len(group['DBZH'].reads) == 1
+        finally:
+            release.set()
+        first_rows, _ = owner.result(timeout=3)
+        other_rows, _ = other.result(timeout=3)
+    assert first_rows[0]['value'] == 10
+    assert other_rows[0]['value'] == 11
+    assert len(group['DBZH'].reads) == 1
+
+
+def test_same_cell_waiter_joins_without_an_extra_slot(monkeypatch):
+    frames, group = setup_frames(monkeypatch)
+    entered, release, disconnected = Event(), Event(), Event()
+    def slow_read():
+        entered.set()
+        assert release.wait(3)
+    group['DBZH'].hook = slow_read
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        owner = executor.submit(pixel._extract_store_frames, 'DBZH', 'archive', frames, 0, 0, disconnected.is_set)
+        assert entered.wait(3)
+        waiter = executor.submit(pixel._extract_store_frames, 'DBZH', 'archive', frames, .1, 0)
+        try:
+            wait_until(lambda: any(len(f.consumers) == 2 for k,f in pixel._pixel_work.flights.items() if k[0] == 'cell'))
+            assert not pixel._pixel_slots.queue
+            disconnected.set()
+        finally:
+            release.set()
+        with pytest.raises(PixelCancelled):
+            owner.result(timeout=3)
+        rows, _ = waiter.result(timeout=3)
+    assert rows[0]['value'] == 10
+    assert len(group['DBZH'].reads) == 1
+
+
+def test_cancelled_queued_point_never_starts_data_reads(monkeypatch):
+    frames, group = setup_frames(monkeypatch)
+    slots = pixel._pixel_slots
+    slots.acquire(lambda: False)
+    disconnected = Event()
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(pixel._extract_store_frames, 'DBZH', 'archive', frames, 0, 0, disconnected.is_set)
+            wait_until(lambda: len(slots.queue) == 1)
+            disconnected.set()
+            with pytest.raises(PixelCancelled):
+                future.result(timeout=3)
+        assert group['DBZH'].reads == []
+        assert not pixel._pixel_response_cache
+    finally:
+        slots.release()
+
+
+def test_cache_hit_bypasses_full_extraction_queue(monkeypatch):
+    frames, _ = setup_frames(monkeypatch)
+    expected = pixel._extract_store_frames('DBZH', 'archive', frames, 0, 0)
+    monkeypatch.setattr(pixel, '_pixel_slots', PixelSlots(1, 0, 0))
+    pixel._pixel_slots.acquire(lambda: False)
+    try:
+        assert pixel._extract_store_frames('DBZH', 'archive', frames, 0, 0) == expected
+    finally:
+        pixel._pixel_slots.release()
+
+
+def test_read_failure_releases_slot_and_allows_retry(monkeypatch):
+    frames, group = setup_frames(monkeypatch)
+    def fail():
+        raise OSError('temporary read failure')
+    group['DBZH'].hook = fail
+    with pytest.raises(OSError, match='temporary read failure'):
+        pixel._extract_store_frames('DBZH', 'archive', frames, 0, 0)
+    assert pixel._pixel_slots.available == 1
+    assert not pixel._pixel_response_cache
+    group['DBZH'].hook = None
+    rows, _ = pixel._extract_store_frames('DBZH', 'archive', frames, 0, 0)
+    assert rows[0]['value'] == 10
+
+
+@pytest.mark.parametrize('csv', [False, True])
+def test_busy_point_endpoints_return_retryable_503(monkeypatch, csv):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    frames, group = setup_frames(monkeypatch)
+    monkeypatch.setattr(pixel, 'cataloged_frames_between', lambda *args: frames)
+    monkeypatch.setattr(pixel, '_pixel_slots', PixelSlots(1, 0, 0))
+    app = FastAPI()
+    app.include_router(pixel.router, prefix='/api/pixel')
+    pixel._pixel_slots.acquire(lambda: False)
+    try:
+        with TestClient(app) as client:
+            response = client.get('/api/pixel' + ('/csv' if csv else ''), params={
+                'product': 'DBZH', 'lon': 0, 'lat': 0,
+                'start': frames[0].nominal_time, 'end': frames[-1].nominal_time,
+            })
+        assert response.status_code == 503
+        assert response.headers['Retry-After'] == '2'
+        assert group['DBZH'].reads == []
+        assert not pixel._pixel_response_cache
+    finally:
+        pixel._pixel_slots.release()

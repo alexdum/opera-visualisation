@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from threading import Event, RLock
+from threading import Condition, Event, RLock
 import time
 from typing import Any, TypeVar
 
@@ -19,6 +19,54 @@ class PixelCancelled(Exception):
 def check_cancelled(cancelled: Callable[[], bool]) -> None:
     if cancelled():
         raise PixelCancelled()
+
+
+class PixelBusy(Exception):
+    """The extraction queue is full or its bounded wait has expired."""
+
+
+class PixelSlots:
+    """FIFO admission for heavy point reads, shared by all queries in a process."""
+
+    def __init__(self, capacity: int, max_waiting: int, wait_seconds: float) -> None:
+        self.capacity = max(1, capacity)
+        self.available = self.capacity
+        self.max_waiting = max(0, max_waiting)
+        self.wait_seconds = max(0.0, wait_seconds)
+        self.condition = Condition()
+        self.queue: deque[object] = deque()
+
+    def acquire(self, cancelled: Callable[[], bool]) -> None:
+        with self.condition:
+            check_cancelled(cancelled)
+            if self.available and not self.queue:
+                self.available -= 1
+                return
+            if len(self.queue) >= self.max_waiting:
+                raise PixelBusy()
+            ticket = object()
+            self.queue.append(ticket)
+            deadline = time.monotonic() + self.wait_seconds
+            try:
+                while True:
+                    check_cancelled(cancelled)
+                    if self.available and self.queue[0] is ticket:
+                        self.available -= 1
+                        return
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise PixelBusy()
+                    self.condition.wait(min(0.05, remaining))
+            finally:
+                self.queue.remove(ticket)
+                self.condition.notify_all()
+
+    def release(self) -> None:
+        with self.condition:
+            if self.available >= self.capacity:
+                raise ValueError("Pixel slot released without acquisition")
+            self.available += 1
+            self.condition.notify_all()
 
 
 @dataclass

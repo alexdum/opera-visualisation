@@ -394,6 +394,33 @@ When generating or downsampling meteorological radar data (like DBZH reflectivit
 
 ### Pixel-analysis semantics
 
+- Cold DBZH latency varies significantly with storage warmth: live full-day
+  tests on 2026-10-17 exceeded 70 seconds, while a subsequent 289-frame query
+  after shorter windows warmed archive reads completed in 5.5 seconds. These
+  are different cache conditions, not evidence that the cold-read issue is
+  resolved. Profile deployed `Server-Timing` phases and slow-request logs;
+  distinguish controlled local benchmarks from production latency.
+- Timestamp lookup may use bounded interpolation probes before binary search,
+  but MUST compare actual epochs and retain exact-match/duplicate checks.
+  Never derive an observation's index solely from assumed cadence. Share
+  concurrent time-window lookups and preserve connected consumers on cancellation.
+- Timestamp and array/time-batch I/O default to two workers per stage through
+  `PIXEL_IO_WORKERS` (clamped to 1–4). Share heavy-extraction admission across
+  products and JSON/CSV endpoints: `PIXEL_EXTRACTION_CONCURRENCY=1`, queue size
+  eight and wait 15 seconds by default. Admit the shared cell owner only; cache
+  hits and same-cell waiters must not consume slots. Bound FIFO queueing, return
+  retryable `503` with `Retry-After` on overload, remove cancelled waiters and
+  release capacity on every exit. Metadata/catalog lookups remain outside the
+  heavy-read slot. These are process-local limits, multiplied by worker/replica
+  counts; Zarr's internal chunk concurrency is separate. Do not increase
+  process-wide Zarr concurrency to improve one endpoint or claim CPU reservation.
+  Compare two/four workers on the deployed 2-vCPU Space during map playback,
+  including cold/warm conditions, before claiming production latency gains.
+  Align time batches to stable absolute index boundaries and key cached data by
+  the revisions/metadata of the frames in each batch. Rolling-window advances
+  and corrections must preserve unchanged interior batches while invalidating
+  changed edge batches and corrected frames. Test gaps, irregular timestamps,
+  duplicate/missing epochs, appends, and corrections.
 - Skip GeoZarr `time_bnds` reads when catalog interval metadata is complete.
   If some frames lack start/end fields, read only those rows and fill only the
   missing fields. Preserve catalog intervals exactly, including zero-length
